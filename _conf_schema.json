@@ -81,7 +81,7 @@
       "artist_presets": {
         "description": "画师预设列表",
         "type": "list",
-        "hint": "用于保存画师预设。输入 /nai 预设名 可切换；输入 /nai 预设名 提示词 可临时调用；/画师画廊 可查看预设图",
+        "hint": "用于保存画师预设。输入 /nai 预设名 可切换；输入 /nai 预设名 提示词 或 /nai [预设名] 提示词 可临时调用；/画师画廊 可查看预设图",
         "items": {
           "type": "string",
           "description": "预设名:画师提示词"

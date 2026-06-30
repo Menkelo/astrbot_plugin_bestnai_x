@@ -573,11 +573,65 @@ class BestNAIPlugin(Star):
             return text, "", ""
 
         names = sorted(presets.keys(), key=len, reverse=True)
+        artist_prefix_words = ("画师预设", "画师", "预设", "artist", "preset")
+        artist_name_separator = r"^[\s,，、;；:：|｜/／\\\-—=＝]+"
+
+        def strip_artist_prefix(value: str) -> str:
+            value = (value or "").strip()
+
+            for prefix in artist_prefix_words:
+                if value.lower() == prefix.lower():
+                    return ""
+
+                pattern = (
+                    rf"^{re.escape(prefix)}"
+                    rf"(?:[\s:：=＝]+|$)"
+                )
+                value = re.sub(
+                    pattern,
+                    "",
+                    value,
+                    count=1,
+                    flags=re.IGNORECASE,
+                ).strip()
+
+            return value
+
+        def consume_artist_name(value: str) -> Tuple[str, str, str]:
+            value = strip_artist_prefix(value)
+
+            if not value:
+                return "", "", ""
+
+            lower_value = value.lower()
+
+            for name in names:
+                name_lower = name.lower()
+
+                if lower_value == name_lower:
+                    return "", presets[name], name
+
+                if lower_value.startswith(name_lower):
+                    rest = value[len(name):]
+
+                    if not rest:
+                        return "", presets[name], name
+
+                    if re.match(artist_name_separator, rest):
+                        rest = re.sub(
+                            artist_name_separator,
+                            "",
+                            rest,
+                            count=1,
+                        )
+                        return self._cleanup_prompt_text(rest), presets[name], name
+
+            return value, "", ""
 
         bracket_pattern = r"[\[【]([^\]】]+)[\]】]"
 
         for m in re.finditer(bracket_pattern, text):
-            candidate = m.group(1).strip()
+            candidate = strip_artist_prefix(m.group(1).strip())
 
             for name in names:
                 if candidate.lower() == name.lower():
@@ -585,23 +639,10 @@ class BestNAIPlugin(Star):
                     text = text[: m.start()] + " " + text[m.end():]
                     return self._cleanup_prompt_text(text), artist_prompt, name
 
-        lower_text = text.lower()
+        remaining, artist_prompt, artist_name = consume_artist_name(text)
 
-        for name in names:
-            name_lower = name.lower()
-
-            if lower_text == name_lower:
-                return "", presets[name], name
-
-            if lower_text.startswith(name_lower):
-                rest = text[len(name):]
-
-                if not rest:
-                    return "", presets[name], name
-
-                if re.match(r"^[\s,，;；:：]+", rest):
-                    rest = re.sub(r"^[\s,，;；:：]+", "", rest, count=1)
-                    return self._cleanup_prompt_text(rest), presets[name], name
+        if artist_prompt:
+            return remaining, artist_prompt, artist_name
 
         return text, "", ""
 
