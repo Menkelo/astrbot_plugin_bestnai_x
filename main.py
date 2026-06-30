@@ -850,6 +850,7 @@ class BestNAIPlugin(Star):
                 gen_config = replace(
                     gen_config,
                     negative_prompt="",
+                    uc_preset="",
                     quality=False,
                 )
 

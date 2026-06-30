@@ -92,14 +92,18 @@ class GenerationConfig:
             "steps": 28,
             "scale": 7.0,
             "sampler": self.sampler,
-            "negative_prompt": self.negative_prompt,
             "quality": quality_value,
-            "uc_preset": self.uc_preset,
             "noise_schedule": self.noise_schedule,
             "image_format": self.image_format,
             "n_samples": 1,
             "response_format": "b64_json",
         }
+
+        if self.negative_prompt:
+            params["negative_prompt"] = self.negative_prompt
+
+        if self.uc_preset:
+            params["uc_preset"] = self.uc_preset
 
         if self.cfg_rescale != 0.0:
             params["cfg_rescale"] = self.cfg_rescale

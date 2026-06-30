@@ -147,13 +147,17 @@ class ImageGenerator:
             "steps": int(gen_config.steps),
             "scale": float(gen_config.scale),
             "sampler": gen_config.sampler,
-            "negative_prompt": gen_config.negative_prompt,
-            "uc_preset": gen_config.uc_preset,
             "noise_schedule": gen_config.noise_schedule,
             "image_format": gen_config.image_format,
             "n_samples": 1,
             "seed": seed
         }
+
+        if gen_config.negative_prompt:
+            user_payload["negative_prompt"] = gen_config.negative_prompt
+
+        if gen_config.uc_preset:
+            user_payload["uc_preset"] = gen_config.uc_preset
 
         payload = {
             "model": gen_config.model,
