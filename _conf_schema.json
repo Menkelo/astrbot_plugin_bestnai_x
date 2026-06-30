@@ -1,0 +1,192 @@
+{
+  "api_config": {
+    "description": "BestNAI 生图接口配置",
+    "type": "object",
+    "items": {
+      "prefer_provider": {
+        "description": "优先使用提供商",
+        "type": "bool",
+        "hint": "开启时生图使用下方选择的 AstrBot 提供商；关闭时生图使用手动 API。默认开启",
+        "default": true
+      },
+      "provider_id": {
+        "description": "生图接口提供商",
+        "hint": "选择 AstrBot 系统提供商。仅当“优先使用提供商”开启时生效",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider"
+      },
+      "api_url": {
+        "description": "手动生图 API 地址",
+        "type": "string",
+        "hint": "仅用于生图模块。填写兼容 OpenAI 格式的 API Base，例如：https://example.com/v1。关闭“优先使用提供商”后生效。该生图服务需要支持 /chat/completions",
+        "default": ""
+      },
+      "api_key": {
+        "description": "手动生图 API Key",
+        "type": "string",
+        "hint": "仅用于生图模块。关闭“优先使用提供商”后，需要和上方手动生图 API 地址同时填写才会生效",
+        "default": ""
+      }
+    }
+  },
+  "generation_config": {
+    "description": "生图参数",
+    "type": "object",
+    "items": {
+      "sampler": {
+        "description": "采样器",
+        "type": "string",
+        "hint": "k_euler_ancestral：推荐默认，随机性较强，二次元效果稳定；k_euler：更稳定干净，随机性较低；k_dpmpp_2s_ancestral：细节和质感较好，随机性较强，但部分代理可能不支持",
+        "default": "k_euler_ancestral",
+        "options": [
+          "k_euler_ancestral",
+          "k_euler",
+          "k_dpmpp_2s_ancestral"
+        ]
+      },
+      "default_ratio": {
+        "description": "默认比例",
+        "type": "string",
+        "hint": "当提示词未指定比例时使用。提示词中可写：16:9 / 9:16 / 4:3 / 3:4 / 3:2 / 2:3 / 1:1，也可写横屏、竖屏、方图",
+        "default": "2:3 (832×1216)",
+        "options": [
+          "16:9 (1216×704)",
+          "9:16 (704×1216)",
+          "4:3 (1024×768)",
+          "3:4 (768×1024)",
+          "3:2 (1216×832)",
+          "2:3 (832×1216)",
+          "1:1 (1024×1024)"
+        ]
+      }
+    }
+  },
+  "prompt_config": {
+    "description": "提示词拼接配置",
+    "type": "object",
+    "items": {
+      "quality_prompt": {
+        "description": "质量提示词",
+        "type": "string",
+        "hint": "自动追加到最终正面提示词末尾，留空则不追加。最终发送前会自动清理非 ASCII 字符",
+        "default": "best quality, amazing quality, very aesthetic, absurdres"
+      },
+      "negative_prompt": {
+        "description": "负面提示词",
+        "type": "string",
+        "hint": "全局生效的负面提示词。插件会在代码中固定追加 QQ 安全负面词。最终发送前会自动清理非 ASCII 字符",
+        "default": "lowres, bad anatomy, bad hands, text, error, missing fingers"
+      },
+      "artist_presets": {
+        "description": "画师预设列表",
+        "type": "list",
+        "hint": "用于保存画师预设。输入 /nai 预设名 可切换；输入 /nai 预设名 提示词 可临时调用；/画师画廊 可查看预设图",
+        "items": {
+          "type": "string",
+          "description": "预设名:画师提示词"
+        },
+        "default": [
+          "可爱:artist:ciloranko , [artist:sho_(sho_lwlw)], [[artist:tianliang_duohe_fangdongye]],[[[[[[artist:kani_biimu]]]]]]",
+          "幼态:artist: ciloranko, [artist: tianliang duohe fangdongye], [artist: sho_(sho_lwlw)], [artist: baku-p], [artist:tsubasa_tsubasa], [[artist:as109]], [[artist:rhasta]]",
+          "水彩:{hokori sakuni}, {ciloranko}, {ke-ta}, {houkisei},{kedama milk}",
+          "海报:artist:ciloranko, {artist:menthako}, {artist:tianliang duohe fangdongye}, [artist:sho (sho lwlw)], [artist:baku-p], [[[artist:tsubasa tsubasa]]], artist: kemo camotli",
+          "鲜艳色彩:[artist:ningen_mame], {{{ciloranko}}}, [artist:sho_(sho_lwlw)], [[artist:rhasta]], [artist:wlop], [artist:ke-ta]"
+        ]
+      }
+    }
+  },
+  "translator_config": {
+    "description": "中文提示词翻译配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用中文转提示词",
+        "type": "bool",
+        "hint": "开启后 /nai 中文描述会自动调用翻译器转为英文 Danbooru tag",
+        "default": false
+      },
+      "provider_id": {
+        "description": "翻译接口提供商",
+        "hint": "选择 AstrBot 系统提供商。翻译不使用手动生图 API",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider"
+      }
+    }
+  },
+  "image_retag_config": {
+    "description": "图片反推提示词配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用图片反推提示词",
+        "type": "bool",
+        "hint": "开启后，/nai 引用图片或附带图片时，会先调用视觉模型把图片反推为 NovelAI / Danbooru tags，再进行生图",
+        "default": false
+      },
+      "provider_id": {
+        "description": "图片反推接口提供商",
+        "hint": "选择支持视觉输入的 AstrBot 系统提供商。用于把图片转换为 NovelAI 绘图提示词 tags",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider"
+      },
+      "show_result": {
+        "description": "显示反推结果",
+        "type": "bool",
+        "hint": "开启后会在生图前发送反推得到的 tags，便于调试",
+        "default": false
+      }
+    }
+  },
+  "safety_config": {
+    "description": "QQ 防封安全审核配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用发送前图片安全审核",
+        "type": "bool",
+        "default": true,
+        "hint": "强烈建议 QQ 机器人开启。开启后生成图片会先审核，安全才发送；审核接口报错时会放行"
+      },
+      "provider_id": {
+        "description": "视觉审核提供商",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider",
+        "hint": "选择支持视觉输入的提供商。审核不使用手动生图 API"
+      },
+      "prompt_block_enabled": {
+        "description": "启用提示词敏感词过滤",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成"
+      },
+      "unsafe_reply": {
+        "description": "图片审核不通过回复",
+        "type": "string",
+        "default": "⚠️ 未能通过安全检测，已拦截",
+        "hint": "生成后的图片审核不通过时回复这句话"
+      }
+    }
+  },
+  "danbooru_config": {
+    "description": "Danbooru Tag 检索配置",
+    "type": "object",
+    "items": {
+      "tag_search": {
+        "description": "翻译时启用 Danbooru Tag 检索",
+        "type": "bool",
+        "hint": "开启后翻译中文提示词时会先检索 Danbooru 候选 tag 注入给 LLM。不是必需项",
+        "default": false
+      },
+      "api_url": {
+        "description": "Danbooru API 地址",
+        "type": "string",
+        "hint": "DanbooruSearchOnline API 地址。留空则跳过检索。格式：http://host:port",
+        "default": ""
+      }
+    }
+  }
+}
