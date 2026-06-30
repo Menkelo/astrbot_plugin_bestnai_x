@@ -849,8 +849,6 @@ class BestNAIPlugin(Star):
             if raw_mode:
                 gen_config = replace(
                     gen_config,
-                    negative_prompt="",
-                    uc_preset="",
                     quality=False,
                 )
 
@@ -1096,7 +1094,7 @@ class BestNAIPlugin(Star):
             if raw_mode:
                 yield event.plain_result(
                     "❌ 请提供提示词，例如：/nai0 cat\n"
-                    "nai0 不会追加画师串、质量提示词和负面提示词。"
+                    "nai0 不会追加画师串和质量提示词，但仍会沿用负面提示词。"
                 )
             else:
                 yield event.plain_result(
@@ -1120,7 +1118,7 @@ class BestNAIPlugin(Star):
 
     @filter.command("nai0")
     async def cmd_nai0(self, event: AstrMessageEvent) -> AsyncGenerator:
-        """NAI 原始提示词生图。不会追加画师串、质量提示词和负面提示词。"""
+        """NAI 原始提示词生图。不会追加画师串和质量提示词，但仍沿用负面提示词。"""
         async for result in self._handle_nai_command(event, raw_mode=True):
             yield result
 
