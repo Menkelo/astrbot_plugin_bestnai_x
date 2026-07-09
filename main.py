@@ -1177,6 +1177,54 @@ class BestNAIPlugin(Star):
         async for r in send_image_best_effort(event, result):
             yield r
 
+    @filter.command("查看画师")
+    async def cmd_view_artist_preset(self, event: AstrMessageEvent) -> AsyncGenerator:
+        """查看指定画师预设的画师串和预览图。用法：/查看画师 预设名。"""
+        raw = (event.message_str or "").strip()
+
+        preset_name = re.sub(
+            r"^\s*[\/／]?查看画师",
+            "",
+            raw,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        preset_name = self._normalize_artist_switch_name(preset_name)
+
+        if not preset_name:
+            yield event.plain_result("❌ 请提供画师预设名，例如：/查看画师 可爱")
+            return
+
+        real_key, artist_prompt = self._find_artist_slot(preset_name)
+
+        if not real_key:
+            available = "、".join(self.plugin_config.get_artist_presets_map().keys())
+            if available:
+                yield event.plain_result(f"❌ 找不到画师预设：{preset_name}\n可用预设：{available}")
+            else:
+                yield event.plain_result("❌ 当前没有配置画师预设")
+            return
+
+        preview_path = self.artist_gallery.get_preview_path(real_key)
+
+        if preview_path:
+            yield event.plain_result(
+                f"🎨 画师预设：{real_key}\n"
+                f"画师串：\n{artist_prompt}"
+            )
+
+            async for r in send_image_best_effort(event, preview_path):
+                yield r
+
+            return
+
+        yield event.plain_result(
+            f"🎨 画师预设：{real_key}\n"
+            f"画师串：\n{artist_prompt}\n\n"
+            f"🖼️ 暂未设置预览图，可发送或回复图片后使用：/设置画师 {real_key}"
+        )
+
     @filter.command("设置画师")
     async def cmd_set_artist_gallery_image(self, event: AstrMessageEvent) -> AsyncGenerator:
         """设置画师预设画廊预览图。用法：发送或回复图片并输入 /设置画师 预设名。"""

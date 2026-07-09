@@ -142,6 +142,22 @@ class ArtistGalleryService:
 
         return self.save_preview_map()
 
+    def get_preview_path(self, real_key: str) -> str:
+        if not real_key:
+            return ""
+
+        preview = (self.artist_preview_map.get(real_key, "") or "").strip()
+
+        if not preview:
+            return ""
+
+        path = preview[7:] if preview.lower().startswith("file://") else preview
+
+        if os.path.exists(path):
+            return preview
+
+        return ""
+
     def build_or_get_gallery(self, presets: Dict[str, str]) -> Tuple[bool, str]:
         """
         Returns:
