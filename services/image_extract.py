@@ -133,6 +133,49 @@ def _extract_image_from_image_dict(data: Dict[str, Any]) -> str:
     return ""
 
 
+def _extract_image_from_object(obj: Any) -> str:
+    """从非 dict 对象（如 Image/Reply 组件）中提取图片引用。"""
+    if obj is None:
+        return ""
+
+    type_name = str(getattr(obj, "type", "") or "").lower()
+
+    for attr in ("url", "file_url", "image_url"):
+        val = getattr(obj, attr, None)
+        if isinstance(val, str) and val.strip():
+            img = val.strip().replace("%2C", ",")
+            if img and _is_probably_usable_image_ref(img):
+                return img
+
+    if type_name in ("image", "reply", "quote"):
+        data = getattr(obj, "data", None)
+        if data is not None:
+            got = find_image_in_segments(data)
+            if got:
+                return got
+
+    for chain_attr in ("message_chain", "messages", "message"):
+        chain = getattr(obj, chain_attr, None)
+        if chain is not None:
+            got = find_image_in_segments(chain)
+            if got:
+                return got
+
+    path_val = getattr(obj, "path", None) or getattr(obj, "file", None)
+    if isinstance(path_val, str):
+        img = path_val.strip().replace("%2C", ",")
+        if img and _is_probably_usable_image_ref(img):
+            return img
+
+    try:
+        obj_dict = vars(obj)
+        return find_image_in_segments(obj_dict)
+    except (TypeError, Exception):
+        pass
+
+    return ""
+
+
 def find_image_in_segments(obj: Any) -> str:
     if obj is None:
         return ""
@@ -149,13 +192,23 @@ def find_image_in_segments(obj: Any) -> str:
                 if img:
                     return img
 
-            # 有些结构 image 字段直接在 obj 上
             img = _extract_image_from_image_dict(obj)
 
             if img:
                 return img
 
-        # 即使不是 type=image，也可能有嵌套 image/url
+        if t in ("reply", "quote"):
+            data = obj.get("data", {})
+
+            if isinstance(data, dict):
+                nested_chain = data.get("message_chain") or data.get("message") or data.get("messages")
+
+                if nested_chain:
+                    got = find_image_in_segments(nested_chain)
+
+                    if got:
+                        return got
+
         for key in ("url", "file_url", "image_url", "path", "file"):
             val = obj.get(key)
 
@@ -163,7 +216,6 @@ def find_image_in_segments(obj: Any) -> str:
                 img = val.strip().replace("%2C", ",")
 
                 if img and _is_probably_usable_image_ref(img):
-                    # 避免把普通文本 file 字段误判
                     if key in ("url", "file_url", "image_url") or t == "image":
                         return img
 
@@ -184,7 +236,7 @@ def find_image_in_segments(obj: Any) -> str:
 
         return ""
 
-    return ""
+    return _extract_image_from_object(obj)
 
 
 def extract_image_from_event_best_effort(event) -> str:
