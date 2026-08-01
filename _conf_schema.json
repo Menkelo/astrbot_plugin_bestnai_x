@@ -69,19 +69,19 @@
       "quality_prompt": {
         "description": "质量提示词",
         "type": "string",
-        "hint": "自动追加到最终正面提示词末尾，留空则不追加。最终发送前会自动清理非 ASCII 字符",
+        "hint": "自动追加到最终正面提示词末尾，留空则不追加。",
         "default": "best quality, amazing quality, very aesthetic, absurdres"
       },
       "negative_prompt": {
         "description": "负面提示词",
         "type": "string",
-        "hint": "全局生效的负面提示词。插件会在代码中固定追加 QQ 安全负面词。最终发送前会自动清理非 ASCII 字符",
+        "hint": "全局生效的负面提示词，插件会在代码中固定追加 QQ 安全负面词。",
         "default": "lowres, bad anatomy, bad hands, text, error, missing fingers"
       },
       "artist_presets": {
         "description": "画师预设列表",
         "type": "list",
-        "hint": "用于保存画师预设。输入 /nai 预设名 可切换；输入 /nai 预设名 提示词 或 /nai [预设名] 提示词 可临时调用；/查看画师 预设名 可查看画师串与预览图；/画师画廊 可查看预设图",
+        "hint": "预设名:画师提示词。输入 /nai 预设名 可切换预设；输入 /nai 预设名 提示词 可临时调用。",
         "items": {
           "type": "string",
           "description": "预设名:画师提示词"
@@ -154,14 +154,14 @@
         "description": "启用发送前图片安全审核",
         "type": "bool",
         "default": true,
-        "hint": "强烈建议 QQ 机器人开启。开启后生成图片会先审核，安全才发送；审核接口报错时会放行"
+        "hint": "开启后生成图片会先审核，安全才发送，审核接口报错时会放行。"
       },
       "provider_id": {
         "description": "视觉审核提供商",
         "type": "string",
         "default": "",
         "_special": "select_provider",
-        "hint": "选择支持视觉输入的提供商。审核不使用手动生图 API"
+        "hint": "选择支持视觉输入的提供商。"
       },
       "prompt_block_enabled": {
         "description": "启用提示词敏感词过滤",
