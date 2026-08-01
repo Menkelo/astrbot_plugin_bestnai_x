@@ -859,6 +859,36 @@ class BestNAIPlugin(Star):
                 self._extract_artist_slot_from_prompt(clean_prompt)
             )
 
+        effective_artist_prompt = ""
+        artist_ratio_adopted = False
+
+        if not raw_mode:
+            artist_prompt = self._get_effective_artist_prompt(artist_prompt_override)
+
+            if (
+                artist_prompt
+                and not prompt_has_explicit_ratio(
+                    prompt,
+                    self._short_ratio_aliases(),
+                    self.ratio_presets,
+                    self._normalize_ratio_label,
+                )
+                and prompt_has_explicit_ratio(
+                    artist_prompt,
+                    self._short_ratio_aliases(),
+                    self.ratio_presets,
+                    self._normalize_ratio_label,
+                )
+            ):
+                effective_artist_prompt, ratio_name = self._extract_ratio_from_prompt(
+                    artist_prompt
+                )
+                artist_ratio_adopted = True
+
+                logger.info(
+                    f"[BestNAI] 用户未指定比例，从画师提示词提取比例：{ratio_name}"
+                )
+
         logger.info(
             f"[BestNAI] 解析后 prompt='{clean_prompt}', ratio='{ratio_name}', "
             f"artist_slot='{artist_slot_name}', runtime_artist='{self.runtime_artist_slot_name}', "
@@ -982,7 +1012,11 @@ class BestNAIPlugin(Star):
                 )
 
         else:
-            artist_prompt = self._get_effective_artist_prompt(artist_prompt_override)
+            artist_prompt = (
+                effective_artist_prompt
+                if artist_ratio_adopted
+                else self._get_effective_artist_prompt(artist_prompt_override)
+            )
 
             final_prompt = self.prompt_builder.build_final_prompt(
                 final_prompt,
