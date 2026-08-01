@@ -4,7 +4,7 @@ BestNAI 插件特异版（`astrbot_plugin_bestnai_x`）：通过兼容 OpenAI �
 
 本插件为 [astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai) 原版插件的特异版。
 
-本插件与普通版的不同点：
+与原版的不同点：
 
 - 固定使用 `nai-diffusion-4-5-full` 模型，不支持 3 / 4 等历史版本切换。
 - 生图接口优先走 `/images/generations`，不可用时自动回退到 `/chat/completions`。
