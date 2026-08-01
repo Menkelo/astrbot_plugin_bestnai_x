@@ -1,5 +1,6 @@
 name: astrbot_plugin_bestnai_x
+display_name: NAI Diffusion X
 desc: BestNAI 特异版，仅支持 nai-diffusion-4-5-full
-version: 2.2.1-special-45
-author: 存在酱&Menkelo
+version: 2.3.10
+author: Menkelo
 repo: https://github.com/Menkelo/astrbot_plugin_bestnai_x
