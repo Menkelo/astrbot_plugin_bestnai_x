@@ -902,6 +902,23 @@ class BestNAIPlugin(Star):
             logger.warning(f"[BestNAI] 解析比例失败 ratio={ratio_name}: {e}")
             return
 
+        ratio_display = self._display_ratio_label(
+            ratio_name,
+            gen_config.width,
+            gen_config.height,
+        )
+
+        if raw_mode:
+            yield event.plain_result(
+                f"🎨 正在生图（{ratio_display} | nai0 原始提示词模式）..."
+            )
+        else:
+            artist_display = self._get_artist_display_name(artist_slot_name)
+
+            yield event.plain_result(
+                f"🎨 正在生图（{ratio_display} | 画师预设：{artist_display}）..."
+            )
+
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
 
@@ -976,23 +993,6 @@ class BestNAIPlugin(Star):
         if not final_prompt:
             yield event.plain_result("❌ 提示词清理后为空，请输入英文提示词或开启中文翻译")
             return
-
-        ratio_display = self._display_ratio_label(
-            ratio_name,
-            gen_config.width,
-            gen_config.height,
-        )
-
-        if raw_mode:
-            yield event.plain_result(
-                f"🎨 正在生图（{ratio_display} | nai0 原始提示词模式）..."
-            )
-        else:
-            artist_display = self._get_artist_display_name(artist_slot_name)
-
-            yield event.plain_result(
-                f"🎨 正在生图（{ratio_display} | 画师预设：{artist_display}）..."
-            )
 
         try:
             images = await self.generator.generate(final_prompt, gen_config)
