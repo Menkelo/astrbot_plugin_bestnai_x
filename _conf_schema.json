@@ -63,7 +63,7 @@
       "max_concurrency": {
         "description": "生图并发限制",
         "type": "int",
-        "hint": "同一时刻最多同时进行的生图任务数，超过时新的生图请求会排队等待。",
+        "hint": "同一时刻最多同时进行的生图任务数，超过设定值新的请求会排队等待",
         "default": 1,
         "slider": {
         "min": 1,
