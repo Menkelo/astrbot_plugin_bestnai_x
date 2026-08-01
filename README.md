@@ -56,6 +56,7 @@ pip install aiohttp pillow
 | `provider_id` | string | 空 | 生图接口提供商，需在 AstrBot 中选择。仅当"优先使用提供商"开启时生效 |
 | `api_url` | string | 空 | 手动生图 API 地址。填写兼容 OpenAI 格式的 API Base，例如 `https://example.com/v1`。关闭"优先使用提供商"后生效，该服务需支持 `/chat/completions` |
 | `api_key` | string | 空 | 手动生图 API Key。关闭"优先使用提供商"后，需与 `api_url` 同时填写才生效 |
+| `max_concurrency` | int | `1` | 生图并发限制。同一时刻最多同时进行的生图任务数，超出时新的生图请求会排队等待。默认 1（串行） |
 
 > **生图接口二选一**：要么开启"优先使用提供商"并选择提供商，要么关闭后同时填写 `api_url` + `api_key`。两者都未配置时，`/nai` 会提示"插件未配置"。
 

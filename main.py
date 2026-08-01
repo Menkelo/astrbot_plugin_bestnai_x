@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from dataclasses import replace
@@ -101,6 +102,10 @@ class BestNAIPlugin(Star):
             context=self.context,
         )
 
+        self._generation_semaphore = asyncio.Semaphore(
+            self.plugin_config.max_concurrency
+        )
+
         self.ratio_presets = self._load_ratio_presets()
         self.default_ratio = self._load_default_ratio()
 
@@ -127,6 +132,7 @@ class BestNAIPlugin(Star):
             "[BestNAI] 已加载，"
             f"生图接口={api_source}，"
             f"API URL={self.plugin_config.api_url or '(未配置)'}，"
+            f"生图并发上限={self.plugin_config.max_concurrency}，"
             f"安全审核={'开启' if self.plugin_config.safety.enabled else '关闭'}，"
             f"审核提供商={self.plugin_config.safety.provider_id or '(未选择)'}，"
             f"图片反推={'开启' if self.plugin_config.image_retag.enabled else '关闭'}，"
@@ -1029,7 +1035,13 @@ class BestNAIPlugin(Star):
             return
 
         try:
-            images = await self.generator.generate(final_prompt, gen_config)
+            if self._generation_semaphore.locked():
+                yield event.plain_result(
+                    f"⏳ 当前生图任务排队中（并发上限 {self.plugin_config.max_concurrency}），请稍候..."
+                )
+
+            async with self._generation_semaphore:
+                images = await self.generator.generate(final_prompt, gen_config)
 
             safe_images: List[Tuple[str, bytes]] = []
 

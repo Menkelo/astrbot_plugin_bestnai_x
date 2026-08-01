@@ -175,6 +175,7 @@ class PluginConfig:
     api_url: str = ""
     api_key: str = ""
     use_manual_api: bool = False
+    max_concurrency: int = 1
 
     user_cooldown: int = 0
     save_images: bool = False
@@ -213,6 +214,14 @@ class PluginConfig:
         image_retag_conf = config.get("image_retag_config", {}) or {}
 
         prefer_provider = bool(api_conf.get("prefer_provider", True))
+
+        try:
+            max_concurrency = int(api_conf.get("max_concurrency", 1) or 1)
+        except (TypeError, ValueError):
+            max_concurrency = 1
+
+        if max_concurrency < 1:
+            max_concurrency = 1
 
         image_provider_id = (
             _extract_provider_id(api_conf.get("provider_id"))
@@ -262,6 +271,7 @@ class PluginConfig:
             api_url=manual_api_url,
             api_key=manual_api_key,
             use_manual_api=False,
+            max_concurrency=max_concurrency,
             generation=GenerationConfig.from_plugin_config(config),
             translator=TranslatorConfig(
                 enabled=bool(
