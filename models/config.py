@@ -275,7 +275,7 @@ class PluginConfig:
                 api_key="",
                 model="gpt-4o-mini",
                 show_progress=False,
-                show_result=False,
+                show_result=bool(tr_conf.get("show_result", False)),
                 system_prompt="",
                 custom_prefix="",
                 max_retries=3,

@@ -948,6 +948,9 @@ class BestNAIPlugin(Star):
                 yield event.plain_result("❌ 提示词过滤后为空，请补充安全的有效提示词")
                 return
 
+            if tr_cfg.show_result:
+                yield event.plain_result(f"🔎 翻译结果：\n{translated}")
+
             final_prompt = translated
 
         if raw_mode:

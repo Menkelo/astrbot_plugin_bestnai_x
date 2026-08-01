@@ -112,6 +112,12 @@
         "type": "string",
         "default": "",
         "_special": "select_provider"
+      },
+      "show_result": {
+        "description": "显示翻译结果",
+        "type": "bool",
+        "hint": "开启后会在生图前发送翻译得到的英文提示词，便于调试",
+        "default": false
       }
     }
   },
