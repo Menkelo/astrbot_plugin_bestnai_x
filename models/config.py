@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 FIXED_MODEL = "nai-diffusion-4-5-full"
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 DEFAULT_NEGATIVE_PROMPT = "lowres, bad anatomy, bad hands, text, error, missing fingers"
+DEFAULT_DANBOORU_API_URL = "https://sakizuki-danboorusearch.hf.space"
 
 DEFAULT_ARTIST_PRESET_LIST = [
     "可爱:artist:ciloranko , [artist:sho_(sho_lwlw)], [[artist:tianliang_duohe_fangdongye]],[[[[[[artist:kani_biimu]]]]]]",
@@ -299,7 +300,7 @@ class PluginConfig:
                 "quality_prompt",
                 prompt_conf.get("prompt_suffix", DEFAULT_QUALITY_STRING),
             ),
-            danbooru_api_url=str(dan_conf.get("api_url", "")).rstrip("/"),
+            danbooru_api_url=str(dan_conf.get("api_url") or DEFAULT_DANBOORU_API_URL).rstrip("/"),
             danbooru_tag_search=bool(dan_conf.get("tag_search", False)),
             retag_show_source=False,
             raw_config=config,

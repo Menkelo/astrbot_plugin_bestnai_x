@@ -2,11 +2,6 @@
 
 BestNAI 插件特异版（`astrbot_plugin_bestnai_x`）：通过兼容 OpenAI 格式的生图 API 在 AstrBot 中生成 NovelAI 风格（NAI Diffusion）图片。
 
-> **作者**：存在酱 & Menkelo
-> **联系方式**：QQ `1204999675`
-> **仓库**：https://github.com/Menkelo/astrbot_plugin_bestnai_x
-> **版本**：2.2.1-special-45（特异版，固定使用模型 `nai-diffusion-4-5-full`）
-
 本插件与普通版的不同点：
 
 - 固定使用 `nai-diffusion-4-5-full` 模型，不支持 3 / 4 等历史版本切换。
@@ -112,14 +107,12 @@ pip install aiohttp pillow
 | `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商。审核不使用手动生图 API |
 | `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
 
-> 图片审核不通过的回复文案为固定内容（`未能通过安全检测，已拦截`），已不可配置。
-
 ### 7. danbooru_config - Danbooru Tag 检索配置
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `tag_search` | bool | `false` | 开启后翻译中文提示词时会先检索 Danbooru 候选 tag 注入给 LLM。不是必需项 |
-| `api_url` | string | 空 | DanbooruSearchOnline API 地址。留空则跳过检索。格式：`http://host:port` |
+| `api_url` | string | `https://sakizuki-danboorusearch.hf.space` | DanbooruSearchOnline API 地址。默认内置 `https://sakizuki-danboorusearch.hf.space`，留空则跳过检索 |
 
 ---
 
@@ -273,6 +266,7 @@ data/plugin_data/astrbot_plugin_bestnai_x/
 
 ### v2.2.1-special-45
 - 移除插件配置中的"图片审核不通过回复"自定义项，拦截回复改为固定文案
+- 内嵌 Danbooru Tag 检索地址 `https://sakizuki-danboorusearch.hf.space` 作为默认配置
 - 仅支持 `nai-diffusion-4-5-full` 模型（特异版）
 
 ### v2.1.0

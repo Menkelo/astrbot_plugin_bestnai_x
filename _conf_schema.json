@@ -178,8 +178,8 @@
       "api_url": {
         "description": "Danbooru API 地址",
         "type": "string",
-        "hint": "DanbooruSearchOnline API 地址。留空则跳过检索。格式：http://host:port",
-        "default": ""
+        "hint": "DanbooruSearchOnline API 地址，默认内置 https://sakizuki-danboorusearch.hf.space。留空则跳过检索。格式：http://host:port",
+        "default": "https://sakizuki-danboorusearch.hf.space"
       }
     }
   }
