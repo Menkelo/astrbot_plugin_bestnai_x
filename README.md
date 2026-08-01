@@ -1,149 +1,284 @@
-# astrbot_plugin_bestnai
+# astrbot_plugin_bestnai_x
 
-通过 BestNAI API（NovelAI 图片生成）在 AstrBot 中生成 AI 图片的插件。
+BestNAI 插件特异版（`astrbot_plugin_bestnai_x`）：通过兼容 OpenAI 格式的生图 API 在 AstrBot 中生成 NovelAI 风格（NAI Diffusion）图片。
 
-> **作者**：存在酱  
-> **联系方式**：QQ `1204999675`  
+> **作者**：存在酱 & Menkelo
+> **联系方式**：QQ `1204999675`
 > **仓库**：https://github.com/Menkelo/astrbot_plugin_bestnai_x
+> **版本**：2.2.1-special-45（特异版，固定使用模型 `nai-diffusion-4-5-full`）
+
+本插件与普通版的不同点：
+
+- 固定使用 `nai-diffusion-4-5-full` 模型，不支持 3 / 4 等历史版本切换。
+- 生图接口优先走 `/images/generations`，不可用时自动回退到 `/chat/completions`。
+- 内置一套为 QQ 使用场景设计的防封安全审核机制（提示词敏感词过滤 + 图片发送前视觉审核）。
+
+---
 
 ## 功能特性
 
-- 🎨 **基础生成**：`/nai <提示词>` 一键生成图片，支持中文自动翻译
-- 🔤 **直接生图**：`/nai0 <英文tag>` 跳过翻译直接使用英文 tag
-- ⚙️ **高级生成**：`/nai_adv` 支持自定义分辨率、步数、CFG Scale、负面提示词
-- 🎭 **模型切换**：`/nai_set 3|4|4.5` 切换 NAI 模型版本
-- 📐 **尺寸预设**：`/nai_size` 快速切换竖图/横图/方图等预设
-- 🖼️ **画师预设**：`/nai_artist` 管理和切换画师风格串
-- 🔞 **NSFW 控制**：`/nai_nsfw on|off` 控制内容过滤；关闭时自动切换至 Curated 模型（官方审查）
-- ↩️ **撤回功能**：`/nai_recall` 撤回最后一张图（QQ 平台）
-- ⏱️ **冷却机制**：每个用户独立冷却时间，防止滥用
-- 💾 **图片保存**：可选持久化保存生成的图片
+- **基础生图**：`/nai <提示词>` 一键生图。
+- **原始提示词生图**：`/nai0 <英文tag>` 跳过中文翻译，不追加画师串与质量提示词，仅沿用负面提示词。
+- **中文自动翻译**：开启后，`/nai` 中的中文描述会被自动翻译为 Danbooru / NovelAI 英文 tag。
+- **图片反推生图**：发送/回复一张图片后执行 `/nai`，自动用视觉模型把图片反推为 tags 再生图。
+- **头像反推生图**：`/nai @某人` 使用对方 QQ 头像反推 tags 生图。
+- **画师预设系统**：配置中可维护多个画师风格串，支持切换默认预设、按次临时调用、持久化保存。
+- **画师画廊**：为每个画师预设设置预览图，可一键查看全部预设的合成画廊图。
+- **比例智能解析**：提示词中可直接写比例/尺寸（`16:9`、`横屏`、`1024x1024`、`--ratio` 等），并自动校验与锚定合法分辨率。
+- **安全审核**：提示词敏感词自动过滤，图片发送前调用视觉模型审核，从源头与出口双向降低封号风险。
+- **Danbooru Tag 检索**：翻译中文提示词时可选注入 Danbooru 在线检索的候选 tag，提升翻译质量。
+- **生图接口容错**：主接口 `/images/generations` 不可用时自动回退到 `/chat/completions`；对返回的 base64、URL、Markdown、data URL 等多种图片格式均可解析。
+
+---
 
 ## 安装
 
-1. 将插件目录放置到 AstrBot 的 `data/plugins/` 目录下
-2. 在 AstrBot 管理面板中启用插件
-3. 配置 API URL 和 API Key
+1. 将插件目录放置到 AstrBot 的 `data/plugins/` 目录下（目录名应为 `astrbot_plugin_bestnai_x`）。
+2. 在 AstrBot 管理面板的插件列表中启用本插件。
+3. 在插件配置中完成**生图接口**配置（推荐使用 AstrBot 提供商）。
 
-## 配置
+依赖安装：
 
-在 AstrBot 管理面板的插件配置中填写以下参数：
+```bash
+pip install aiohttp pillow
+```
 
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `api_url` | BestNAI API 地址 | （必填） |
-| `api_key` | API 密钥（Bearer Token） | （必填） |
-| `default_version` | 默认模型版本（3/4/4.5） | `4.5` |
-| `default_size` | 默认分辨率预设 | `竖图` |
-| `default_steps` | 默认生成步数 | `23` |
-| `default_scale` | 默认 CFG Scale | `5.0` |
-| `user_cooldown` | 用户冷却时间（秒） | `30` |
-| `negative_prompt` | 默认负面提示词 | `lowres, bad anatomy...` |
-| `save_images` | 是否保存生成的图片 | `false` |
-| `save_dir` | 图片保存目录 | （空） |
-| `auto_recall` | 是否自动撤回图片 | `false` |
-| `auto_recall_delay` | 自动撤回延迟（秒） | `30` |
-| `translator_enabled` | 启用中文自动翻译 | `false` |
-| `translator_base_url` | 翻译 API 地址 | （空） |
-| `translator_api_key` | 翻译 API Key | （空） |
-| `artist_presets` | 画师预设列表（JSON） | `[]` |
-| `default_artist_preset` | 默认画师预设名 | （空） |
-| `prompt_suffix` | 提示词后缀（自动追加） | （空） |
+> `pillow` 仅用于画师画廊合成与读取图片尺寸；如果不需要画廊/比例推断功能，理论上可缺省，但强烈建议安装。
+
+---
+
+## 配置说明
+
+在 AstrBot 管理面板的插件配置中填写以下参数。配置按模块分组，`_conf_schema.json` 为配置模式定义。
+
+### 1. api_config - 生图接口配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `prefer_provider` | bool | `true` | 开启时生图使用下方选择的 AstrBot 提供商；关闭时使用手动 API |
+| `provider_id` | string | 空 | 生图接口提供商，需在 AstrBot 中选择。仅当"优先使用提供商"开启时生效 |
+| `api_url` | string | 空 | 手动生图 API 地址。填写兼容 OpenAI 格式的 API Base，例如 `https://example.com/v1`。关闭"优先使用提供商"后生效，该服务需支持 `/chat/completions` |
+| `api_key` | string | 空 | 手动生图 API Key。关闭"优先使用提供商"后，需与 `api_url` 同时填写才生效 |
+
+> **生图接口二选一**：要么开启"优先使用提供商"并选择提供商，要么关闭后同时填写 `api_url` + `api_key`。两者都未配置时，`/nai` 会提示"插件未配置"。
+
+### 2. generation_config - 生图参数
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `sampler` | string | `k_euler_ancestral` | 采样器。可选：`k_euler_ancestral`（推荐默认，随机性较强，二次元效果稳定）、`k_euler`（更稳定干净，随机性较低）、`k_dpmpp_2s_ancestral`（细节和质感较好，随机性较强，但部分代理可能不支持） |
+| `default_ratio` | string | `2:3 (832×1216)` | 默认比例，当提示词未指定比例时使用。可选：`16:9 (1216×704)`、`9:16 (704×1216)`、`4:3 (1024×768)`、`3:4 (768×1024)`、`3:2 (1216×832)`、`2:3 (832×1216)`、`1:1 (1024×1024)` |
+
+### 3. prompt_config - 提示词拼接配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `quality_prompt` | string | `best quality, amazing quality, very aesthetic, absurdres` | 质量提示词，自动追加到最终正面提示词末尾，留空则不追加。发送前会自动清理非 ASCII 字符 |
+| `negative_prompt` | string | `lowres, bad anatomy, bad hands, text, error, missing fingers` | 全局生效的负面提示词。代码会固定追加 QQ 安全负面词。发送前会自动清理非 ASCII 字符 |
+| `artist_presets` | list | 内置 5 个示例预设 | 画师预设列表，每项格式为 `预设名:画师提示词` |
+
+**内置画师预设示例**：
+
+```text
+可爱:artist:ciloranko , [artist:sho_(sho_lwlw)], [[artist:tianliang_duohe_fangdongye]],[[[[[[artist:kani_biimu]]]]]]
+幼态:artist: ciloranko, [artist: tianliang duohe fangdongye], [artist: sho_(sho_lwlw)], [artist: baku-p], [artist:tsubasa_tsubasa], [[artist:as109]], [[artist:rhasta]]
+水彩:{hokori sakuni}, {ciloranko}, {ke-ta}, {houkisei},{kedama milk}
+海报:artist:ciloranko, {artist:menthako}, {artist:tianliang duohe fangdongye}, [artist:sho (sho lwlw)], [artist:baku-p], [[[artist:tsubasa tsubasa]]], artist: kemo camotli
+鲜艳色彩:[artist:ningen_mame], {{{ciloranko}}}, [artist:sho_(sho_lwlw)], [[artist:rhasta]], [artist:wlop], [artist:ke-ta]
+```
+
+### 4. translator_config - 中文提示词翻译配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `enabled` | bool | `false` | 开启后 `/nai` 中的中文描述会自动调用翻译器转为英文 Danbooru tag |
+| `provider_id` | string | 空 | 翻译接口提供商（AstrBot 提供商）。翻译不使用手动生图 API |
+
+> 翻译支持 OpenAI 兼容接口与 Gemini 官方接口（`generativelanguage.googleapis.com`），翻译失败自动重试（默认最多 3 次，指数退避）。
+
+### 5. image_retag_config - 图片反推提示词配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `enabled` | bool | `false` | 开启后，`/nai` 引用图片或附带图片时，会先调用视觉模型把图片反推为 NovelAI / Danbooru tags，再进行生图 |
+| `provider_id` | string | 空 | 图片反推接口提供商，需选择支持视觉输入的 AstrBot 提供商 |
+| `show_result` | bool | `false` | 开启后会在生图前发送反推得到的 tags，便于调试 |
+
+### 6. safety_config - QQ 防封安全审核配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `enabled` | bool | `true` | 启用发送前图片安全审核。强烈建议 QQ 机器人开启。开启后生成图片会先审核，安全才发送；审核接口报错/超时时放行 |
+| `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商。审核不使用手动生图 API |
+| `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
+
+> 图片审核不通过的回复文案为固定内容（`未能通过安全检测，已拦截`），已不可配置。
+
+### 7. danbooru_config - Danbooru Tag 检索配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `tag_search` | bool | `false` | 开启后翻译中文提示词时会先检索 Danbooru 候选 tag 注入给 LLM。不是必需项 |
+| `api_url` | string | 空 | DanbooruSearchOnline API 地址。留空则跳过检索。格式：`http://host:port` |
+
+---
 
 ## 指令说明
 
 | 指令 | 说明 |
 |------|------|
-| `/nai <描述>` | 基础生图（支持中文自动翻译） |
-| `/nai0 <英文tag>` | 跳过翻译直接生图 |
-| `/nai_adv <提示词> [参数]` | 高级参数生图 |
-| `/nai_set 3\|4\|4.5` | 切换会话模型版本 |
-| `/nai_size <预设\|宽x高>` | 切换尺寸 |
-| `/nai_nsfw on\|off` | NSFW 开关 |
-| `/nai_pt on\|off` | 提示词显示开关 |
-| `/nai_on` / `/nai_off` | 开关插件 |
-| `/nai_recall` | 撤回最后一张图（QQ 平台） |
-| `/nai_artist [序号/名称/none/reset]` | 切换/查看画师预设 |
-| `/查看画师 预设名` | 查看指定画师预设的画师串和预览图 |
-| `/设置画师 预设名` | 为指定画师预设设置预览图 |
-| `/画师画廊` | 查看全部画师预设预览图 |
-| `/nai_status` | 当前会话状态 |
-| `/nai_help` | 详细帮助 |
-| `/nai_cfg` | 查看全局配置（管理员） |
+| `/nai <提示词>` | 基础生图。支持中文自动翻译、画师预设、比例解析；发送/回复图片或 `@某人` 时自动进入图片反推流程 |
+| `/nai0 <英文tag>` | 原始提示词模式。跳过翻译，不追加画师串和质量提示词，仍沿用负面提示词与安全审核 |
+| `/画师画廊` | 查看全部画师预设的合成预览画廊图 |
+| `/查看画师 <预设名>` | 查看指定画师预设的画师串和预览图 |
+| `/设置画师 <预设名>` | 为指定画师预设设置预览图，需同消息附带图片或回复图片 |
 
-### 尺寸预设
-
-| 预设名 | 分辨率 |
-|--------|--------|
-| 竖图 | 832×1216 |
-| 横图 | 1216×832 |
-| 方图 | 1024×1024 |
-| 小竖图 | 512×768 |
-| 小横图 | 768×512 |
-| 小方图 | 640×640 |
-| 大竖图 | 1024×1536 |
-| 大横图 | 1536×1024 |
-
-### 高级生成参数
+### /nai 生图流程
 
 ```
-/nai_adv 1girl, masterpiece --size 1024x1024 --steps 28 --scale 7 --neg "bad quality"
+/nai <提示词>
+        │
+        ├─ 带图片 ──► 反推图片为 tags ──┐
+        ├─ @某人 ──► 反推 QQ 头像为 tags ─┤（自动推断输入图片比例）
+        │                                 ▼
+        │                           合并 提示词 + 反推 tags
+        ▼
+   解析提示词
+        ├─ 提取比例/尺寸（支持多种写法）
+        ├─ 提取画师预设（临时调用 / 默认预设）
+        ├─ 安全过滤：敏感词自动移除
+        ├─ 中文？──► 翻译为英文 Danbooru tag（可选 Danbooru 检索注入）
+        ├─ 拼接最终 prompt：画师串 + 提示词 + 质量提示词
+        ▼
+   调用生图 API（/images/generations，失败自动回退 /chat/completions）
+        ▼
+   图片安全审核（视觉模型，可选）
+        ▼
+   发送图片
 ```
 
-| 参数 | 说明 |
+### 比例 / 尺寸写法
+
+默认使用 `generation_config.default_ratio`。以下写法可在提示词中指定比例或尺寸，插件会自动识别并从最终提示词中移除：
+
+| 写法 | 示例 |
 |------|------|
-| `--size 宽x高` | 自定义分辨率 |
-| `--steps N` | 生成步数 |
-| `--scale F` | CFG Scale |
-| `--neg "提示词"` | 负面提示词 |
+| 比例数字 | `16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`、`1:1` |
+| 中文/英文别名 | `横屏`、`横图`、`竖屏`、`竖图`、`方图`、`方形`、`landscape`、`portrait`、`square` |
+| `--ratio` 参数 | `--ratio 16:9 (1216×704)`、`--ratio 2:3` |
+| `--size` / `--ar` 参数 | `--size 1024x1024`、`--ar 1:1` |
+| 方括号标注 | `[2:3]`、`[1024x1024]` |
+| 裸尺寸 | `1024x1024` |
 
-## NSFW 控制机制
+**尺寸校验规则**（自动执行）：
 
-- `/nai_nsfw off`（默认）：自动切换至 **NAI Curated 模型**，该模型内置官方内容审查，从模型层面过滤 explicit 内容，同时清理正向 prompt 中的 NSFW 关键词并使用最严格的 UC 预设
-- `/nai_nsfw on`：使用 Full 模型，无内容限制
+- 宽高必须为正整数，且为 64 的倍数。
+- 面积不超过 `1,100,000` 像素。
+- 不合法时自动锚定到最接近的合法比例预设，并输出警告日志。
+
+### 画师预设用法
+
+| 操作 | 输入示例 | 说明 |
+|------|----------|------|
+| 切换默认画师预设 | `/nai 可爱` | 将该预设设为默认（持久化保存，重启后仍生效） |
+| 临时调用预设 | `/nai 可爱 miku` | 本次生成使用"可爱"预设，提示词为 `miku` |
+| 方括号临时调用 | `/nai [可爱] miku` | 效果同上，方括号内为预设名 |
+| 清除默认预设 | `/nai 默认`、`/nai 恢复默认`、`/nai 重置画师预设` | 清除已保存的默认画师预设，恢复使用配置默认 |
+
+---
+
+## 安全审核机制
+
+本插件为 QQ 场景提供了三层安全机制：
+
+1. **提示词敏感词过滤**（`prompt_block_enabled`，默认开）
+   - 用户提示词命中明显 NSFW / explicit 关键词（中英文均有维护）时，自动移除并继续生成。
+   - 提示词过滤后为空时会提示用户补充安全提示词。
+
+2. **图片发送前视觉审核**（`enabled`，默认开）
+   - 生成图片后、发送前，调用所选视觉提供商对图片进行安全判定。
+   - **只有审核模型明确返回 `safe=false` 时才拦截**；审核供应商未配置、接口报错、超时、SSL 错误、结果解析失败、不支持的供应商类型均**放行**，避免误伤正常图片。
+   - 拦截时回复固定文案：`未能通过安全检测，已拦截`。
+
+3. **负面提示词固定追加 QQ 安全负面词**
+   - 无论用户如何配置负面提示词，代码都会在发送前固定追加 `nsfw, explicit, nude, naked, ...` 等安全负面词，从模型层面压低出图风险。
+
+---
 
 ## 错误处理
 
 | 错误 | 说明 | 解决方案 |
 |------|------|----------|
-| API Key 未配置 | 未填写 API URL 或 API Key | 在管理面板中完成配置 |
-| 401 认证失败 | API Key 无效 | 检查 API Key 是否正确 |
-| 402 点数不足 | 账户余额不足 | 充值或使用更小的分辨率 |
-| 429 频率限制 | 请求过于频繁 | 等待后重试 |
-| 503 服务器繁忙 | 服务端负载过高 | 稍后重试 |
-| 超时 | 网络或服务器响应慢 | 检查网络连接 |
+| 插件未配置 | 未开启"优先使用提供商"也未选择提供商，或手动 API 填写不完整 | 完成 `api_config` 配置 |
+| API Key 错误（401/403） | API Key 无效 | 检查 API Key 是否正确 |
+| 点数不足 | 账户余额不足（错误信息含 quota/余额/insufficient） | 充值或使用更小的分辨率 |
+| 频率限制（429） | 请求过于频繁 | 等待后重试 |
+| 服务器繁忙（5xx） | 服务端负载过高 | 稍后重试 |
+| 生图请求超时 | 网络或服务器响应慢（300s 超时） | 检查网络连接，稍后重试 |
+| 接口不支持（400/404/405/501 等） | `/images/generations` 不可用 | 插件会自动回退到 `/chat/completions`；若仍失败请检查 API Base 是否支持文生图 |
+
+---
 
 ## 项目结构
 
 ```
-astrbot_plugin_bestnai/
-├── main.py               # 主入口，插件类和指令处理
-├── metadata.yaml         # 插件元数据
-├── _conf_schema.json     # 配置模式定义
-├── requirements.txt      # Python 依赖
-├── README.md             # 本文档
-├── constants.py          # 常量定义
-├── models.py             # 兼容层
-├── core/
-│   ├── generator.py      # BestNAI API 调用核心逻辑
-│   ├── session_state.py  # 会话级状态管理
-│   └── translator.py     # 中文提示词翻译
+astrbot_plugin_bestnai_x/
+├── main.py                  # 主入口：插件类、指令注册、生图主流程
+├── metadata.yaml            # 插件元数据
+├── _conf_schema.json        # 配置模式定义（管理面板渲染依据）
+├── requirements.txt         # Python 依赖
+├── README.md                # 本文档
+├── constants.py             # 常量定义
+├── models.py                # 兼容层
+├── gallery_renderer.py      # 画师画廊图片合成（Pillow）
+├── image_store.py           # 图片持久化与发送辅助
 ├── models/
-│   └── config.py         # 配置数据模型
-└── utils/
-    └── helpers.py        # 工具函数
+│   └── config.py            # 配置数据模型（PluginConfig / GenerationConfig / SafetyConfig 等）
+├── core/
+│   ├── generator.py         # 生图 API 调用核心（/images/generations + /chat/completions 回退）
+│   ├── safety.py            # 安全审核（提示词过滤 + 图片视觉审核 + 负面词追加）
+│   ├── translator.py        # 中文提示词翻译 + Danbooru tag 检索
+│   └── image_retagger.py    # 图片反推提示词
+└── services/
+    ├── artist_gallery.py    # 画师画廊服务（预览图管理与画廊生成）
+    ├── image_extract.py     # 从事件中提取图片
+    ├── image_ratio.py       # 图片尺寸读取与比例推断
+    ├── mention_avatar.py    # 提取 @ 用户与 QQ 头像 URL
+    ├── prompt_builder.py    # 最终 prompt 拼接、ASCII 清理、临时文件管理
+    └── runtime_state.py     # 运行时状态持久化（默认画师预设）
 ```
+
+### 数据目录
+
+插件运行时数据保存在 AstrBot 的 `data/plugin_data/astrbot_plugin_bestnai_x/`：
+
+```
+data/plugin_data/astrbot_plugin_bestnai_x/
+├── runtime_state.json       # 运行时状态（默认画师预设持久化）
+├── artist_preview_map.json  # 画师预设预览图映射
+├── artist_previews/         # 画师预设预览图片
+└── artist_gallery/          # 画师画廊合成图与指纹元数据
+```
+
+---
 
 ## 依赖
 
 - `aiohttp >= 3.8.0`：异步 HTTP 客户端
+- `pillow`：画师画廊合成、图片尺寸读取
+
+---
 
 ## 更新日志
 
+### v2.2.1-special-45
+- 移除插件配置中的"图片审核不通过回复"自定义项，拦截回复改为固定文案
+- 仅支持 `nai-diffusion-4-5-full` 模型（特异版）
+
 ### v2.1.0
-- 🔒 NSFW 关闭时自动切换至 Curated 模型（官方内置审查），修复 SFW 模式仍生成色图问题
-- 🧹 关闭 NSFW 时自动清理正向 prompt 中的 NSFW 关键词
-- ✨ 同步修复 `/nai_adv` 的 NSFW 过滤逻辑
+- NSFW 关闭时自动切换至 Curated 模型（官方内置审查），修复 SFW 模式仍生成色图问题
+- 关闭 NSFW 时自动清理正向 prompt 中的 NSFW 关键词
+- 同步修复 `/nai_adv` 的 NSFW 过滤逻辑
 
 ### v2.0.0
 - 重构为模块化结构
@@ -153,6 +288,8 @@ astrbot_plugin_bestnai/
 - 新增中文自动翻译
 - 新增自动撤回功能
 - 独立化所有子命令指令
+
+---
 
 ## License
 

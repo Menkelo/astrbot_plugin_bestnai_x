@@ -155,7 +155,6 @@ class SafetyConfig:
     enabled: bool = True
     provider_id: str = ""
     prompt_block_enabled: bool = True
-    unsafe_reply: str = "⚠️ 未能通过安全检测，已拦截"
 
 
 @dataclass
@@ -284,10 +283,6 @@ class PluginConfig:
                 enabled=bool(safety_conf.get("enabled", True)),
                 provider_id=safety_provider_id,
                 prompt_block_enabled=bool(safety_conf.get("prompt_block_enabled", True)),
-                unsafe_reply=safety_conf.get(
-                    "unsafe_reply",
-                    "⚠️ 未能通过安全检测，已拦截",
-                ),
             ),
             image_retag=ImageRetagConfig(
                 enabled=bool(image_retag_conf.get("enabled", False)),

@@ -162,12 +162,6 @@
         "type": "bool",
         "default": true,
         "hint": "开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成"
-      },
-      "unsafe_reply": {
-        "description": "图片审核不通过回复",
-        "type": "string",
-        "default": "⚠️ 未能通过安全检测，已拦截",
-        "hint": "生成后的图片审核不通过时回复这句话"
       }
     }
   },
