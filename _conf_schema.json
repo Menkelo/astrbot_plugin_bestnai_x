@@ -164,23 +164,5 @@
         "hint": "开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成"
       }
     }
-  },
-  "danbooru_config": {
-    "description": "Danbooru Tag 检索配置",
-    "type": "object",
-    "items": {
-      "tag_search": {
-        "description": "翻译时启用 Danbooru Tag 检索",
-        "type": "bool",
-        "hint": "开启后翻译中文提示词时会先检索 Danbooru 候选 tag 注入给 LLM。不是必需项",
-        "default": false
-      },
-      "api_url": {
-        "description": "Danbooru API 地址",
-        "type": "string",
-        "hint": "DanbooruSearchOnline API 地址，默认内置 https://sakizuki-danboorusearch.hf.space。留空则跳过检索。格式：http://host:port",
-        "default": "https://sakizuki-danboorusearch.hf.space"
-      }
-    }
   }
 }

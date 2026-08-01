@@ -2,6 +2,8 @@
 
 BestNAI 插件特异版（`astrbot_plugin_bestnai_x`）：通过兼容 OpenAI 格式的生图 API 在 AstrBot 中生成 NovelAI 风格（NAI Diffusion）图片。
 
+本插件为 [astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai) 原版插件的特异版。
+
 本插件与普通版的不同点：
 
 - 固定使用 `nai-diffusion-4-5-full` 模型，不支持 3 / 4 等历史版本切换。
@@ -21,7 +23,7 @@ BestNAI 插件特异版（`astrbot_plugin_bestnai_x`）：通过兼容 OpenAI �
 - **画师画廊**：为每个画师预设设置预览图，可一键查看全部预设的合成画廊图。
 - **比例智能解析**：提示词中可直接写比例/尺寸（`16:9`、`横屏`、`1024x1024`、`--ratio` 等），并自动校验与锚定合法分辨率。
 - **安全审核**：提示词敏感词自动过滤，图片发送前调用视觉模型审核，从源头与出口双向降低封号风险。
-- **Danbooru Tag 检索**：翻译中文提示词时可选注入 Danbooru 在线检索的候选 tag，提升翻译质量。
+- **Danbooru Tag 检索**：翻译中文提示词时自动注入 Danbooru 在线检索的候选 tag（服务已内嵌，默认启用），提升翻译质量。
 - **生图接口容错**：主接口 `/images/generations` 不可用时自动回退到 `/chat/completions`；对返回的 base64、URL、Markdown、data URL 等多种图片格式均可解析。
 
 ---
@@ -107,12 +109,7 @@ pip install aiohttp pillow
 | `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商。审核不使用手动生图 API |
 | `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
 
-### 7. danbooru_config - Danbooru Tag 检索配置
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `tag_search` | bool | `false` | 开启后翻译中文提示词时会先检索 Danbooru 候选 tag 注入给 LLM。不是必需项 |
-| `api_url` | string | `https://sakizuki-danboorusearch.hf.space` | DanbooruSearchOnline API 地址。默认内置 `https://sakizuki-danboorusearch.hf.space`，留空则跳过检索 |
+> Danbooru Tag 检索服务已内嵌（`https://sakizuki-danboorusearch.hf.space`），翻译中文提示词时默认启用，无需额外配置。
 
 ---
 
@@ -140,7 +137,7 @@ pip install aiohttp pillow
         ├─ 提取比例/尺寸（支持多种写法）
         ├─ 提取画师预设（临时调用 / 默认预设）
         ├─ 安全过滤：敏感词自动移除
-        ├─ 中文？──► 翻译为英文 Danbooru tag（可选 Danbooru 检索注入）
+        ├─ 中文？──► 翻译为英文 Danbooru tag（自动注入内嵌 Danbooru 检索结果）
         ├─ 拼接最终 prompt：画师串 + 提示词 + 质量提示词
         ▼
    调用生图 API（/images/generations，失败自动回退 /chat/completions）
@@ -259,32 +256,3 @@ data/plugin_data/astrbot_plugin_bestnai_x/
 
 - `aiohttp >= 3.8.0`：异步 HTTP 客户端
 - `pillow`：画师画廊合成、图片尺寸读取
-
----
-
-## 更新日志
-
-### v2.2.1-special-45
-- 移除插件配置中的"图片审核不通过回复"自定义项，拦截回复改为固定文案
-- 内嵌 Danbooru Tag 检索地址 `https://sakizuki-danboorusearch.hf.space` 作为默认配置
-- 仅支持 `nai-diffusion-4-5-full` 模型（特异版）
-
-### v2.1.0
-- NSFW 关闭时自动切换至 Curated 模型（官方内置审查），修复 SFW 模式仍生成色图问题
-- 关闭 NSFW 时自动清理正向 prompt 中的 NSFW 关键词
-- 同步修复 `/nai_adv` 的 NSFW 过滤逻辑
-
-### v2.0.0
-- 重构为模块化结构
-- 新增会话级状态管理
-- 新增多模型版本切换（NAI3/4/4.5）
-- 新增画师预设系统
-- 新增中文自动翻译
-- 新增自动撤回功能
-- 独立化所有子命令指令
-
----
-
-## License
-
-MIT

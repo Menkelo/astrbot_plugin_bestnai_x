@@ -300,8 +300,8 @@ class PluginConfig:
                 "quality_prompt",
                 prompt_conf.get("prompt_suffix", DEFAULT_QUALITY_STRING),
             ),
-            danbooru_api_url=str(dan_conf.get("api_url") or DEFAULT_DANBOORU_API_URL).rstrip("/"),
-            danbooru_tag_search=bool(dan_conf.get("tag_search", False)),
+            danbooru_api_url=DEFAULT_DANBOORU_API_URL,
+            danbooru_tag_search=bool(dan_conf.get("tag_search", True)),
             retag_show_source=False,
             raw_config=config,
         )
