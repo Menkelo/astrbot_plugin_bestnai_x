@@ -3,4 +3,7 @@ display_name: NAI Diffusion X
 desc: BestNAI 特异版，仅支持 nai-diffusion-4-5-full
 version: 2.3.10
 author: Menkelo
+support_platforms:
+  - aiocqhttp
+astrbot_version: ">=4.14.0"
 repo: https://github.com/Menkelo/astrbot_plugin_bestnai_x
