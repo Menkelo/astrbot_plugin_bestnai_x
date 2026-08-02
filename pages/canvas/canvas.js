@@ -35,6 +35,7 @@ const state = {
   history: [],
   future: [],
   restoring: false,
+  connectionDrag: null,
 };
 
 const MAX_HISTORY = 40;
@@ -355,6 +356,7 @@ function renderPromptNode(node) {
 
   const port = document.createElement("span");
   port.className = "node-port out";
+  attachConnectionPort(port, node.id, "out");
   element.append(body, port);
   body.append(prompt, options, footer, status);
   return element;
@@ -414,6 +416,7 @@ function renderImageNode(node) {
 
   const port = document.createElement("span");
   port.className = "node-port in";
+  attachConnectionPort(port, node.id, "in");
   element.append(frame, meta, port);
   return element;
 }
@@ -448,6 +451,27 @@ function renderNodes() {
   els.empty.classList.toggle("hidden", state.nodes.length > 0);
 }
 
+function connectionPath(x1, y1, x2, y2) {
+  const curve = Math.max(70, Math.abs(x2 - x1) * 0.45);
+  return `M ${x1 + 10000} ${y1 + 10000} C ${x1 + curve + 10000} ${y1 + 10000}, ${x2 - curve + 10000} ${y2 + 10000}, ${x2 + 10000} ${y2 + 10000}`;
+}
+
+function nodePortPoint(node, role) {
+  const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
+  const height = element?.offsetHeight || 260;
+  return {
+    x: role === "out" ? node.x + (node.width || 320) : node.x,
+    y: node.y + height / 2,
+  };
+}
+
+function appendConnectionPath(x1, y1, x2, y2, className) {
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", connectionPath(x1, y1, x2, y2));
+  path.setAttribute("class", className);
+  els.paths.appendChild(path);
+}
+
 function renderConnections() {
   els.paths.replaceChildren();
   const selected = state.selectedId;
@@ -455,19 +479,106 @@ function renderConnections() {
     const source = findNode(edge.source);
     const target = findNode(edge.target);
     if (!source || !target) return;
-    const sourceEl = document.querySelector(`[data-node-id="${CSS.escape(source.id)}"]`);
-    const targetEl = document.querySelector(`[data-node-id="${CSS.escape(target.id)}"]`);
-    const sourceHeight = sourceEl?.offsetHeight || 260;
-    const targetHeight = targetEl?.offsetHeight || 260;
-    const x1 = source.x + (source.width || 320);
-    const y1 = source.y + sourceHeight / 2;
-    const x2 = target.x;
-    const y2 = target.y + targetHeight / 2;
-    const curve = Math.max(70, Math.abs(x2 - x1) * 0.45);
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", `M ${x1 + 10000} ${y1 + 10000} C ${x1 + curve + 10000} ${y1 + 10000}, ${x2 - curve + 10000} ${y2 + 10000}, ${x2 + 10000} ${y2 + 10000}`);
-    path.setAttribute("class", `connection-path${selected === source.id || selected === target.id ? " active" : ""}`);
-    els.paths.appendChild(path);
+    const start = nodePortPoint(source, "out");
+    const end = nodePortPoint(target, "in");
+    appendConnectionPath(
+      start.x,
+      start.y,
+      end.x,
+      end.y,
+      `connection-path${selected === source.id || selected === target.id ? " active" : ""}`,
+    );
+  });
+
+  const drag = state.connectionDrag;
+  if (!drag) return;
+  const node = findNode(drag.nodeId);
+  if (!node) return;
+  const anchor = nodePortPoint(node, drag.role);
+  const start = drag.role === "out" ? anchor : drag.point;
+  const end = drag.role === "out" ? drag.point : anchor;
+  appendConnectionPath(start.x, start.y, end.x, end.y, "connection-path preview");
+}
+
+function compatibleConnectionPort(element, nodeId, role) {
+  const port = element?.closest?.(".node-port");
+  if (!port || port.dataset.role === role || port.dataset.nodeId === nodeId) return null;
+  return port;
+}
+
+function attachConnectionPort(port, nodeId, role) {
+  port.dataset.nodeId = nodeId;
+  port.dataset.role = role;
+  port.title = role === "out" ? "拖到输入端口以连接节点" : "拖到输出端口以连接节点";
+  port.setAttribute("aria-label", port.title);
+
+  port.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectNode(nodeId);
+    state.connectionDrag = {
+      nodeId,
+      role,
+      point: clientToWorld(event.clientX, event.clientY),
+    };
+    document.body.classList.add("connecting-nodes");
+    renderConnections();
+
+    const clearTarget = () => {
+      document.querySelectorAll(".node-port.connection-target").forEach((item) => {
+        item.classList.remove("connection-target");
+      });
+    };
+
+    const move = (moveEvent) => {
+      if (!state.connectionDrag) return;
+      state.connectionDrag.point = clientToWorld(moveEvent.clientX, moveEvent.clientY);
+      clearTarget();
+      const target = compatibleConnectionPort(
+        document.elementFromPoint(moveEvent.clientX, moveEvent.clientY),
+        nodeId,
+        role,
+      );
+      target?.classList.add("connection-target");
+      renderConnections();
+    };
+
+    const finish = (endEvent, cancelled = false) => {
+      const target = cancelled
+        ? null
+        : compatibleConnectionPort(
+            document.elementFromPoint(endEvent.clientX, endEvent.clientY),
+            nodeId,
+            role,
+          );
+      clearTarget();
+      document.body.classList.remove("connecting-nodes");
+      state.connectionDrag = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", cancel);
+
+      if (target) {
+        const source = role === "out" ? nodeId : target.dataset.nodeId;
+        const destination = role === "out" ? target.dataset.nodeId : nodeId;
+        const exists = state.connections.some(
+          (edge) => edge.source === source && edge.target === destination,
+        );
+        if (!exists) {
+          pushHistory();
+          state.connections.push({ source, target: destination });
+          scheduleSave();
+        }
+      }
+      renderConnections();
+    };
+
+    const end = (endEvent) => finish(endEvent);
+    const cancel = (cancelEvent) => finish(cancelEvent, true);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", cancel);
   });
 }
 

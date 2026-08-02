@@ -555,22 +555,47 @@ button {
 
 .node-port {
   position: absolute;
+  z-index: 4;
   top: 50%;
-  width: 12px;
-  height: 12px;
-  margin-top: -6px;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
   border: 2px solid var(--panel);
   border-radius: 50%;
   background: var(--accent);
+  cursor: crosshair;
+  touch-action: none;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.node-port::before {
+  position: absolute;
+  inset: -7px;
+  content: "";
+}
+
+.node-port:hover,
+.node-port.connection-target {
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  transform: scale(1.18);
+}
+
+.connecting-nodes .node-port {
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .node-port.out {
-  right: -7px;
+  right: -9px;
 }
 
 .node-port.in {
-  left: -7px;
+  left: -9px;
   background: var(--warm);
+}
+
+.connection-path.preview {
+  stroke: var(--accent);
+  stroke-dasharray: 7 5;
 }
 
 .empty-state,
