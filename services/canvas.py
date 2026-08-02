@@ -628,6 +628,7 @@ class CanvasService:
     def register(self, context: Any) -> None:
         prefix = f"/{self.plugin_name}/canvas"
         routes = [
+            ("health", self.health, ["GET"], "Infinite Canvas：连接状态检测"),
             ("config", self.get_config, ["GET"], "Infinite Canvas：获取配置"),
             ("generate", self.generate, ["POST"], "Infinite Canvas：生成图片"),
             ("retag", self.retag, ["POST"], "Infinite Canvas：反推图片提示词"),
@@ -664,6 +665,9 @@ class CanvasService:
 
     async def get_config(self) -> Any:
         return json_response(self.config_callback())
+
+    async def health(self) -> Any:
+        return json_response({"status": "ok"})
 
     async def list_projects(self) -> Any:
         try:

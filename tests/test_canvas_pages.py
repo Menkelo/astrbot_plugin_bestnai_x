@@ -73,6 +73,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("data.nodes.map(normalizeLoadedNodeDimensions)", editor)
         self.assertIn("function fittedImageNodeWidth", editor)
 
+    def test_editor_caches_images_across_undo_and_redo(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn("assetCache: new Map()", editor)
+        self.assertIn("function cacheImageAsset", editor)
+        self.assertIn("function hydrateImageAsset", editor)
+        self.assertIn("if (node.type === \"image\") hydrateImageAsset(node)", editor)
+        self.assertIn("background: transparent;", styles)
+
     def test_editor_manages_projects_without_a_workspace_gate(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -99,6 +109,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.createTextNode(node.status === "retagging" ? "反推中…" : "反推")', editor)
         self.assertIn("if (succeeded && generateAfter) await generateFromNode(id, { retagged: true })", editor)
         self.assertIn('retagged ? "反推图片" : "生成结果"', editor)
+        self.assertIn("function mergeRetagPrompt", editor)
+        self.assertIn("const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt)", editor)
+        self.assertIn("retagMergedPrompt: mergedPrompt", editor)
         self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
         generate_body = service.split("    async def generate(self)", 1)[1].split(
             "    async def retag(self)", 1
@@ -126,8 +139,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertIn('id="pluginRepoLink"', html)
+        self.assertIn('>项目地址</a>', html)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
+
+    def test_editor_uses_one_topbar_with_health_status_and_aligned_ports(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="topbar panel"', html)
+        self.assertIn('id="connectionIndicator"', html)
+        self.assertNotIn('class="panel canvas-nav"', html)
+        self.assertNotIn('class="panel toolbar"', html)
+        self.assertIn('bridge.apiGet("canvas/health")', editor)
+        self.assertIn(".connection-indicator.online", styles)
+        self.assertIn(".connection-indicator.offline", styles)
+        self.assertIn("left: -22px;", styles)
+        self.assertIn("right: -22px;", styles)
 
     def test_qq_retag_uses_detailed_retag_progress(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")

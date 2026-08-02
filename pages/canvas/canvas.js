@@ -30,6 +30,7 @@ const els = {
   pluginRepoLink: document.getElementById("pluginRepoLink"),
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
+  connectionIndicator: document.getElementById("connectionIndicator"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
   imageInput: document.getElementById("imageInput"),
@@ -71,6 +72,8 @@ const state = {
   saveTimer: null,
   saving: false,
   savePromise: null,
+  healthTimer: null,
+  healthChecking: false,
   history: [],
   future: [],
   restoring: false,
@@ -82,6 +85,7 @@ const state = {
   canvases: [],
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
+  assetCache: new Map(),
 };
 
 const MAX_HISTORY = 40;
@@ -107,6 +111,51 @@ function toast(message, type = "info") {
   item.textContent = String(message || "操作失败");
   els.toastRegion.appendChild(item);
   window.setTimeout(() => item.remove(), 3600);
+}
+
+function setConnectionState(status) {
+  const online = status === "online";
+  const label = online
+    ? "服务连接正常"
+    : status === "offline"
+      ? "服务连接中断"
+      : "正在检测服务连接";
+  els.connectionIndicator.classList.toggle("online", online);
+  els.connectionIndicator.classList.toggle("offline", status === "offline");
+  els.connectionIndicator.classList.toggle("checking", status === "checking");
+  els.connectionIndicator.setAttribute("aria-label", label);
+  els.connectionIndicator.title = label;
+}
+
+async function checkConnection() {
+  if (state.healthChecking) return false;
+  if (!navigator.onLine) {
+    setConnectionState("offline");
+    return false;
+  }
+  state.healthChecking = true;
+  try {
+    await Promise.race([
+      bridge.apiGet("canvas/health"),
+      new Promise((_, reject) => {
+        window.setTimeout(() => reject(new Error("连接检测超时")), 5000);
+      }),
+    ]);
+    setConnectionState("online");
+    return true;
+  } catch (_) {
+    setConnectionState("offline");
+    return false;
+  } finally {
+    state.healthChecking = false;
+  }
+}
+
+function startHealthMonitor() {
+  window.clearInterval(state.healthTimer);
+  setConnectionState("checking");
+  checkConnection();
+  state.healthTimer = window.setInterval(checkConnection, 15_000);
 }
 
 function setProjectMenu(open) {
@@ -617,6 +666,15 @@ function renderPromptNode(node) {
   prompt.addEventListener("input", () => {
     node.prompt = prompt.value;
     node.error = "";
+    if (node.meta?.retagMergedPrompt && node.prompt !== node.meta.retagMergedPrompt) {
+      const {
+        retagBasePrompt: _retagBasePrompt,
+        retagPrompt: _retagPrompt,
+        retagMergedPrompt: _retagMergedPrompt,
+        ...meta
+      } = node.meta;
+      node.meta = meta;
+    }
     scheduleSave();
   });
   prompt.addEventListener("keydown", (event) => {
@@ -736,6 +794,7 @@ function makeSelectField(label, items, value, onChange) {
 }
 
 function renderImageNode(node) {
+  hydrateImageAsset(node);
   const element = makeNodeShell(node, node.title || "生成结果");
   const actions = element.querySelector(".node-actions");
   actions.insertBefore(
@@ -754,6 +813,7 @@ function renderImageNode(node) {
   const frame = document.createElement("div");
   frame.className = "image-preview-wrap";
   if (node.dataUrl) {
+    cacheImageAsset(node);
     const image = document.createElement("img");
     image.src = node.dataUrl;
     image.alt = node.title || "画布图片";
@@ -849,6 +909,33 @@ function fittedImageNodeWidth(width, height) {
   return clamp(Math.round(sourceWidth * scale) + 20, 220, 440);
 }
 
+function cacheImageAsset(node) {
+  if (!node?.assetId || !node.dataUrl) return;
+  state.assetCache.delete(node.assetId);
+  state.assetCache.set(node.assetId, {
+    dataUrl: node.dataUrl,
+    width: node.meta?.width || 0,
+    height: node.meta?.height || 0,
+  });
+  while (state.assetCache.size > 48) {
+    state.assetCache.delete(state.assetCache.keys().next().value);
+  }
+}
+
+function hydrateImageAsset(node) {
+  if (node?.type !== "image" || node.dataUrl || !node.assetId) return false;
+  const cached = state.assetCache.get(node.assetId);
+  if (!cached?.dataUrl) return false;
+  node.dataUrl = cached.dataUrl;
+  node.assetError = "";
+  node.meta = {
+    ...(node.meta || {}),
+    width: node.meta?.width || cached.width,
+    height: node.meta?.height || cached.height,
+  };
+  return true;
+}
+
 function normalizeLoadedNodeDimensions(node) {
   if (node.type === "prompt") {
     node.width = clamp(Number(node.width) || 320, 280, 640);
@@ -861,6 +948,7 @@ function normalizeLoadedNodeDimensions(node) {
   if (node.type === "image" && (!node.width || [260, 300].includes(Math.round(node.width)))) {
     node.width = fittedImageNodeWidth(node.meta?.width, node.meta?.height);
   }
+  if (node.type === "image") hydrateImageAsset(node);
   return node;
 }
 
@@ -1324,7 +1412,9 @@ async function generateFromNode(id, { retagged = false } = {}) {
       createdIds.push(imageNode.id);
     });
     setSelection(createdIds, createdIds[createdIds.length - 1]);
-    node.statusText = `已生成 ${assets.length} 张图片`;
+    node.statusText = retagged
+      ? `反推完成 · 已合并提示词并生成 ${assets.length} 张图片`
+      : `已生成 ${assets.length} 张图片`;
     toast("生成完成");
     renderAll();
     scheduleSave();
@@ -1344,6 +1434,13 @@ function sourceImageForPrompt(promptId) {
     return findNode(item.source)?.type === "image";
   });
   return edge ? findNode(edge.source) : null;
+}
+
+function mergeRetagPrompt(userPrompt, retagPrompt) {
+  return [userPrompt, retagPrompt]
+    .map((part) => String(part || "").trim().replace(/^,+|,+$/g, ""))
+    .filter(Boolean)
+    .join(", ");
 }
 
 async function retagFromNode(id, generateAfter = false) {
@@ -1370,22 +1467,33 @@ async function retagFromNode(id, generateAfter = false) {
 
   let succeeded = false;
   try {
+    const currentPrompt = node.prompt?.trim() || "";
+    const basePrompt = node.meta?.retagMergedPrompt === currentPrompt
+      ? String(node.meta?.retagBasePrompt || "").trim()
+      : currentPrompt;
     const result = await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
-      userHint: node.prompt?.trim() || "",
+      userHint: basePrompt,
     });
-    const prompt = String(result?.prompt || "").trim();
-    if (!prompt) throw new Error("反推服务未返回提示词");
+    const retagPrompt = String(result?.prompt || "").trim();
+    if (!retagPrompt) throw new Error("反推服务未返回提示词");
+    const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt);
 
     pushHistory();
-    node.prompt = prompt;
+    node.prompt = mergedPrompt;
+    node.meta = {
+      ...(node.meta || {}),
+      retagBasePrompt: basePrompt,
+      retagPrompt,
+      retagMergedPrompt: mergedPrompt,
+    };
     if (result.ratio && state.config.ratios.some((item) => item.value === result.ratio)) {
       node.ratio = result.ratio;
     }
     node.statusText = result.ratio
-      ? `反推完成 · 已采用原图比例 ${result.ratio}`
-      : "反推完成";
-    toast("原图反推完成");
+      ? `已合并新提示词与原图 tags · 原图比例 ${result.ratio}`
+      : "已合并新提示词与原图 tags";
+    toast("反推提示词已合并");
     scheduleSave();
     succeeded = true;
   } catch (error) {
@@ -1400,6 +1508,7 @@ async function retagFromNode(id, generateAfter = false) {
 }
 
 async function ensureAssetLoaded(node) {
+  if (hydrateImageAsset(node)) return;
   if (!node.assetId || node.dataUrl || node.assetLoading || node.assetError) return;
   node.assetLoading = true;
   let dimensionsChanged = false;
@@ -1411,6 +1520,7 @@ async function ensureAssetLoaded(node) {
       width: node.meta?.width || result.width,
       height: node.meta?.height || result.height,
     };
+    cacheImageAsset(node);
     if (!node.width || [260, 300].includes(Math.round(node.width))) {
       node.width = fittedImageNodeWidth(node.meta.width, node.meta.height);
       dimensionsChanged = true;
@@ -1767,10 +1877,8 @@ async function loadInitialState() {
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
   els.pluginRepoLink.href = plugin.repo || "https://github.com/Menkelo/astrbot_plugin_bestnai_x";
-  els.pluginRepoLink.textContent = plugin.repo
-    ? plugin.repo.replace(/^https?:\/\//, "")
-    : "github.com/Menkelo/astrbot_plugin_bestnai_x";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.8"}`;
+  els.pluginRepoLink.textContent = "项目地址";
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.9"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -1797,6 +1905,7 @@ async function loadInitialState() {
     prompts: Array.isArray(library?.prompts) ? library.prompts : [],
   };
   await switchCanvas(canvasMeta, { saveCurrent: false });
+  startHealthMonitor();
 }
 
 els.viewport.addEventListener("pointerdown", (event) => {
@@ -1998,6 +2107,14 @@ els.projectMenuBtn.addEventListener("click", (event) => {
   setProjectMenu(els.projectMenu.hidden);
   if (!els.projectMenu.hidden) renderProjectMenu();
 });
+els.pluginRepoLink.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const repo = els.pluginRepoLink.href;
+  const popup = window.open(repo, "_blank");
+  if (popup) popup.opener = null;
+  else window.location.assign(repo);
+});
 document.getElementById("newProjectBtn").addEventListener("click", () => {
   els.newProjectRow.hidden = false;
   els.newProjectInput.focus();
@@ -2146,12 +2263,16 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", drawMinimap);
+window.addEventListener("online", checkConnection);
+window.addEventListener("offline", () => setConnectionState("offline"));
 window.addEventListener("beforeunload", () => {
+  window.clearInterval(state.healthTimer);
   if (state.saveTimer) saveWorkspace();
 });
 
 refreshIcons();
 loadInitialState().catch((error) => {
+  setConnectionState("offline");
   toast(error.message, "error");
   renderAll();
 });

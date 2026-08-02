@@ -172,7 +172,7 @@ class CanvasStoreTest(unittest.TestCase):
             self.assertEqual(canvases[0]["projectId"], "default")
             self.assertEqual(store.load_workspace(canvases[0]["id"])["nodes"][0]["note"], "old")
 
-    def test_canvas_registers_retag_route(self) -> None:
+    def test_canvas_registers_retag_and_health_routes(self) -> None:
         routes = []
 
         class FakeContext:
@@ -199,6 +199,14 @@ class CanvasStoreTest(unittest.TestCase):
                 "/test_plugin/canvas/retag",
                 ("POST",),
                 "Infinite Canvas：反推图片提示词",
+            ),
+            routes,
+        )
+        self.assertIn(
+            (
+                "/test_plugin/canvas/health",
+                ("GET",),
+                "Infinite Canvas：连接状态检测",
             ),
             routes,
         )

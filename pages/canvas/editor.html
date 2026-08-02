@@ -9,8 +9,8 @@
   </head>
   <body>
     <div id="shell" class="shell">
-      <div class="topbar">
-        <section class="panel canvas-nav" aria-label="画布状态">
+      <div class="topbar panel">
+        <section class="canvas-nav" aria-label="画布状态">
           <div class="project-switcher">
             <button id="projectMenuBtn" class="nav-project-btn" type="button" title="管理项目" aria-label="管理项目" aria-haspopup="true" aria-expanded="false"><i data-lucide="folder"></i></button>
             <div id="projectMenu" class="project-menu" hidden>
@@ -30,16 +30,17 @@
           <div class="canvas-nav-meta">
             <strong class="current-canvas-title" id="pluginDisplayName">NAI Diffusion X</strong>
             <span class="plugin-meta">
-              <a id="pluginRepoLink" href="https://github.com/Menkelo/astrbot_plugin_bestnai_x" target="_blank" rel="noopener noreferrer">GitHub</a>
+              <a id="pluginRepoLink" href="https://github.com/Menkelo/astrbot_plugin_bestnai_x" target="_blank" rel="noopener noreferrer">项目地址</a>
               <span aria-hidden="true">·</span>
-              <span id="pluginVersion">v3.0.8</span>
+              <span id="pluginVersion">v3.0.9</span>
               <span aria-hidden="true">·</span>
               <span id="pluginAuthor">Menkelo</span>
             </span>
           </div>
+          <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
         </section>
 
-        <nav id="quickToolbar" class="panel toolbar" aria-label="画布工具">
+        <nav id="quickToolbar" class="toolbar" aria-label="画布工具">
           <div class="toolbar-items">
             <button class="tool-btn" id="addImageBtn" type="button" title="上传图片">
               <i data-lucide="image-plus"></i><span>图片</span>

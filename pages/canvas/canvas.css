@@ -76,10 +76,10 @@ select:focus-visible,
   left: 24px;
   right: 24px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  pointer-events: none;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px;
 }
 
 .panel {
@@ -94,13 +94,13 @@ select:focus-visible,
 .canvas-nav {
   position: relative;
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 1 500px;
   align-items: center;
   gap: 9px;
   width: max-content;
   max-width: min(500px, calc(100vw - 48px));
-  min-height: 50px;
-  padding: 7px 14px 7px 8px;
+  min-height: 38px;
+  padding: 0 8px 0 2px;
 }
 
 .nav-project-btn,
@@ -343,7 +343,7 @@ select:focus-visible,
 }
 
 .plugin-meta > a {
-  max-width: 270px;
+  max-width: 72px;
   color: var(--muted);
   text-decoration: none;
 }
@@ -353,17 +353,36 @@ select:focus-visible,
   text-decoration: underline;
 }
 
+.connection-indicator {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, .14);
+  transition: background .18s var(--ease), box-shadow .18s var(--ease);
+}
+
+.connection-indicator.online {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, .14);
+}
+
+.connection-indicator.offline {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, .14);
+}
+
 .toolbar {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 6px;
-  max-width: calc(100vw - 540px);
+  max-width: none;
   min-width: 0;
   margin-left: auto;
-  padding: 6px;
+  padding: 0;
   overflow: hidden;
-  border-radius: 24px;
 }
 
 .toolbar-items,
@@ -899,10 +918,11 @@ select:focus-visible,
 
 .image-loading {
   display: grid;
+  width: 100%;
   min-height: 170px;
   place-items: center;
   color: var(--faint);
-  background: var(--soft);
+  background: transparent;
   font-size: 10px;
 }
 
@@ -1050,8 +1070,8 @@ select:focus-visible,
 
 .port::after {
   position: absolute;
-  top: 15px;
-  left: 15px;
+  top: 13px;
+  left: 13px;
   width: 14px;
   height: 14px;
   border: 2px solid #fff;
@@ -1069,11 +1089,11 @@ select:focus-visible,
 }
 
 .port.in {
-  left: -29px;
+  left: -22px;
 }
 
 .port.out {
-  right: -15px;
+  right: -22px;
 }
 
 .selection-box {
