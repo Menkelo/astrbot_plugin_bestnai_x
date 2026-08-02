@@ -1,4 +1,17 @@
-const bridge = window.AstrBotPluginPage;
+let bridge = null;
+
+async function getBridge() {
+  const deadline = Date.now() + 5000;
+  while (!window.AstrBotPluginPage && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (!window.AstrBotPluginPage) {
+    throw new Error("AstrBot 页面桥接加载失败，请刷新插件页面");
+  }
+  const pageBridge = window.AstrBotPluginPage;
+  await pageBridge.ready();
+  return pageBridge;
+}
 const pageParams = new URLSearchParams(window.location.search);
 const canvasId = pageParams.get("id") || "";
 const projectId = pageParams.get("project") || "default";
@@ -1438,9 +1451,8 @@ function centerViewportOnWorldPoint(point) {
 }
 
 async function loadInitialState() {
-  if (!bridge) throw new Error("请从 AstrBot WebUI 插件详情页打开 Canvas");
   if (!canvasId) throw new Error("请先从项目工作台选择或创建画布");
-  await bridge.ready();
+  bridge = await getBridge();
   const [config, workspace, canvasList, library] = await Promise.all([
     bridge.apiGet("canvas/config"),
     bridge.apiGet("canvas/workspace", { id: canvasId }),
@@ -1626,7 +1638,12 @@ els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
 els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);
 document.getElementById("backToManagerBtn").addEventListener("click", () => {
-  window.location.href = `./index.html?project=${encodeURIComponent(projectId)}`;
+  const target = new URL("./index.html", window.location.href);
+  const params = new URLSearchParams(window.location.search);
+  params.delete("id");
+  params.set("project", projectId);
+  target.search = params.toString();
+  window.location.href = target.toString();
 });
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));

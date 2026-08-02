@@ -2,8 +2,22 @@
 // Two-pane: LEFT project list, RIGHT pannable/zoomable board of canvas cards.
 // Self-contained; relies only on global fetch / StudioI18n / lucide.
 
-const bridge = window.AstrBotPluginPage;
+let bridge = null;
 let bridgeReady = null;
+
+async function getBridge(){
+    const deadline = Date.now() + 5000;
+    while(!window.AstrBotPluginPage && Date.now() < deadline){
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if(!window.AstrBotPluginPage){
+        throw new Error('AstrBot 页面桥接加载失败，请刷新插件页面');
+    }
+    bridge ||= window.AstrBotPluginPage;
+    bridgeReady ||= bridge.ready();
+    await bridgeReady;
+    return bridge;
+}
 
 function normalizeProject(project){
     return { ...project, canvas_count: project.canvasCount ?? project.canvas_count ?? 0 };
@@ -43,9 +57,7 @@ async function responseError(res, fallback){
 
 async function canvasFetch(url, options={}){
     try {
-        if(!bridge) throw new Error('请从 AstrBot 插件页面打开项目工作台');
-        bridgeReady ||= bridge.ready();
-        await bridgeReady;
+        const pageBridge = await getBridge();
         const parsed = new URL(url, window.location.href);
         const parts = parsed.pathname.split('/').filter(Boolean);
         const method = String(options.method || 'GET').toUpperCase();
@@ -55,24 +67,24 @@ async function canvasFetch(url, options={}){
         }
 
         if(parsed.pathname === '/api/projects' && method === 'GET'){
-            const data = await bridge.apiGet('canvas/projects');
+            const data = await pageBridge.apiGet('canvas/projects');
             return localResponse({ projects:(data.projects || []).map(normalizeProject) });
         }
         if(parsed.pathname === '/api/projects' && method === 'POST'){
-            const data = await bridge.apiPost('canvas/projects/create', body);
+            const data = await pageBridge.apiPost('canvas/projects/create', body);
             return localResponse({ project:normalizeProject(data.project) });
         }
         if(parts[0] === 'api' && parts[1] === 'projects' && parts[2]){
             const route = method === 'DELETE' ? 'canvas/projects/delete' : 'canvas/projects/update';
-            const data = await bridge.apiPost(route, { id:decodeURIComponent(parts[2]), ...body });
+            const data = await pageBridge.apiPost(route, { id:decodeURIComponent(parts[2]), ...body });
             return localResponse(data.project ? { project:normalizeProject(data.project) } : data);
         }
         if(parsed.pathname === '/api/canvases' && method === 'GET'){
-            const data = await bridge.apiGet('canvas/canvases');
+            const data = await pageBridge.apiGet('canvas/canvases');
             return localResponse({ canvases:(data.canvases || []).map(normalizeCanvas) });
         }
         if(parsed.pathname === '/api/canvases' && method === 'POST'){
-            const data = await bridge.apiPost('canvas/canvases/create', {
+            const data = await pageBridge.apiPost('canvas/canvases/create', {
                 title:body.title,
                 projectId:body.project || 'default',
                 x:body.board_x,
@@ -84,13 +96,13 @@ async function canvasFetch(url, options={}){
             return localResponse({ canvas:normalizeCanvas(data.canvas) });
         }
         if(parsed.pathname === '/api/canvases/trash'){
-            const data = await bridge.apiGet('canvas/canvases', { deleted:'1' });
+            const data = await pageBridge.apiGet('canvas/canvases', { deleted:'1' });
             return localResponse({ canvases:(data.canvases || []).map(normalizeCanvas) });
         }
         if(parts[0] === 'api' && parts[1] === 'canvases' && parts[2]){
             const id = decodeURIComponent(parts[2]);
             if(parts[3] === 'meta'){
-                const data = await bridge.apiPost('canvas/canvases/update', {
+                const data = await pageBridge.apiPost('canvas/canvases/update', {
                     id,
                     title:body.title,
                     projectId:body.project,
@@ -100,15 +112,15 @@ async function canvasFetch(url, options={}){
                 return localResponse({ canvas:normalizeCanvas(data.canvas) });
             }
             if(parts[3] === 'restore'){
-                return localResponse(await bridge.apiPost('canvas/canvases/restore', { id }));
+                return localResponse(await pageBridge.apiPost('canvas/canvases/restore', { id }));
             }
             if(parts[3] === 'purge'){
-                return localResponse(await bridge.apiPost('canvas/canvases/purge', { id }));
+                return localResponse(await pageBridge.apiPost('canvas/canvases/purge', { id }));
             }
             if(method === 'DELETE'){
-                return localResponse(await bridge.apiPost('canvas/canvases/delete', { id }));
+                return localResponse(await pageBridge.apiPost('canvas/canvases/delete', { id }));
             }
-            const workspace = await bridge.apiGet('canvas/workspace', { id });
+            const workspace = await pageBridge.apiGet('canvas/workspace', { id });
             const canvas = normalizeCanvas(canvases.find(item => item.id === id) || { id, title:'画布' });
             return localResponse({ canvas:{ ...workspace, ...canvas } });
         }
@@ -593,10 +605,14 @@ function attachCardDrag(card, c){
 }
 
 function openCanvas(c){
-    const enc = encodeURIComponent(c.id);
-    const project = encodeURIComponent(c.project || currentProjectId || 'default');
+    const project = c.project || currentProjectId || 'default';
     rememberProjectId(c.project || currentProjectId || 'default');
-    window.location.href = `./editor.html?id=${enc}&project=${project}`;
+    const target = new URL('./editor.html', window.location.href);
+    const params = new URLSearchParams(window.location.search);
+    params.set('id', c.id);
+    params.set('project', project);
+    target.search = params.toString();
+    window.location.href = target.toString();
 }
 
 /* ===== Card create flow ===== */
@@ -925,6 +941,7 @@ async function exportCanvasWithResources(id){
     const c = canvases.find(x => x.id === id);
     setStatus(L('正在收集资源...','Collecting assets...'));
     try {
+        const pageBridge = await getBridge();
         const res = await canvasFetch(`/api/canvases/${encodeURIComponent(id)}`);
         if(!res.ok) throw new Error('export failed');
         const data = await res.json();
@@ -938,7 +955,7 @@ async function exportCanvasWithResources(id){
         let skipped = 0;
         for(const assetId of assetIds){
             try {
-                const payload = await bridge.apiGet('canvas/asset', { id:assetId });
+                const payload = await pageBridge.apiGet('canvas/asset', { id:assetId });
                 const decoded = decodeDataUrl(payload.dataUrl);
                 const name = assetExportName(assetId, decoded.mimeType, usedNames);
                 entries.push({ name, bytes:decoded.bytes });
