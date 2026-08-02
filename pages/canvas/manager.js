@@ -152,8 +152,11 @@ const boardWorld = document.getElementById('boardWorld');
 const boardEmptyHint = document.getElementById('boardEmptyHint');
 const boardProjectName = document.getElementById('boardProjectName');
 const boardCanvasCount = document.getElementById('boardCanvasCount');
+const projectMenuBtn = document.getElementById('projectMenuBtn');
+const projectMenu = document.getElementById('sidebar');
 const projectListEl = document.getElementById('projectList');
 const trashEntryBtn = document.getElementById('trashEntry');
+const trashQuickBtn = document.getElementById('trashQuickBtn');
 const trashBadge = document.getElementById('trashBadge');
 const trashPanel = document.getElementById('trashPanel');
 const trashListEl = document.getElementById('trashList');
@@ -183,6 +186,14 @@ let clipboardCanvasId = null;   // 剪切的画布（切到别的项目后粘贴
 const viewport = { x: 0, y: 0, scale: 1 };
 const MIN_SCALE = 0.3, MAX_SCALE = 2;
 
+function setProjectMenu(open){
+    const next = !!open;
+    projectMenu.classList.toggle('open', next);
+    projectMenuBtn.classList.toggle('active', next);
+    projectMenuBtn.setAttribute('aria-expanded', String(next));
+    if(!next) closeNewProject();
+}
+
 /* ===== Status toast ===== */
 function setStatus(text){
     if(!statusEl) return;
@@ -196,8 +207,8 @@ function setStatus(text){
 /* ===== Viewport math (mirrors smart-canvas.js) ===== */
 function applyViewport(){
     boardWorld.style.transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`;
-    board.style.backgroundSize = `${120 * viewport.scale}px ${120 * viewport.scale}px, ${120 * viewport.scale}px ${120 * viewport.scale}px, ${24 * viewport.scale}px ${24 * viewport.scale}px`;
-    board.style.backgroundPosition = `${viewport.x}px ${viewport.y}px, ${viewport.x}px ${viewport.y}px, ${viewport.x}px ${viewport.y}px`;
+    board.style.backgroundSize = `${24 * viewport.scale}px ${24 * viewport.scale}px`;
+    board.style.backgroundPosition = `${viewport.x}px ${viewport.y}px`;
 }
 function screenToWorld(clientX, clientY){
     const rect = board.getBoundingClientRect();
@@ -361,10 +372,14 @@ function renderProjects(){
 }
 
 function selectProject(pid){
-    if(pid === currentProjectId && !trashPanel.classList.contains('active')) return;
+    if(pid === currentProjectId && !trashPanel.classList.contains('active')){
+        setProjectMenu(false);
+        return;
+    }
     currentProjectId = pid;
     rememberProjectId(pid);
     closeTrashView();
+    setProjectMenu(false);
     renderProjects();
     renderBoard();
     resetView();
@@ -398,6 +413,7 @@ function startProjectRename(pid, row){
 
 /* ===== Project CRUD ===== */
 function openNewProject(){
+    setProjectMenu(true);
     newProjectRow.classList.add('active');
     newProjectInput.value = '';
     newProjectInput.focus();
@@ -1054,13 +1070,16 @@ async function refreshTrashCount(){
     } catch(e){}
 }
 async function openTrashView(){
+    setProjectMenu(false);
     trashEntryBtn.classList.add('active');
+    trashQuickBtn?.classList.add('active');
     trashPanel.classList.add('active');
     closeCardMenu(); closeCreateCard();
     await loadTrash();
 }
 function closeTrashView(){
     trashEntryBtn.classList.remove('active');
+    trashQuickBtn?.classList.remove('active');
     trashPanel.classList.remove('active');
 }
 async function loadTrash(){
@@ -1159,6 +1178,11 @@ boardRefreshBtn.addEventListener('click', loadAll);
 boardResetViewBtn.addEventListener('click', resetView);
 pasteCanvasBtn?.addEventListener('click', pasteCanvas);
 
+projectMenuBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    setProjectMenu(!projectMenu.classList.contains('open'));
+});
+
 newProjectBtn.addEventListener('click', openNewProject);
 newProjectConfirm.addEventListener('click', createProject);
 newProjectCancel.addEventListener('click', closeNewProject);
@@ -1171,10 +1195,17 @@ trashEntryBtn.addEventListener('click', () => {
     if(trashPanel.classList.contains('active')) closeTrashView();
     else openTrashView();
 });
+trashQuickBtn?.addEventListener('click', () => {
+    if(trashPanel.classList.contains('active')) closeTrashView();
+    else openTrashView();
+});
 trashCloseBtn.addEventListener('click', closeTrashView);
 
 // close card menu when clicking outside
 document.addEventListener('mousedown', e => {
+    if(projectMenu.classList.contains('open') && !e.target.closest('#sidebar') && !e.target.closest('#projectMenuBtn')){
+        setProjectMenu(false);
+    }
     if(document.querySelector('.ws-card-pop') && !e.target.closest('.ws-card-pop') && !e.target.closest('.ws-card-menu')){
         closeCardMenu();
     }
@@ -1187,6 +1218,7 @@ document.addEventListener('keydown', e => {
     if(e.key !== 'Escape') return;
     closeCardMenu();
     closeCreateCard();
+    setProjectMenu(false);
     boardWorld.querySelectorAll('.ws-card.confirming-delete').forEach(el => el.classList.remove('confirming-delete'));
     if(trashPanel.classList.contains('active')) closeTrashView();
 });

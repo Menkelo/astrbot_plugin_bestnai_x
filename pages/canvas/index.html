@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="theme-dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,34 +9,38 @@
   </head>
   <body>
     <div id="workspace" class="workspace">
-      <aside id="sidebar" class="ws-sidebar">
-        <div class="ws-side-head">
-          <div class="ws-side-title">项目</div>
-          <button id="newProjectBtn" class="ws-side-add" type="button" title="新建项目" aria-label="新建项目">
-            <i data-lucide="plus"></i>
-          </button>
-        </div>
-        <div id="newProjectRow" class="ws-newproj-row">
-          <input id="newProjectInput" class="ws-newproj-input" type="text" maxlength="60" placeholder="项目名称" />
-          <button id="newProjectConfirm" class="ws-mini-btn primary" type="button" title="确定" aria-label="确定"><i data-lucide="check"></i></button>
-          <button id="newProjectCancel" class="ws-mini-btn" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
-        </div>
-        <div id="projectList" class="ws-project-list"></div>
-        <div class="ws-side-foot">
-          <button id="trashEntry" class="ws-trash-entry" type="button">
-            <i data-lucide="trash-2"></i><span class="ws-trash-label">回收站</span><span id="trashBadge" class="ws-trash-badge">0</span>
-          </button>
-        </div>
-      </aside>
-
       <main class="ws-main">
         <div class="ws-topbar">
           <div class="ws-topbar-left">
-            <div id="boardProjectName" class="ws-board-name">默认项目</div>
-            <span id="boardCanvasCount" class="ws-board-count">0</span>
+            <button id="projectMenuBtn" class="ws-project-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+              <i data-lucide="folder"></i>
+              <span id="boardProjectName" class="ws-board-name">默认项目</span>
+              <i class="ws-project-chevron" data-lucide="chevron-down"></i>
+              <span id="boardCanvasCount" class="ws-board-count">0</span>
+            </button>
+            <aside id="sidebar" class="ws-sidebar" aria-label="项目菜单">
+              <div class="ws-side-head">
+                <div class="ws-side-title">项目</div>
+                <button id="newProjectBtn" class="ws-side-add" type="button" title="新建项目" aria-label="新建项目">
+                  <i data-lucide="plus"></i>
+                </button>
+              </div>
+              <div id="newProjectRow" class="ws-newproj-row">
+                <input id="newProjectInput" class="ws-newproj-input" type="text" maxlength="60" placeholder="项目名称" />
+                <button id="newProjectConfirm" class="ws-mini-btn primary" type="button" title="确定" aria-label="确定"><i data-lucide="check"></i></button>
+                <button id="newProjectCancel" class="ws-mini-btn" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
+              </div>
+              <div id="projectList" class="ws-project-list"></div>
+              <div class="ws-side-foot">
+                <button id="trashEntry" class="ws-trash-entry" type="button">
+                  <i data-lucide="trash-2"></i><span class="ws-trash-label">回收站</span>
+                </button>
+              </div>
+            </aside>
           </div>
           <div class="ws-topbar-right">
             <button id="pasteCanvasBtn" class="ws-paste-btn" type="button" title="粘贴到此项目" hidden><i data-lucide="clipboard-paste"></i><span>粘贴到此项目</span></button>
+            <button id="trashQuickBtn" class="ws-icon-btn" type="button" title="回收站" aria-label="回收站"><i data-lucide="archive"></i><span id="trashBadge" class="ws-trash-badge">0</span></button>
             <button id="boardResetView" class="ws-icon-btn" type="button" title="重置视图" aria-label="重置视图"><i data-lucide="locate-fixed"></i></button>
             <button id="boardRefresh" class="ws-icon-btn" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
             <button id="newCanvasBtn" class="ws-primary-btn" type="button"><i data-lucide="plus"></i><span>新建画布</span></button>
