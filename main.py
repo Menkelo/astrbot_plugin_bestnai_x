@@ -207,6 +207,8 @@ class BestNAIPlugin(Star):
         self,
         image_path: str,
         user_hint: str,
+        keep_character: bool,
+        character_name: str,
     ) -> Dict[str, object]:
         retag_config = self.plugin_config.image_retag
         if not retag_config.enabled:
@@ -219,6 +221,8 @@ class BestNAIPlugin(Star):
             prompt = await self.image_retagger.retag(
                 image_path,
                 user_hint=user_hint,
+                keep_character=keep_character,
+                character_name=character_name,
             )
         except ImageRetagError as exc:
             raise ValueError(str(exc)) from exc

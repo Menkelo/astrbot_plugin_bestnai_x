@@ -23,7 +23,7 @@ GenerateCallback = Callable[
     Awaitable[Tuple[List[Tuple[str, bytes]], Dict[str, Any]]],
 ]
 ConfigCallback = Callable[[], Dict[str, Any]]
-RetagCallback = Callable[[str, str], Awaitable[Dict[str, Any]]]
+RetagCallback = Callable[[str, str, bool, str], Awaitable[Dict[str, Any]]]
 
 MAX_NODES = 160
 MAX_CONNECTIONS = 320
@@ -374,6 +374,19 @@ class CanvasStore:
                     "width": int(_bounded_number(raw_meta.get("width"), 0, 0, 20_000)),
                     "height": int(_bounded_number(raw_meta.get("height"), 0, 0, 20_000)),
                     "finalPrompt": _short_text(raw_meta.get("finalPrompt"), 6000),
+                    "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
+                    "translatedPromptExpanded": bool(
+                        raw_meta.get("translatedPromptExpanded", False)
+                    ),
+                    "promptCollapsedHeight": int(
+                        _bounded_number(raw_meta.get("promptCollapsedHeight"), 0, 0, 800)
+                    ),
+                    "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
+                    "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
+                    "retagMergedPrompt": _short_text(raw_meta.get("retagMergedPrompt"), 6000),
+                    "characterKeep": bool(raw_meta.get("characterKeep", False)),
+                    "characterName": _short_text(raw_meta.get("characterName"), 120),
+                    "userResized": bool(raw_meta.get("userResized", False)),
                 },
             }
             nodes.append(node)
@@ -848,13 +861,20 @@ class CanvasService:
 
         asset_id = str(payload.get("assetId") or "")
         user_hint = _short_text(payload.get("userHint"), 6000).strip()
+        keep_character = bool(payload.get("keepCharacter", False))
+        character_name = _short_text(payload.get("characterName"), 120).strip()
 
         try:
             if self.retag_callback is None:
                 raise ValueError("画布图片反推服务不可用")
 
             asset_path, _ = self.store.get_asset(asset_id)
-            result = await self.retag_callback(str(asset_path), user_hint)
+            result = await self.retag_callback(
+                str(asset_path),
+                user_hint,
+                keep_character,
+                character_name if keep_character else "",
+            )
             return json_response(result)
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)

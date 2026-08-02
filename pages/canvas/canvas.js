@@ -687,6 +687,7 @@ function renderPromptNode(node) {
   const translatedPanel = document.createElement("details");
   translatedPanel.className = "translated-prompt-panel";
   translatedPanel.open = !!node.meta?.translatedPromptExpanded;
+  element.classList.toggle("translated-expanded", translatedPanel.open);
   const translatedSummary = document.createElement("summary");
   translatedSummary.textContent = "英文 tags";
   const translatedPrompt = document.createElement("textarea");
@@ -699,13 +700,20 @@ function renderPromptNode(node) {
     const expanded = translatedPanel.open;
     if (!!node.meta?.translatedPromptExpanded === expanded) return;
     pushHistory();
-    node.meta = { ...(node.meta || {}), translatedPromptExpanded: expanded };
+    element.classList.toggle("translated-expanded", expanded);
+    const previousMeta = node.meta || {};
+    node.meta = { ...previousMeta, translatedPromptExpanded: expanded };
     if (expanded) {
-      const minimumHeight = window.matchMedia("(max-width: 620px)").matches ? 540 : 440;
+      node.meta.promptCollapsedHeight = node.height || 360;
+      const minimumHeight = window.matchMedia("(max-width: 620px)").matches ? 590 : 490;
       if ((node.height || 360) < minimumHeight) {
         node.height = minimumHeight;
         element.style.height = `${minimumHeight}px`;
       }
+    } else {
+      const collapsedHeight = Number(previousMeta.promptCollapsedHeight || 360);
+      node.height = clamp(collapsedHeight, 300, 800);
+      element.style.height = `${node.height}px`;
     }
     requestAnimationFrame(() => {
       renderConnections();
@@ -713,6 +721,34 @@ function renderPromptNode(node) {
     });
     scheduleSave();
   });
+
+  const characterRow = document.createElement("div");
+  characterRow.className = "character-keep-row";
+  const characterLabel = document.createElement("label");
+  characterLabel.className = "raw-toggle character-toggle";
+  characterLabel.dataset.tooltip = "连接原图反推时保持角色身份。填写名字会优先使用该角色的标准 tags；留空则由识图模型判断角色，无法确认时保留显著外观特征。";
+  const characterKeep = document.createElement("input");
+  characterKeep.type = "checkbox";
+  characterKeep.checked = !!node.meta?.characterKeep;
+  characterLabel.append(characterKeep, document.createTextNode("角色保持"));
+  const characterName = document.createElement("input");
+  characterName.type = "text";
+  characterName.className = "character-name-input";
+  characterName.maxLength = 120;
+  characterName.placeholder = "角色名（可选）";
+  characterName.value = node.meta?.characterName || "";
+  characterName.disabled = !characterKeep.checked;
+  characterKeep.addEventListener("change", () => {
+    node.meta = { ...(node.meta || {}), characterKeep: characterKeep.checked };
+    characterName.disabled = !characterKeep.checked;
+    if (characterKeep.checked) characterName.focus();
+    scheduleSave();
+  });
+  characterName.addEventListener("input", () => {
+    node.meta = { ...(node.meta || {}), characterName: characterName.value };
+    scheduleSave();
+  });
+  characterRow.append(characterLabel, characterName);
 
   const options = document.createElement("div");
   options.className = "prompt-options";
@@ -795,7 +831,7 @@ function renderPromptNode(node) {
   outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
-  body.append(prompt, translatedPanel, options, footer, status);
+  body.append(prompt, translatedPanel, characterRow, options, footer, status);
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
@@ -1283,8 +1319,8 @@ function attachNodeResize(handle, element, node) {
         pushHistory();
       }
       const promptMinimumHeight = node.meta?.translatedPromptExpanded
-        ? (window.matchMedia("(max-width: 620px)").matches ? 540 : 440)
-        : 300;
+        ? (window.matchMedia("(max-width: 620px)").matches ? 590 : 490)
+        : (window.matchMedia("(max-width: 620px)").matches ? 450 : 300);
       node.width = clamp(Math.round(start.width + dx), node.type === "prompt" ? 280 : 220, 640);
       node.height = clamp(
         Math.round(start.height + dy),
@@ -1561,7 +1597,9 @@ async function retagFromNode(id, generateAfter = false) {
 
   node.status = "retagging";
   node.error = "";
-  node.statusText = "正在反推原图提示词…";
+  node.statusText = node.meta?.characterKeep
+    ? "正在识别并保持角色身份…"
+    : "正在反推原图提示词…";
   renderAll();
 
   let succeeded = false;
@@ -1570,6 +1608,8 @@ async function retagFromNode(id, generateAfter = false) {
     const result = await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
       userHint: basePrompt,
+      keepCharacter: !!node.meta?.characterKeep,
+      characterName: node.meta?.characterKeep ? String(node.meta?.characterName || "").trim() : "",
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
@@ -1978,7 +2018,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.11"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.12"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2089,7 +2129,7 @@ els.viewport.addEventListener("dblclick", (event) => {
 });
 
 els.viewport.addEventListener("contextmenu", (event) => {
-  if (!event.target.closest(".prompt-text, .translated-prompt-text")) event.preventDefault();
+  if (!event.target.closest(".prompt-text, .translated-prompt-text, .character-name-input")) event.preventDefault();
 });
 
 function dataTransferHasFiles(dataTransfer) {
@@ -2103,8 +2143,8 @@ function clearDropOverlay() {
 function isPromptTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   return !!(
-    targetElement?.closest(".prompt-text, .translated-prompt-text")
-    || document.activeElement?.closest?.(".prompt-text, .translated-prompt-text")
+    targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input")
+    || document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input")
   );
 }
 

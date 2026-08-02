@@ -738,6 +738,10 @@ select:focus-visible,
   flex-direction: column;
 }
 
+.prompt-node.translated-expanded {
+  min-height: 490px;
+}
+
 .prompt-node .node-body {
   display: flex;
   min-height: 0;
@@ -857,6 +861,43 @@ select:focus-visible,
 .raw-toggle:focus-within::after {
   opacity: 1;
   transform: translateY(0);
+}
+
+.character-keep-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.character-toggle {
+  flex: 0 0 auto;
+}
+
+.character-name-input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: none;
+  background: var(--card-solid);
+  color: var(--text);
+  font-size: 10.5px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.character-name-input:focus {
+  border-color: var(--line-2);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
+}
+
+.character-name-input:disabled {
+  cursor: not-allowed;
+  opacity: .52;
 }
 
 .translated-prompt-panel {
@@ -1829,6 +1870,14 @@ select:focus-visible,
 
   .node {
     max-width: calc(100vw - 42px);
+  }
+
+  .prompt-node {
+    min-height: 450px;
+  }
+
+  .prompt-node.translated-expanded {
+    min-height: 590px;
   }
 
   .prompt-options {

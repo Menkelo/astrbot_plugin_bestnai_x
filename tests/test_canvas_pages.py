@@ -39,8 +39,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.addEventListener("dragstart"', editor)
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
-        self.assertIn('targetElement?.closest(".prompt-text, .translated-prompt-text")', editor)
-        self.assertIn('document.activeElement?.closest?.(".prompt-text, .translated-prompt-text")', editor)
+        self.assertIn(
+            'targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input")',
+            editor,
+        )
+        self.assertIn(
+            'document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input")',
+            editor,
+        )
         self.assertIn(".prompt-text {", styles)
         self.assertIn("user-select: none;", styles)
 
@@ -70,6 +76,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function attachImageNodeResize", editor)
         self.assertIn("userResized: true", editor)
         self.assertIn("translatedPromptExpanded", editor)
+        self.assertIn("promptCollapsedHeight", editor)
+        self.assertIn("previousMeta.promptCollapsedHeight || 360", editor)
+        self.assertIn('element.classList.toggle("translated-expanded", expanded)', editor)
+        self.assertIn('? 450 : 300', editor)
+        self.assertIn("min-height: 450px;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn("resize: none;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn('if (node.type === "prompt")', editor)
         self.assertIn("height: 360", editor)
@@ -122,6 +133,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("retagMergedPrompt: mergedPrompt", editor)
         self.assertIn('translatedSummary.textContent = "英文 tags"', editor)
         self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
+        self.assertIn('document.createTextNode("角色保持")', editor)
+        self.assertIn('characterName.placeholder = "角色名（可选）"', editor)
+        self.assertIn("keepCharacter: !!node.meta?.characterKeep", editor)
+        self.assertIn("character_name if keep_character else", service)
         self.assertNotIn('label: "不使用画师预设"', editor)
         self.assertIn('if (node.artist === "__none__") node.artist = ""', editor)
         self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
@@ -162,6 +177,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('class="topbar panel"', html)
         self.assertIn('id="connectionIndicator"', html)
         self.assertIn('class="plugin-title-row"', html)
+        self.assertLess(html.index('id="pluginVersion"'), html.index('id="connectionIndicator"'))
         self.assertNotIn('class="panel canvas-nav"', html)
         self.assertNotIn('class="panel toolbar"', html)
         self.assertIn('bridge.apiGet("canvas/health")', editor)
@@ -169,6 +185,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".connection-indicator.offline", styles)
         self.assertIn("left: -22px;", styles)
         self.assertIn("right: -22px;", styles)
+
+    def test_character_preservation_guides_visual_retagging(self) -> None:
+        retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("keep_character: bool = False", retagger)
+        self.assertIn("character_name: str =", retagger)
+        self.assertIn("Prioritize this supplied character identity", retagger)
+        self.assertIn("no name was supplied", retagger)
+        self.assertIn("canonical Danbooru character tag", retagger)
+        self.assertIn("keep_character=keep_character", main)
 
     def test_qq_retag_uses_detailed_retag_progress(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")

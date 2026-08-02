@@ -45,6 +45,15 @@ class CanvasStoreTest(unittest.TestCase):
                     "y": 20,
                     "width": 9999,
                     "prompt": "1girl",
+                    "height": 490,
+                    "meta": {
+                        "translatedPrompt": "1girl, blue hair",
+                        "translatedPromptExpanded": True,
+                        "promptCollapsedHeight": 360,
+                        "characterKeep": True,
+                        "characterName": "Hatsune Miku",
+                        "retagPrompt": "hatsune_miku, vocaloid",
+                    },
                     "dataUrl": "data:image/png;base64,not-persisted",
                     "status": "generating",
                 },
@@ -84,6 +93,12 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(saved["nodes"][0]["width"], 640)
         self.assertNotIn("dataUrl", saved["nodes"][0])
         self.assertNotIn("status", saved["nodes"][0])
+        self.assertEqual(loaded["nodes"][0]["meta"]["translatedPrompt"], "1girl, blue hair")
+        self.assertTrue(loaded["nodes"][0]["meta"]["translatedPromptExpanded"])
+        self.assertEqual(loaded["nodes"][0]["meta"]["promptCollapsedHeight"], 360)
+        self.assertTrue(loaded["nodes"][0]["meta"]["characterKeep"])
+        self.assertEqual(loaded["nodes"][0]["meta"]["characterName"], "Hatsune Miku")
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagPrompt"], "hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)
         self.assertEqual(loaded["nodes"][1]["meta"]["width"], 832)
         self.assertEqual(loaded["nodes"][2]["width"], 420)
@@ -182,7 +197,7 @@ class CanvasStoreTest(unittest.TestCase):
         async def generate(payload):
             return [], {}
 
-        async def retag(image_path, user_hint):
+        async def retag(image_path, user_hint, keep_character, character_name):
             return {"prompt": "1girl", "ratio": "1:1"}
 
         service = CanvasService(

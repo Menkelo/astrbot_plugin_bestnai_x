@@ -266,7 +266,13 @@ class ImageRetagger:
         self.context = context
         self.timeout = 180
 
-    async def retag(self, image_path_or_url: str, user_hint: str = "") -> str:
+    async def retag(
+        self,
+        image_path_or_url: str,
+        user_hint: str = "",
+        keep_character: bool = False,
+        character_name: str = "",
+    ) -> str:
         provider_id = getattr(self.config, "provider_id", "") or ""
 
         if not provider_id:
@@ -303,6 +309,13 @@ class ImageRetagger:
             "Focus on subject, hair, eyes, clothing, pose, expression, background, composition, lighting, camera angle, style, and quality tags."
         )
 
+        if keep_character:
+            system_prompt += (
+                " Character identity preservation is required. "
+                "When the subject is a known character, put the canonical Danbooru character tag and copyright/series tag near the beginning. "
+                "Never invent a character identity when the evidence is insufficient; preserve distinctive visible traits instead."
+            )
+
         user_text = (
             "Convert this image into NovelAI / Danbooru image generation tags. "
             "Output tags only, separated by commas."
@@ -310,6 +323,21 @@ class ImageRetagger:
 
         if user_hint:
             user_text += f"\nAdditional user hint to merge into the tag result: {user_hint}"
+
+        if keep_character:
+            clean_character_name = str(character_name or "").strip()[:120]
+            if clean_character_name:
+                user_text += (
+                    "\nCharacter preservation is enabled. "
+                    f"Prioritize this supplied character identity: {clean_character_name}. "
+                    "Use the image to verify it, then include its canonical character and series tags."
+                )
+            else:
+                user_text += (
+                    "\nCharacter preservation is enabled, but no name was supplied. "
+                    "First identify whether the subject is a recognizable named character from the image. "
+                    "If recognized, include the canonical character and series tags; otherwise retain distinctive appearance tags without guessing a name."
+                )
 
         payload: Dict[str, Any] = {
             "model": model,
