@@ -111,12 +111,18 @@ class PromptBuilder:
         self.plugin_config = plugin_config
         self.resolve_ratio_to_size = resolve_ratio_to_size
 
-    def build_generation_config(self, ratio_name_or_size: str) -> GenerationConfig:
+    def build_generation_config(
+        self,
+        ratio_name_or_size: str,
+        apply_safe_negative: bool = True,
+    ) -> GenerationConfig:
         gen_config = self.plugin_config.get_generation_config_for_version("4.5")
 
         width, height = self.resolve_ratio_to_size(ratio_name_or_size)
 
-        raw_negative_prompt = append_safe_negative(gen_config.negative_prompt)
+        raw_negative_prompt = gen_config.negative_prompt
+        if apply_safe_negative:
+            raw_negative_prompt = append_safe_negative(raw_negative_prompt)
         cleaned_negative_prompt = normalize_prompt_ascii(raw_negative_prompt)
 
         removed_chars = find_non_ascii_chars(raw_negative_prompt)

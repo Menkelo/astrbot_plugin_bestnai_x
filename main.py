@@ -25,6 +25,7 @@ from .core.translator import PromptTranslator, has_chinese
 from .image_store import send_image_best_effort
 from .models.config import GenerationConfig, PluginConfig
 from .services.artist_gallery import ArtistGalleryService
+from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
 from .services.image_ratio import (
     infer_ratio_label_from_size,
@@ -115,6 +116,11 @@ class BestNAIPlugin(Star):
         )
 
         self.artist_gallery = ArtistGalleryService(PLUGIN_NAME)
+        self.canvas = CanvasService(
+            PLUGIN_NAME,
+            generate_callback=self._canvas_generate,
+            config_callback=self._canvas_config,
+        )
 
         api_source = (
             "手动生图 API"
@@ -143,8 +149,138 @@ class BestNAIPlugin(Star):
             f"插件数据目录={self.artist_gallery.plugin_data_dir}"
         )
 
+    async def initialize(self) -> None:
+        self.canvas.register(self.context)
+        logger.info("[BestNAI/Canvas] Infinite Canvas 页面 API 已注册")
+
     async def terminate(self) -> None:
         logger.info("[BestNAI] 已卸载")
+
+    def _canvas_config(self) -> Dict[str, object]:
+        self._ensure_image_provider_ready()
+
+        ratios = []
+        for name in ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:1"):
+            width, height = self.ratio_presets[name]
+            ratios.append(
+                {
+                    "value": name,
+                    "label": f"{name} · {width}×{height}",
+                    "width": width,
+                    "height": height,
+                }
+            )
+
+        artists = [
+            {"value": name, "label": name}
+            for name in self.plugin_config.get_all_artist_slots_map().keys()
+        ]
+
+        return {
+            "configured": self.plugin_config.is_configured(),
+            "model": FIXED_MODEL,
+            "defaultRatio": self._normalize_ratio_label(self.default_ratio),
+            "defaultArtist": self._get_artist_display_name(),
+            "ratios": ratios,
+            "artists": artists,
+            "maxConcurrency": self.plugin_config.max_concurrency,
+            "translatorEnabled": self.plugin_config.translator.enabled,
+        }
+
+    async def _canvas_generate(
+        self,
+        payload: Dict[str, object],
+    ) -> Tuple[List[Tuple[str, bytes]], Dict[str, object]]:
+        prompt = str(payload.get("prompt") or "").strip()
+        ratio = str(payload.get("ratio") or self.default_ratio).strip()
+        artist_name = str(payload.get("artist") or "").strip()
+        raw_mode = bool(payload.get("raw", False))
+
+        if not prompt:
+            raise ValueError("请输入提示词")
+
+        if len(prompt) > 6000:
+            raise ValueError("提示词不能超过 6000 个字符")
+
+        if not self.plugin_config.is_configured():
+            self._ensure_image_provider_ready()
+
+        if not self.plugin_config.is_configured():
+            raise ValueError("插件未配置生图提供商或手动 API")
+
+        clean_prompt = prompt
+
+        translated_prompt = ""
+        working_prompt = clean_prompt
+
+        if has_chinese(clean_prompt):
+            tr_cfg = self.plugin_config.translator
+            if not tr_cfg.enabled:
+                raise ValueError("检测到中文提示词，请先在插件配置中启用翻译器")
+            if not tr_cfg.is_configured():
+                raise ValueError("翻译器未配置，请选择翻译提供商")
+
+            translated_prompt = await self._translate_prompt(
+                clean_prompt,
+                apply_safety_filter=False,
+            ) or ""
+            if not translated_prompt:
+                raise ValueError("提示词翻译失败，请检查翻译提供商")
+            working_prompt = translated_prompt
+
+        try:
+            gen_config = self.prompt_builder.build_generation_config(
+                ratio,
+                apply_safe_negative=False,
+            )
+        except Exception as exc:
+            raise ValueError(f"无效比例或尺寸：{ratio}") from exc
+
+        resolved_artist_name = ""
+        artist_prompt = ""
+
+        if raw_mode:
+            gen_config = replace(gen_config, quality=False)
+            final_prompt = normalize_prompt_ascii(working_prompt)
+        else:
+            if artist_name == "__none__":
+                artist_prompt = ""
+            elif artist_name:
+                resolved_artist_name, artist_prompt = self._find_artist_slot(artist_name)
+                if not resolved_artist_name:
+                    raise ValueError(f"画师预设不存在：{artist_name}")
+            else:
+                artist_prompt = self._get_effective_artist_prompt()
+                resolved_artist_name = self._get_artist_display_name()
+
+            final_prompt = self.prompt_builder.build_final_prompt(
+                working_prompt,
+                artist_prompt=artist_prompt,
+                suffix=self.plugin_config.prompt_suffix or "",
+            )
+
+        if not final_prompt:
+            raise ValueError("提示词清理后为空")
+
+        async with self._generation_semaphore:
+            images = await self.generator.generate(final_prompt, gen_config)
+
+        return images, {
+            "sourcePrompt": prompt,
+            "cleanPrompt": clean_prompt,
+            "translatedPrompt": translated_prompt,
+            "finalPrompt": final_prompt,
+            "ratio": self._display_ratio_label(
+                ratio,
+                gen_config.width,
+                gen_config.height,
+            ),
+            "width": gen_config.width,
+            "height": gen_config.height,
+            "artist": resolved_artist_name,
+            "raw": raw_mode,
+            "model": FIXED_MODEL,
+        }
 
     def _load_persisted_artist_preset(self) -> None:
         slot_name = self.runtime_state.get_default_artist_slot()
@@ -798,10 +934,14 @@ class BestNAIPlugin(Star):
         text = re.sub(r"\s*[,，;；]\s*[,，;；]\s*", ", ", text)
         return text.strip(" ,，;；").strip()
 
-    async def _translate_prompt(self, text: str) -> Optional[str]:
-        """将中文提示词翻译为英文并做安全过滤。
+    async def _translate_prompt(
+        self,
+        text: str,
+        apply_safety_filter: bool = True,
+    ) -> Optional[str]:
+        """将中文提示词翻译为英文，可选应用 QQ 场景安全过滤。
 
-        翻译失败或过滤后为空时返回 None。
+        翻译失败，或启用过滤后结果为空时返回 None。
         """
         text = (text or "").strip()
 
@@ -827,13 +967,14 @@ class BestNAIPlugin(Star):
         if not translated or has_chinese(translated):
             return None
 
-        translated_check = self.safety.check_prompt(translated)
+        if apply_safety_filter:
+            translated_check = self.safety.check_prompt(translated)
 
-        if translated_check.filtered_prompt != translated:
-            logger.info(
-                f"[BestNAI/Safety] 已自动过滤翻译后 prompt：{translated_check.reason}"
-            )
-            translated = translated_check.filtered_prompt
+            if translated_check.filtered_prompt != translated:
+                logger.info(
+                    f"[BestNAI/Safety] 已自动过滤翻译后 prompt：{translated_check.reason}"
+                )
+                translated = translated_check.filtered_prompt
 
         if not translated:
             return None
@@ -869,6 +1010,7 @@ class BestNAIPlugin(Star):
         event: AstrMessageEvent,
         prompt: str,
         raw_mode: bool = False,
+        show_progress: bool = True,
     ) -> AsyncGenerator:
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
@@ -986,16 +1128,17 @@ class BestNAIPlugin(Star):
             gen_config.height,
         )
 
-        if raw_mode:
-            yield event.plain_result(
-                f"🎨 正在生图（{ratio_display} | nai0 原始提示词模式）..."
-            )
-        else:
-            artist_display = self._get_artist_display_name(artist_slot_name)
+        if show_progress:
+            if raw_mode:
+                yield event.plain_result(
+                    f"🎨 正在生图（{ratio_display} | nai0 原始提示词模式）..."
+                )
+            else:
+                artist_display = self._get_artist_display_name(artist_slot_name)
 
-            yield event.plain_result(
-                f"🎨 正在生图（{ratio_display} | 画师预设：{artist_display}）..."
-            )
+                yield event.plain_result(
+                    f"🎨 正在生图（{ratio_display} | 画师预设：{artist_display}）..."
+                )
 
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
@@ -1053,7 +1196,7 @@ class BestNAIPlugin(Star):
             return
 
         try:
-            if self._generation_semaphore.locked():
+            if show_progress and self._generation_semaphore.locked():
                 yield event.plain_result(
                     f"⏳ 当前生图任务排队中（并发上限 {self.plugin_config.max_concurrency}），请稍候..."
                 )
@@ -1158,10 +1301,7 @@ class BestNAIPlugin(Star):
                     logger.warning(f"[BestNAI/ImageRetag] 读取输入图片比例失败，使用默认比例: {e}")
                     inferred_ratio = ""
 
-            if mentioned_qq:
-                yield event.plain_result("🔍 正在反推该用户头像提示词...")
-            else:
-                yield event.plain_result("🔍 正在反推图片提示词...")
+            yield event.plain_result("🎨 正在生图，请稍候...")
 
             try:
                 retag_prompt = await self.image_retagger.retag(
@@ -1249,6 +1389,7 @@ class BestNAIPlugin(Star):
                 event=event,
                 prompt=merged_prompt,
                 raw_mode=raw_mode,
+                show_progress=False,
             ):
                 yield result
 

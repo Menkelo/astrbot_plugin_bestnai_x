@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BestNAI Infinite Canvas</title>
+    <link rel="stylesheet" href="./canvas.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="appbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span class="brand-copy">
+            <strong>NAI Canvas</strong>
+            <small>Infinite workspace</small>
+          </span>
+        </div>
+
+        <div class="app-status">
+          <span class="status-dot" id="providerDot"></span>
+          <span id="providerStatus">正在连接</span>
+          <span class="save-state" id="saveState">尚未保存</span>
+        </div>
+
+        <nav class="app-actions" aria-label="工作区操作">
+          <button type="button" class="icon-btn" id="undoBtn" title="撤销 (Ctrl+Z)" aria-label="撤销">↶</button>
+          <button type="button" class="icon-btn" id="redoBtn" title="重做 (Ctrl+Shift+Z)" aria-label="重做">↷</button>
+          <span class="action-divider"></span>
+          <button type="button" class="text-btn" id="importBtn">导入</button>
+          <button type="button" class="text-btn" id="exportBtn">导出</button>
+          <button type="button" class="text-btn danger-text" id="clearBtn">清空</button>
+        </nav>
+      </header>
+
+      <main class="workspace">
+        <aside class="tool-rail" aria-label="节点工具">
+          <button type="button" class="tool-btn primary" id="addPromptBtn" title="添加提示词节点">
+            <span aria-hidden="true">＋</span><span>提示词</span>
+          </button>
+          <button type="button" class="tool-btn" id="addNoteBtn" title="添加备注节点">
+            <span aria-hidden="true">T</span><span>备注</span>
+          </button>
+          <button type="button" class="tool-btn" id="uploadBtn" title="上传图片">
+            <span aria-hidden="true">↑</span><span>图片</span>
+          </button>
+        </aside>
+
+        <section class="canvas-viewport" id="canvasViewport" aria-label="无限画布">
+          <div class="canvas-world" id="canvasWorld">
+            <svg class="connections" id="connections" aria-hidden="true">
+              <g id="connectionPaths"></g>
+            </svg>
+            <div id="nodeLayer"></div>
+          </div>
+
+          <div class="empty-state" id="emptyState">
+            <div class="empty-symbol" aria-hidden="true">＋</div>
+            <strong>创建第一个提示词节点</strong>
+            <span>双击画布，或使用左侧工具</span>
+          </div>
+
+          <div class="drop-indicator" id="dropIndicator">
+            <strong>放下图片</strong>
+            <span>图片会成为新的画布节点</span>
+          </div>
+
+          <div class="zoom-controls" aria-label="画布缩放">
+            <button type="button" id="zoomOutBtn" title="缩小" aria-label="缩小">−</button>
+            <button type="button" class="zoom-value" id="zoomValue" title="重置为 100%">100%</button>
+            <button type="button" id="zoomInBtn" title="放大" aria-label="放大">＋</button>
+            <button type="button" id="fitBtn" title="适配全部节点" aria-label="适配全部节点">⊙</button>
+          </div>
+
+          <aside class="minimap-wrap" aria-label="画布概览">
+            <canvas id="minimap" width="180" height="110"></canvas>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+    <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+
+    <div class="modal-backdrop" id="clearModal" hidden>
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clearModalTitle">
+        <h2 id="clearModalTitle">清空画布</h2>
+        <p>全部节点和连线会从工作区移除，已存储的图片文件会保留。</p>
+        <div class="dialog-actions">
+          <button type="button" class="text-btn" id="cancelClearBtn">取消</button>
+          <button type="button" class="confirm-danger" id="confirmClearBtn">清空</button>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="./canvas.js"></script>
+  </body>
+</html>
