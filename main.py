@@ -798,6 +798,48 @@ class BestNAIPlugin(Star):
         text = re.sub(r"\s*[,，;；]\s*[,，;；]\s*", ", ", text)
         return text.strip(" ,，;；").strip()
 
+    async def _translate_prompt(self, text: str) -> Optional[str]:
+        """将中文提示词翻译为英文并做安全过滤。
+
+        翻译失败或过滤后为空时返回 None。
+        """
+        text = (text or "").strip()
+
+        if not text:
+            return None
+
+        tr_cfg = self.plugin_config.translator
+
+        if not tr_cfg.enabled or not tr_cfg.is_configured():
+            return None
+
+        translator = PromptTranslator(tr_cfg, context=self.context)
+
+        translated = await translator.translate(
+            text,
+            danbooru_api_url=(
+                self.plugin_config.danbooru_api_url
+                if self.plugin_config.danbooru_tag_search
+                else ""
+            ),
+        )
+
+        if not translated or has_chinese(translated):
+            return None
+
+        translated_check = self.safety.check_prompt(translated)
+
+        if translated_check.filtered_prompt != translated:
+            logger.info(
+                f"[BestNAI/Safety] 已自动过滤翻译后 prompt：{translated_check.reason}"
+            )
+            translated = translated_check.filtered_prompt
+
+        if not translated:
+            return None
+
+        return translated
+
     async def _send_images(
         self,
         event: AstrMessageEvent,
@@ -971,34 +1013,10 @@ class BestNAIPlugin(Star):
                 )
                 return
 
-            translator = PromptTranslator(
-                self.plugin_config.translator,
-                context=self.context,
-            )
-
-            translated = await translator.translate(
-                clean_prompt,
-                danbooru_api_url=(
-                    self.plugin_config.danbooru_api_url
-                    if self.plugin_config.danbooru_tag_search
-                    else ""
-                ),
-            )
-
-            if not translated or has_chinese(translated):
-                yield event.plain_result("❌ 翻译失败，请检查翻译提供商配置。")
-                return
-
-            translated_check = self.safety.check_prompt(translated)
-
-            if translated_check.filtered_prompt != translated:
-                logger.info(
-                    f"[BestNAI/Safety] 已自动过滤翻译后 prompt：{translated_check.reason}"
-                )
-                translated = translated_check.filtered_prompt
+            translated = await self._translate_prompt(clean_prompt)
 
             if not translated:
-                yield event.plain_result("❌ 提示词过滤后为空，请补充安全的有效提示词")
+                yield event.plain_result("❌ 翻译失败，请检查翻译提供商配置。")
                 return
 
             if tr_cfg.show_result:
@@ -1164,7 +1182,55 @@ class BestNAIPlugin(Star):
                 yield event.plain_result(f"🔎 {title}：\n{retag_prompt}")
 
             if prompt:
-                merged_prompt = f"{prompt}, {retag_prompt}"
+                ratio_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
+                desc_part, _, artist_name = self._extract_artist_slot_from_prompt(
+                    ratio_prompt
+                )
+
+                if desc_part and has_chinese(desc_part):
+                    tr_cfg = self.plugin_config.translator
+
+                    if not tr_cfg.enabled:
+                        yield event.plain_result(
+                            "❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。"
+                        )
+                        return
+
+                    if not tr_cfg.is_configured():
+                        yield event.plain_result(
+                            "❌ 翻译器未配置。请在 translator_config 中选择翻译提供商。"
+                        )
+                        return
+
+                    translated = await self._translate_prompt(desc_part)
+
+                    if not translated:
+                        yield event.plain_result("❌ 翻译失败，请检查翻译提供商配置。")
+                        return
+
+                    if tr_cfg.show_result:
+                        yield event.plain_result(f"🔎 翻译结果：\n{translated}")
+
+                    parts = []
+
+                    if prompt_has_explicit_ratio(
+                        prompt,
+                        self._short_ratio_aliases(),
+                        self.ratio_presets,
+                        self._normalize_ratio_label,
+                    ) and ratio_name:
+                        parts.append(ratio_name)
+
+                    if artist_name and not raw_mode:
+                        parts.append(artist_name)
+
+                    parts.append(translated)
+
+                    merged_user_prompt = " ".join(parts)
+                else:
+                    merged_user_prompt = prompt
+
+                merged_prompt = f"{merged_user_prompt}, {retag_prompt}"
             else:
                 merged_prompt = retag_prompt
 
