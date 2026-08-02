@@ -143,7 +143,9 @@ class CanvasStoreTest(unittest.TestCase):
         buffer = BytesIO()
         Image.new("RGB", (48, 32), (90, 120, 200)).save(buffer, format="PNG")
         image = self.store.store_asset(buffer.getvalue())
-        self.store.add_image_to_library(image, "天空参考", "upload")
+        self.store.add_image_to_library(image, "自动上传", "upload")
+        self.assertEqual(self.store.list_library()["images"], [])
+        self.store.add_image_to_library(image, "天空参考", "canvas")
         prompt = self.store.save_prompt_asset(
             {"name": "逆光人像", "prompt": "1girl, backlight", "ratio": "2:3"}
         )

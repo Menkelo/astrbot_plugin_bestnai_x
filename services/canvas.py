@@ -528,7 +528,15 @@ class CanvasStore:
         return {"id": asset_id, "dataUrl": data_url, "mimeType": mime_type}
 
     def list_library(self) -> Dict[str, List[Dict[str, Any]]]:
-        return self._library()
+        library = self._library()
+        return {
+            "images": [
+                dict(item)
+                for item in library["images"]
+                if item.get("source") not in {"generation", "upload"}
+            ],
+            "prompts": [dict(item) for item in library["prompts"]],
+        }
 
     def add_image_to_library(
         self,
@@ -816,11 +824,6 @@ class CanvasService:
 
             for image_format, image_bytes in images:
                 asset = self.store.store_asset(image_bytes, image_format)
-                self.store.add_image_to_library(
-                    asset,
-                    metadata.get("cleanPrompt") or metadata.get("prompt") or "NAI 生成图片",
-                    "generation",
-                )
                 asset.update(self.store.asset_payload(asset["id"]))
                 assets.append(asset)
 
@@ -897,11 +900,6 @@ class CanvasService:
 
             data = await upload.read(MAX_UPLOAD_BYTES + 1)
             asset = self.store.store_asset(data)
-            self.store.add_image_to_library(
-                asset,
-                getattr(upload, "filename", "") or "上传图片",
-                "upload",
-            )
             asset.update(self.store.asset_payload(asset["id"]))
             return json_response(asset)
         except CanvasValidationError as exc:

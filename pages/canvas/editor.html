@@ -11,7 +11,21 @@
     <div id="shell" class="shell">
       <div class="topbar">
         <section class="panel canvas-nav" aria-label="画布状态">
-          <button id="backToManagerBtn" class="nav-back-btn" type="button" title="返回项目工作台" aria-label="返回项目工作台"><i data-lucide="arrow-left"></i></button>
+          <div class="project-switcher">
+            <button id="projectMenuBtn" class="nav-project-btn" type="button" title="管理项目" aria-label="管理项目" aria-haspopup="true" aria-expanded="false"><i data-lucide="folder"></i></button>
+            <div id="projectMenu" class="project-menu" hidden>
+              <header class="project-menu-head">
+                <strong>项目</strong>
+                <button id="newProjectBtn" class="project-menu-icon" type="button" title="新建项目" aria-label="新建项目"><i data-lucide="plus"></i></button>
+              </header>
+              <div id="newProjectRow" class="project-create-row" hidden>
+                <input id="newProjectInput" type="text" maxlength="120" placeholder="项目名称" />
+                <button id="confirmNewProjectBtn" class="project-menu-icon primary" type="button" title="创建" aria-label="创建"><i data-lucide="check"></i></button>
+                <button id="cancelNewProjectBtn" class="project-menu-icon" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
+              </div>
+              <div id="projectList" class="project-list"></div>
+            </div>
+          </div>
           <span class="canvas-mark" aria-hidden="true"><i data-lucide="sparkles"></i></span>
           <div class="canvas-nav-meta">
             <strong class="current-canvas-title" id="currentCanvasTitle">未命名画布</strong>

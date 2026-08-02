@@ -13,8 +13,8 @@ async function getBridge() {
   return pageBridge;
 }
 const pageParams = new URLSearchParams(window.location.search);
-const canvasId = pageParams.get("id") || "";
-const projectId = pageParams.get("project") || "default";
+let canvasId = pageParams.get("id") || "";
+let projectId = pageParams.get("project") || "default";
 
 const els = {
   viewport: document.getElementById("board"),
@@ -43,6 +43,11 @@ const els = {
   assetSearch: document.getElementById("assetSearch"),
   assetPanelCount: document.getElementById("assetPanelCount"),
   saveSelectedPromptBtn: document.getElementById("saveSelectedPromptBtn"),
+  projectMenuBtn: document.getElementById("projectMenuBtn"),
+  projectMenu: document.getElementById("projectMenu"),
+  projectList: document.getElementById("projectList"),
+  newProjectRow: document.getElementById("newProjectRow"),
+  newProjectInput: document.getElementById("newProjectInput"),
 };
 
 const state = {
@@ -70,9 +75,12 @@ const state = {
   pendingUploadPoint: null,
   library: { images: [], prompts: [] },
   assetTab: "images",
+  canvases: [],
+  pendingDeleteCanvasId: "",
 };
 
 const MAX_HISTORY = 40;
+const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 const nowLabel = () => new Date().toLocaleString([], { hour: "2-digit", minute: "2-digit" });
@@ -100,6 +108,142 @@ function toast(message, type = "info") {
 
 function setSaveState(text) {
   els.saveState.textContent = text;
+}
+
+function setProjectMenu(open) {
+  const next = !!open;
+  els.projectMenu.hidden = !next;
+  els.projectMenuBtn.setAttribute("aria-expanded", String(next));
+  if (!next) {
+    els.newProjectRow.hidden = true;
+    els.newProjectInput.value = "";
+    state.pendingDeleteCanvasId = "";
+  }
+}
+
+function projectIconButton(iconName, title, className = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `project-menu-icon${className ? ` ${className}` : ""}`;
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  button.appendChild(icon(iconName));
+  return button;
+}
+
+function renderProjectMenu() {
+  els.projectList.replaceChildren();
+  state.canvases.forEach((canvas) => {
+    const row = document.createElement("div");
+    row.className = `project-row${canvas.id === canvasId ? " active" : ""}`;
+    row.dataset.canvasId = canvas.id;
+
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "project-row-main";
+    select.append(icon(canvas.id === canvasId ? "folder-open" : "folder"));
+    const name = document.createElement("span");
+    name.className = "project-row-name";
+    name.textContent = canvas.title || "未命名项目";
+    select.appendChild(name);
+    select.addEventListener("click", () => navigateToCanvas(canvas));
+
+    const actions = document.createElement("span");
+    actions.className = "project-row-actions";
+    if (state.pendingDeleteCanvasId === canvas.id) {
+      const label = document.createElement("span");
+      label.className = "project-delete-label";
+      label.textContent = "确认删除?";
+      const confirm = projectIconButton("check", "确认删除", "danger");
+      const cancel = projectIconButton("x", "取消");
+      confirm.addEventListener("click", () => deleteCanvasProject(canvas.id));
+      cancel.addEventListener("click", () => {
+        state.pendingDeleteCanvasId = "";
+        renderProjectMenu();
+      });
+      actions.append(label, confirm, cancel);
+    } else {
+      const remove = projectIconButton("trash-2", "删除项目", "danger");
+      remove.addEventListener("click", () => {
+        state.pendingDeleteCanvasId = canvas.id;
+        renderProjectMenu();
+      });
+      actions.appendChild(remove);
+    }
+    row.append(select, actions);
+    els.projectList.appendChild(row);
+  });
+  refreshIcons(els.projectList);
+}
+
+function canvasUrl(canvas) {
+  const target = new URL("./editor.html", window.location.href);
+  target.searchParams.set("id", canvas.id);
+  target.searchParams.set("project", canvas.projectId || "default");
+  return target;
+}
+
+async function navigateToCanvas(canvas) {
+  if (!canvas?.id || canvas.id === canvasId) {
+    setProjectMenu(false);
+    return;
+  }
+  if (state.saveTimer) {
+    window.clearTimeout(state.saveTimer);
+    state.saveTimer = null;
+    await saveWorkspace();
+  }
+  try {
+    localStorage.setItem(LAST_CANVAS_KEY, canvas.id);
+  } catch (_) {
+    // The current browser may disable local storage.
+  }
+  window.location.href = canvasUrl(canvas).toString();
+}
+
+async function createCanvasProject() {
+  const title = els.newProjectInput.value.trim() || "新项目";
+  try {
+    const result = await bridge.apiPost("canvas/canvases/create", {
+      title,
+      projectId: projectId || "default",
+    });
+    if (!result?.canvas?.id) throw new Error("创建项目失败");
+    await navigateToCanvas(result.canvas);
+  } catch (error) {
+    toast(error.message || "创建项目失败", "error");
+  }
+}
+
+async function deleteCanvasProject(id) {
+  try {
+    await bridge.apiPost("canvas/canvases/delete", { id });
+    state.canvases = state.canvases.filter((canvas) => canvas.id !== id);
+    state.pendingDeleteCanvasId = "";
+    if (id !== canvasId) {
+      renderProjectMenu();
+      toast("项目已删除");
+      return;
+    }
+    let next = state.canvases[0];
+    if (!next) {
+      const result = await bridge.apiPost("canvas/canvases/create", {
+        title: "新项目",
+        projectId: "default",
+      });
+      next = result?.canvas;
+    }
+    if (!next?.id) throw new Error("无法创建新的项目");
+    try {
+      localStorage.setItem(LAST_CANVAS_KEY, next.id);
+    } catch (_) {
+      // The current browser may disable local storage.
+    }
+    window.location.href = canvasUrl(next).toString();
+  } catch (error) {
+    toast(error.message || "删除项目失败", "error");
+    renderProjectMenu();
+  }
 }
 
 function serializableWorkspace() {
@@ -283,10 +427,31 @@ function deleteNodes(ids) {
   const deleteIds = new Set(ids.filter((id) => !!findNode(id)));
   if (!deleteIds.size) return;
   pushHistory();
+  const removedAssetIds = state.nodes
+    .filter((node) => deleteIds.has(node.id) && node.type === "image" && node.assetId)
+    .map((node) => node.assetId);
   state.nodes = state.nodes.filter((node) => !deleteIds.has(node.id));
   state.connections = state.connections.filter(
     (edge) => !deleteIds.has(edge.source) && !deleteIds.has(edge.target),
   );
+  const orphanedAssetIds = [...new Set(removedAssetIds)].filter(
+    (assetId) => !state.nodes.some((node) => node.type === "image" && node.assetId === assetId),
+  );
+  if (orphanedAssetIds.length) {
+    state.library.images = state.library.images.filter(
+      (item) => !orphanedAssetIds.includes(item.id),
+    );
+    if (els.assetPanel.classList.contains("open")) renderAssetLibrary();
+    Promise.allSettled(
+      orphanedAssetIds.map((assetId) => (
+        bridge.apiPost("canvas/library/image/delete", { id: assetId })
+      )),
+    ).then((results) => {
+      if (results.some((result) => result.status === "rejected")) {
+        toast("部分图片未能从素材库移除", "error");
+      }
+    });
+  }
   clearSelection();
   renderAll();
   scheduleSave();
@@ -461,7 +626,7 @@ function renderPromptNode(node) {
   retag.type = "button";
   retag.className = "retag-btn";
   retag.disabled = !!node.status || !sourceImage || !state.config.retagConfigured;
-  retag.append(icon("scan-search"), document.createTextNode(node.status === "retagging" ? "反推中…" : "反推原图"));
+  retag.append(icon("scan-search"), document.createTextNode(node.status === "retagging" ? "反推中…" : "反推并生成"));
   if (!state.config.retagEnabled) {
     retag.title = "请先在插件配置中启用图片反推";
   } else if (!state.config.retagConfigured) {
@@ -469,12 +634,12 @@ function renderPromptNode(node) {
   } else if (!sourceImage) {
     retag.title = "先把图片节点右侧端口连接到此节点左侧";
   } else {
-    retag.title = "从左侧连接的原图反推提示词";
+    retag.title = "反推左侧原图提示词并直接生成";
   }
   retag.addEventListener("pointerdown", (event) => event.stopPropagation());
   retag.addEventListener("click", (event) => {
     event.stopPropagation();
-    retagFromNode(node.id);
+    retagFromNode(node.id, true);
   });
 
   const generate = document.createElement("button");
@@ -536,6 +701,10 @@ function renderImageNode(node) {
   );
   actions.insertBefore(
     makeAction("bookmark-plus", "保存到素材库", () => saveImageToLibrary(node)),
+    actions.firstChild,
+  );
+  actions.insertBefore(
+    makeAction("scan-search", "反推并生成", () => retagAndGenerateFromImage(node.id)),
     actions.firstChild,
   );
 
@@ -1112,7 +1281,6 @@ async function generateFromNode(id) {
     toast("生成完成");
     renderAll();
     scheduleSave();
-    loadLibrary(els.assetPanel.classList.contains("open"));
   } catch (error) {
     node.error = error.message || "生成失败";
     toast(node.error, "error");
@@ -1123,6 +1291,35 @@ async function generateFromNode(id) {
   }
 }
 
+async function retagAndGenerateFromImage(imageId) {
+  const imageNode = findNode(imageId);
+  if (!imageNode?.assetId) {
+    toast("图片资源尚未就绪", "error");
+    return;
+  }
+  if (!state.config.retagConfigured) {
+    toast("请先配置图片反推提供商", "error");
+    return;
+  }
+  let promptNode = state.connections
+    .filter((edge) => edge.source === imageId)
+    .map((edge) => findNode(edge.target))
+    .find((node) => node?.type === "prompt");
+  if (!promptNode) {
+    pushHistory();
+    promptNode = createPromptNode({
+      x: imageNode.x + (imageNode.width || 300) + 260,
+      y: imageNode.y + 170,
+    });
+    state.nodes.push(promptNode);
+    state.connections.push({ source: imageId, target: promptNode.id });
+    setSelection([promptNode.id], promptNode.id);
+    renderAll();
+    scheduleSave();
+  }
+  await retagFromNode(promptNode.id, true);
+}
+
 function sourceImageForPrompt(promptId) {
   const edge = state.connections.find((item) => {
     if (item.target !== promptId) return false;
@@ -1131,21 +1328,21 @@ function sourceImageForPrompt(promptId) {
   return edge ? findNode(edge.source) : null;
 }
 
-async function retagFromNode(id) {
+async function retagFromNode(id, generateAfter = false) {
   const node = findNode(id);
-  if (!node || node.status) return;
+  if (!node || node.status) return false;
 
   const sourceImage = sourceImageForPrompt(id);
   if (!sourceImage?.assetId) {
     node.error = "请先把原图连接到提示词节点左侧";
     renderAll();
-    return;
+    return false;
   }
 
   if (!state.config.retagConfigured) {
     node.error = "请先配置图片反推提供商";
     renderAll();
-    return;
+    return false;
   }
 
   node.status = "retagging";
@@ -1153,6 +1350,7 @@ async function retagFromNode(id) {
   node.statusText = "正在反推原图提示词…";
   renderAll();
 
+  let succeeded = false;
   try {
     const result = await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
@@ -1171,6 +1369,7 @@ async function retagFromNode(id) {
       : "反推完成";
     toast("原图反推完成");
     scheduleSave();
+    succeeded = true;
   } catch (error) {
     node.error = error.message || "图片反推失败";
     toast(node.error, "error");
@@ -1178,6 +1377,8 @@ async function retagFromNode(id) {
     node.status = "";
     renderAll();
   }
+  if (succeeded && generateAfter) await generateFromNode(id);
+  return succeeded;
 }
 
 async function ensureAssetLoaded(node) {
@@ -1444,7 +1645,6 @@ async function uploadFiles(files, point = worldCenter()) {
       toast(`${images[index].name}：${error.message}`, "error");
     }
   }
-  await loadLibrary(els.assetPanel.classList.contains("open"));
 }
 
 // DOM projection and drag navigation follow hero8152/Infinite-Canvas.
@@ -1520,14 +1720,45 @@ function centerViewportOnWorldPoint(point) {
 }
 
 async function loadInitialState() {
-  if (!canvasId) throw new Error("请先从项目工作台选择或创建画布");
   bridge = await getBridge();
-  const [config, workspace, canvasList, library] = await Promise.all([
+  const [config, canvasList, library] = await Promise.all([
     bridge.apiGet("canvas/config"),
-    bridge.apiGet("canvas/workspace", { id: canvasId }),
     bridge.apiGet("canvas/canvases"),
     bridge.apiGet("canvas/library"),
   ]);
+  state.canvases = Array.isArray(canvasList?.canvases) ? canvasList.canvases : [];
+  let canvasMeta = state.canvases.find((item) => item.id === canvasId);
+  if (!canvasMeta) {
+    let rememberedId = "";
+    try {
+      rememberedId = localStorage.getItem(LAST_CANVAS_KEY) || "";
+    } catch (_) {
+      // The current browser may disable local storage.
+    }
+    canvasMeta = state.canvases.find((item) => item.id === rememberedId)
+      || state.canvases[0];
+  }
+  if (!canvasMeta) {
+    const result = await bridge.apiPost("canvas/canvases/create", {
+      title: "默认项目",
+      projectId: "default",
+    });
+    canvasMeta = result?.canvas;
+    if (!canvasMeta?.id) throw new Error("初始化项目失败");
+    state.canvases.push(canvasMeta);
+  }
+  canvasId = canvasMeta.id;
+  projectId = canvasMeta.projectId || "default";
+  try {
+    localStorage.setItem(LAST_CANVAS_KEY, canvasId);
+  } catch (_) {
+    // The current browser may disable local storage.
+  }
+  const currentUrl = new URL(window.location.href);
+  currentUrl.searchParams.set("id", canvasId);
+  currentUrl.searchParams.set("project", projectId);
+  window.history.replaceState(null, "", currentUrl);
+  const workspace = await bridge.apiGet("canvas/workspace", { id: canvasId });
   state.config = { ...state.config, ...(config || {}) };
   state.nodes = Array.isArray(workspace?.nodes)
     ? workspace.nodes.map(normalizeLoadedNodeDimensions)
@@ -1538,7 +1769,6 @@ async function loadInitialState() {
     images: Array.isArray(library?.images) ? library.images : [],
     prompts: Array.isArray(library?.prompts) ? library.prompts : [],
   };
-  const canvasMeta = (canvasList?.canvases || []).find((item) => item.id === canvasId);
   els.currentCanvasTitle.textContent = canvasMeta?.title || "未命名画布";
   document.title = `${els.currentCanvasTitle.textContent} · BestNAI`;
   els.providerDot.classList.toggle("ready", !!state.config.configured);
@@ -1548,6 +1778,7 @@ async function loadInitialState() {
     : "未配置生图提供商";
   setSaveState(workspace?.updatedAt ? "工作区已同步" : "新工作区");
   renderAll();
+  renderProjectMenu();
 }
 
 els.viewport.addEventListener("pointerdown", (event) => {
@@ -1744,13 +1975,34 @@ document.getElementById("fitBtn").addEventListener("click", fitView);
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
 els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);
-document.getElementById("backToManagerBtn").addEventListener("click", () => {
-  const target = new URL("./index.html", window.location.href);
-  const params = new URLSearchParams(window.location.search);
-  params.delete("id");
-  params.set("project", projectId);
-  target.search = params.toString();
-  window.location.href = target.toString();
+els.projectMenuBtn.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setProjectMenu(els.projectMenu.hidden);
+  if (!els.projectMenu.hidden) renderProjectMenu();
+});
+document.getElementById("newProjectBtn").addEventListener("click", () => {
+  els.newProjectRow.hidden = false;
+  els.newProjectInput.focus();
+});
+document.getElementById("confirmNewProjectBtn").addEventListener("click", createCanvasProject);
+document.getElementById("cancelNewProjectBtn").addEventListener("click", () => {
+  els.newProjectRow.hidden = true;
+  els.newProjectInput.value = "";
+});
+els.newProjectInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    createCanvasProject();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    els.newProjectRow.hidden = true;
+    els.newProjectInput.value = "";
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  if (!els.projectMenu.hidden && !event.target.closest(".project-switcher")) {
+    setProjectMenu(false);
+  }
 });
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
@@ -1815,12 +2067,7 @@ document.getElementById("cancelClearBtn").addEventListener("click", () => {
 });
 document.getElementById("confirmClearBtn").addEventListener("click", () => {
   clearModal.hidden = true;
-  pushHistory();
-  state.nodes = [];
-  state.connections = [];
-  clearSelection();
-  renderAll();
-  scheduleSave();
+  deleteNodes(state.nodes.map((node) => node.id));
 });
 clearModal.addEventListener("pointerdown", (event) => {
   if (event.target === clearModal) clearModal.hidden = true;
@@ -1829,6 +2076,10 @@ clearModal.addEventListener("pointerdown", (event) => {
 document.addEventListener("keydown", (event) => {
   const editing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
   if (event.key === "Escape") {
+    if (!els.projectMenu.hidden) {
+      setProjectMenu(false);
+      return;
+    }
     if (els.assetPanel.classList.contains("open")) {
       setAssetPanel(false);
       return;
