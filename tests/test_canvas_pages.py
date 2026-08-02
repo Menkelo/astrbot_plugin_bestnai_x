@@ -62,11 +62,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
 
-    def test_editor_persists_resized_notes_and_prompts_and_fits_image_nodes(self) -> None:
+    def test_editor_persists_resized_notes_prompts_and_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
 
         self.assertIn("height: node.height || 0", editor)
         self.assertIn("function attachNodeResize", editor)
+        self.assertIn("function attachImageNodeResize", editor)
+        self.assertIn("userResized: true", editor)
+        self.assertIn("translatedPromptExpanded", editor)
+        self.assertIn("resize: none;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn('if (node.type === "prompt")', editor)
         self.assertIn("height: 360", editor)
         self.assertIn("node.height = clamp", editor)
@@ -88,6 +92,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
 
         self.assertIn('id="projectMenuBtn"', html)
+        self.assertIn('class="project-switcher toolbar-project-switcher"', html)
+        self.assertLess(html.index('id="clearBtn"'), html.index('id="projectMenuBtn"'))
         self.assertIn('id="newProjectBtn"', html)
         self.assertIn('id="projectList"', html)
         self.assertNotIn("backToManagerBtn", html)
@@ -144,8 +150,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn('src="./plugin-logo.webp"', html)
-        self.assertIn('id="pluginRepoLink"', html)
-        self.assertIn('>项目地址</a>', html)
+        self.assertNotIn('id="pluginRepoLink"', html)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -171,22 +176,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('yield event.plain_result("🎨 正在生图，请稍候...")', main)
         self.assertIn('progress_verb: str = "生图"', main)
         self.assertIn('progress_verb="反推"', main)
-        self.assertIn('f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."', main)
+        self.assertIn("def _format_generation_progress", main)
         self.assertIn("followup_messages=show_messages", main)
+        image_branch = main.split("        if image_src:", 1)[1].split(
+            "        if not prompt:", 1
+        )[0]
+        self.assertIn("yield event.plain_result(retag_progress)", image_branch)
+        self.assertIn("show_progress=False", image_branch)
         self.assertLess(
-            main.index('f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."'),
-            main.index('yield event.plain_result("\\n\\n".join(followup_messages))'),
+            image_branch.index("yield event.plain_result(retag_progress)"),
+            image_branch.index("img_w, img_h = await read_image_size_any"),
         )
-
-    def test_repository_link_only_targets_a_new_tab(self) -> None:
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-
-        self.assertIn('id="pluginRepoLink"', html)
-        self.assertIn('target="_blank"', html)
-        self.assertIn('rel="noopener noreferrer"', html)
-        self.assertIn('window.open(els.pluginRepoLink.href, "_blank")', editor)
-        self.assertNotIn("window.location.assign(repo)", editor)
+        self.assertLess(
+            image_branch.index("yield event.plain_result(retag_progress)"),
+            image_branch.index("retag_prompt = await self.image_retagger.retag"),
+        )
 
 
 if __name__ == "__main__":

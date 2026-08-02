@@ -976,6 +976,68 @@ class BestNAIPlugin(Star):
 
         return self.plugin_config.get_effective_artist_prompt()
 
+    def _format_generation_progress(
+        self,
+        ratio_name: str,
+        gen_config: GenerationConfig,
+        raw_mode: bool,
+        progress_verb: str,
+        artist_slot_name: str = "",
+    ) -> str:
+        ratio_display = self._display_ratio_label(
+            ratio_name,
+            gen_config.width,
+            gen_config.height,
+        )
+
+        if raw_mode:
+            return f"🎨 正在{progress_verb}（{ratio_display} | nai0 原始提示词模式）..."
+
+        artist_display = self._get_artist_display_name(artist_slot_name)
+        return f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."
+
+    def _progress_message_for_prompt(
+        self,
+        prompt: str,
+        raw_mode: bool,
+        progress_verb: str,
+    ) -> str:
+        clean_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
+        artist_prompt_override = ""
+        artist_slot_name = ""
+
+        if not raw_mode:
+            clean_prompt, artist_prompt_override, artist_slot_name = (
+                self._extract_artist_slot_from_prompt(clean_prompt)
+            )
+            artist_prompt = self._get_effective_artist_prompt(artist_prompt_override)
+
+            if (
+                artist_prompt
+                and not prompt_has_explicit_ratio(
+                    prompt,
+                    self._short_ratio_aliases(),
+                    self.ratio_presets,
+                    self._normalize_ratio_label,
+                )
+                and prompt_has_explicit_ratio(
+                    artist_prompt,
+                    self._short_ratio_aliases(),
+                    self.ratio_presets,
+                    self._normalize_ratio_label,
+                )
+            ):
+                _, ratio_name = self._extract_ratio_from_prompt(artist_prompt)
+
+        gen_config = self.prompt_builder.build_generation_config(ratio_name)
+        return self._format_generation_progress(
+            ratio_name,
+            gen_config,
+            raw_mode,
+            progress_verb,
+            artist_slot_name,
+        )
+
     def _looks_like_size(self, value: str) -> bool:
         return bool(re.fullmatch(r"\d{2,5}\s*[x×]\s*\d{2,5}", value.strip()))
 
@@ -1175,23 +1237,16 @@ class BestNAIPlugin(Star):
             logger.warning(f"[BestNAI] 解析比例失败 ratio={ratio_name}: {e}")
             return
 
-        ratio_display = self._display_ratio_label(
-            ratio_name,
-            gen_config.width,
-            gen_config.height,
-        )
-
         if show_progress:
-            if raw_mode:
-                yield event.plain_result(
-                    f"🎨 正在{progress_verb}（{ratio_display} | nai0 原始提示词模式）..."
+            yield event.plain_result(
+                self._format_generation_progress(
+                    ratio_name,
+                    gen_config,
+                    raw_mode,
+                    progress_verb,
+                    artist_slot_name,
                 )
-            else:
-                artist_display = self._get_artist_display_name(artist_slot_name)
-
-                yield event.plain_result(
-                    f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."
-                )
+            )
 
         if followup_messages:
             yield event.plain_result("\n\n".join(followup_messages))
@@ -1337,6 +1392,33 @@ class BestNAIPlugin(Star):
                 )
                 return
 
+            if not self.plugin_config.is_configured():
+                self._ensure_image_provider_ready()
+
+            if not self.plugin_config.is_configured():
+                yield event.plain_result(
+                    "❌ 插件未配置。\n"
+                    "请开启“优先使用提供商”并选择生图接口提供商，或关闭该开关后填写完整手动生图 API 地址/API Key。"
+                )
+                return
+
+            try:
+                retag_progress = self._progress_message_for_prompt(
+                    prompt,
+                    raw_mode,
+                    "反推",
+                )
+            except Exception as e:
+                yield event.plain_result(
+                    f"❌ 无效比例/尺寸：{prompt}\n"
+                    "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1，也可输入横屏、竖屏、方图\n"
+                    "也可以直接使用 1024x1024"
+                )
+                logger.warning(f"[BestNAI] 反推进度解析失败 prompt={prompt}: {e}")
+                return
+
+            yield event.plain_result(retag_progress)
+
             inferred_ratio = ""
 
             if not prompt_has_explicit_ratio(
@@ -1440,7 +1522,7 @@ class BestNAIPlugin(Star):
                 event=event,
                 prompt=merged_prompt,
                 raw_mode=raw_mode,
-                show_progress=True,
+                show_progress=False,
                 progress_verb="反推",
                 followup_messages=show_messages,
             ):

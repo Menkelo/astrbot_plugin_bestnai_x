@@ -27,7 +27,6 @@ const els = {
   minimapContent: document.getElementById("minimapContent"),
   minimapViewport: document.getElementById("minimapViewport"),
   pluginDisplayName: document.getElementById("pluginDisplayName"),
-  pluginRepoLink: document.getElementById("pluginRepoLink"),
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
   connectionIndicator: document.getElementById("connectionIndicator"),
@@ -687,6 +686,7 @@ function renderPromptNode(node) {
 
   const translatedPanel = document.createElement("details");
   translatedPanel.className = "translated-prompt-panel";
+  translatedPanel.open = !!node.meta?.translatedPromptExpanded;
   const translatedSummary = document.createElement("summary");
   translatedSummary.textContent = "英文 tags";
   const translatedPrompt = document.createElement("textarea");
@@ -695,6 +695,24 @@ function renderPromptNode(node) {
   translatedPrompt.placeholder = "生成或反推后会在这里保存英文 tags";
   translatedPrompt.value = node.meta?.translatedPrompt || node.meta?.retagPrompt || "";
   translatedPanel.append(translatedSummary, translatedPrompt);
+  translatedPanel.addEventListener("toggle", () => {
+    const expanded = translatedPanel.open;
+    if (!!node.meta?.translatedPromptExpanded === expanded) return;
+    pushHistory();
+    node.meta = { ...(node.meta || {}), translatedPromptExpanded: expanded };
+    if (expanded) {
+      const minimumHeight = window.matchMedia("(max-width: 620px)").matches ? 540 : 440;
+      if ((node.height || 360) < minimumHeight) {
+        node.height = minimumHeight;
+        element.style.height = `${minimumHeight}px`;
+      }
+    }
+    requestAnimationFrame(() => {
+      renderConnections();
+      drawMinimap();
+    });
+    scheduleSave();
+  });
 
   const options = document.createElement("div");
   options.className = "prompt-options";
@@ -857,7 +875,11 @@ function renderImageNode(node) {
   const body = document.createElement("div");
   body.className = "node-body";
   body.append(frame, meta);
-  element.append(body, inputPort, outputPort);
+  const resizeHandle = document.createElement("span");
+  resizeHandle.className = "node-resize-handle image-resize-handle";
+  resizeHandle.setAttribute("aria-hidden", "true");
+  attachImageNodeResize(resizeHandle, element, node);
+  element.append(body, inputPort, outputPort, resizeHandle);
   return element;
 }
 
@@ -958,7 +980,11 @@ function normalizeLoadedNodeDimensions(node) {
     node.width = clamp(Number(node.width) || 260, 220, 640);
     node.height = clamp(Number(node.height) || 232, 180, 800);
   }
-  if (node.type === "image" && (!node.width || [260, 300].includes(Math.round(node.width)))) {
+  if (
+    node.type === "image"
+    && !node.meta?.userResized
+    && (!node.width || [260, 300].includes(Math.round(node.width)))
+  ) {
     node.width = fittedImageNodeWidth(node.meta?.width, node.meta?.height);
   }
   if (node.type === "image") hydrateImageAsset(node);
@@ -1256,10 +1282,59 @@ function attachNodeResize(handle, element, node) {
         moved = true;
         pushHistory();
       }
+      const promptMinimumHeight = node.meta?.translatedPromptExpanded
+        ? (window.matchMedia("(max-width: 620px)").matches ? 540 : 440)
+        : 300;
       node.width = clamp(Math.round(start.width + dx), node.type === "prompt" ? 280 : 220, 640);
-      node.height = clamp(Math.round(start.height + dy), node.type === "prompt" ? 300 : 180, 800);
+      node.height = clamp(
+        Math.round(start.height + dy),
+        node.type === "prompt" ? promptMinimumHeight : 180,
+        800,
+      );
       element.style.width = `${node.width}px`;
       element.style.height = `${node.height}px`;
+      renderConnections();
+      drawMinimap();
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (moved) scheduleSave();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+}
+
+function attachImageNodeResize(handle, element, node) {
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectNode(node.id);
+    const start = {
+      x: event.clientX,
+      y: event.clientY,
+      width: node.width || element.offsetWidth || 260,
+      height: element.offsetHeight || 300,
+    };
+    let moved = false;
+    const move = (moveEvent) => {
+      const dx = (moveEvent.clientX - start.x) / state.viewport.scale;
+      const dy = (moveEvent.clientY - start.y) / state.viewport.scale;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
+      if (!moved) {
+        moved = true;
+        pushHistory();
+      }
+      const diagonalDelta = Math.abs(dx) >= Math.abs(dy)
+        ? dx
+        : dy * (start.width / Math.max(1, start.height));
+      node.width = clamp(Math.round(start.width + diagonalDelta), 180, 640);
+      node.meta = { ...(node.meta || {}), userResized: true };
+      element.style.width = `${node.width}px`;
       renderConnections();
       drawMinimap();
     };
@@ -1545,7 +1620,10 @@ async function ensureAssetLoaded(node) {
       height: node.meta?.height || result.height,
     };
     cacheImageAsset(node);
-    if (!node.width || [260, 300].includes(Math.round(node.width))) {
+    if (
+      !node.meta?.userResized
+      && (!node.width || [260, 300].includes(Math.round(node.width)))
+    ) {
       node.width = fittedImageNodeWidth(node.meta.width, node.meta.height);
       dimensionsChanged = true;
     }
@@ -1900,9 +1978,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginRepoLink.href = plugin.repo || "https://github.com/Menkelo/astrbot_plugin_bestnai_x";
-  els.pluginRepoLink.textContent = "项目地址";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.10"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.11"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2130,13 +2206,6 @@ els.projectMenuBtn.addEventListener("click", (event) => {
   event.stopPropagation();
   setProjectMenu(els.projectMenu.hidden);
   if (!els.projectMenu.hidden) renderProjectMenu();
-});
-els.pluginRepoLink.addEventListener("click", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  const popup = window.open(els.pluginRepoLink.href, "_blank");
-  if (popup) popup.opener = null;
-  else toast("AstrBot 阻止了新标签页，请允许此页面打开弹窗", "error");
 });
 document.getElementById("newProjectBtn").addEventListener("click", () => {
   els.newProjectRow.hidden = false;

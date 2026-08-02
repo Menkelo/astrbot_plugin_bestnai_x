@@ -135,6 +135,15 @@ select:focus-visible,
   flex: 0 0 32px;
 }
 
+.toolbar-project-switcher {
+  margin: 0 2px 0 -4px;
+}
+
+.toolbar-project-switcher .project-menu {
+  right: -1px;
+  left: auto;
+}
+
 .project-menu {
   position: absolute;
   z-index: 70;
@@ -299,6 +308,7 @@ select:focus-visible,
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--card-solid);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, .13);
 }
 
 .canvas-mark img {
@@ -343,8 +353,7 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-.plugin-meta > span,
-.plugin-meta > a {
+.plugin-meta > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -353,17 +362,6 @@ select:focus-visible,
   display: inline-flex;
   flex: 0 0 auto;
   gap: 3px;
-}
-
-.plugin-meta > a {
-  max-width: 72px;
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.plugin-meta > a:hover {
-  color: var(--text);
-  text-decoration: underline;
 }
 
 .connection-indicator {
@@ -862,6 +860,7 @@ select:focus-visible,
 }
 
 .translated-prompt-panel {
+  flex: 0 0 auto;
   margin-top: 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -880,10 +879,11 @@ select:focus-visible,
 .translated-prompt-text {
   display: block;
   width: calc(100% - 16px);
+  height: 88px;
   min-height: 76px;
   margin: 0 8px 8px;
   padding: 9px 10px;
-  resize: vertical;
+  resize: none;
   border: 1px solid var(--line);
   border-radius: 7px;
   outline: none;
@@ -971,7 +971,7 @@ select:focus-visible,
   display: grid;
   width: 100%;
   min-height: 0;
-  max-height: 360px;
+  max-height: 720px;
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
@@ -988,7 +988,7 @@ select:focus-visible,
   display: block;
   width: 100%;
   height: auto;
-  max-height: 360px;
+  max-height: 720px;
   object-fit: contain;
   user-select: none;
 }
@@ -1776,7 +1776,7 @@ select:focus-visible,
 
 @media (max-width: 620px) {
   .canvas-nav {
-    max-width: 250px;
+    max-width: 180px;
     min-height: 44px;
     padding: 5px 9px 5px 5px;
   }
@@ -1793,11 +1793,11 @@ select:focus-visible,
   }
 
   .plugin-meta {
-    max-width: 150px;
+    max-width: 112px;
   }
 
   .toolbar {
-    max-width: calc(100vw - 226px);
+    max-width: calc(100vw - 238px);
     padding: 4px;
   }
 
