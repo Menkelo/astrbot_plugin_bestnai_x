@@ -1567,18 +1567,36 @@ els.viewport.addEventListener("contextmenu", (event) => {
   openCreateMenu(event);
 });
 
+function dataTransferHasFiles(dataTransfer) {
+  return Array.from(dataTransfer?.types || []).includes("Files");
+}
+
+function clearDropOverlay() {
+  els.viewport.classList.remove("drag-over");
+}
+
 els.viewport.addEventListener("dragover", (event) => {
+  if (!dataTransferHasFiles(event.dataTransfer)) {
+    clearDropOverlay();
+    return;
+  }
   event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
   els.viewport.classList.add("drag-over");
 });
 els.viewport.addEventListener("dragleave", (event) => {
-  if (!els.viewport.contains(event.relatedTarget)) els.viewport.classList.remove("drag-over");
+  if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
 els.viewport.addEventListener("drop", (event) => {
+  const hasFiles = dataTransferHasFiles(event.dataTransfer);
+  clearDropOverlay();
+  if (!hasFiles) return;
   event.preventDefault();
-  els.viewport.classList.remove("drag-over");
   uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
 });
+window.addEventListener("dragend", clearDropOverlay);
+window.addEventListener("drop", clearDropOverlay, true);
+window.addEventListener("blur", clearDropOverlay);
 
 els.minimap.addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;

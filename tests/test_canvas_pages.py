@@ -25,6 +25,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("while(!window.AstrBotPluginPage", manager)
         self.assertIn("while (!window.AstrBotPluginPage", editor)
 
+    def test_editor_only_opens_drop_overlay_for_files(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        self.assertIn('includes("Files")', editor)
+        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
+        self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
+
 
 if __name__ == "__main__":
     unittest.main()
