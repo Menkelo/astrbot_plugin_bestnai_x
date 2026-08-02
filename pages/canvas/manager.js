@@ -32,6 +32,15 @@ function localResponse(data, ok=true, status=200){
     };
 }
 
+async function responseError(res, fallback){
+    try {
+        const data = await res.json();
+        return data?.error || data?.message || fallback;
+    } catch(e){
+        return fallback;
+    }
+}
+
 async function canvasFetch(url, options={}){
     try {
         if(!bridge) throw new Error('请从 AstrBot 插件页面打开项目工作台');
@@ -69,6 +78,9 @@ async function canvasFetch(url, options={}){
                 x:body.board_x,
                 y:body.board_y,
             });
+            if(!data?.canvas?.id){
+                throw new Error(data?.error || data?.message || L('创建画布失败','Create canvas failed'));
+            }
             return localResponse({ canvas:normalizeCanvas(data.canvas) });
         }
         if(parsed.pathname === '/api/canvases/trash'){
@@ -166,11 +178,9 @@ const newProjectRow = document.getElementById('newProjectRow');
 const newProjectInput = document.getElementById('newProjectInput');
 const newProjectConfirm = document.getElementById('newProjectConfirm');
 const newProjectCancel = document.getElementById('newProjectCancel');
-const newCanvasBtn = document.getElementById('newCanvasBtn');
 const boardRefreshBtn = document.getElementById('boardRefresh');
 const boardResetViewBtn = document.getElementById('boardResetView');
 const pasteCanvasBtn = document.getElementById('pasteCanvasBtn');
-const emptyCreateCanvasBtn = document.getElementById('emptyCreateCanvasBtn');
 const statusEl = document.getElementById('boardStatus');
 
 /* ===== State ===== */
@@ -215,12 +225,6 @@ function screenToWorld(clientX, clientY){
     return {
         x: (clientX - rect.left - viewport.x) / viewport.scale,
         y: (clientY - rect.top - viewport.y) / viewport.scale
-    };
-}
-function boardCenterWorld(){
-    return {
-        x: (board.clientWidth / 2 - viewport.x) / viewport.scale,
-        y: (board.clientHeight / 2 - viewport.y) / viewport.scale
     };
 }
 function resetView(){
@@ -500,6 +504,10 @@ function renderBoard(){
     updateBoardHeader();
     const items = canvasesInProject(currentProjectId);
     autoLayoutNulls(items);
+    if(createCardEl){
+        createCardEl.remove();
+        createCardEl = null;
+    }
     boardWorld.innerHTML = '';
     items.forEach(c => boardWorld.appendChild(buildCard(c)));
     boardEmptyHint.classList.toggle('hidden', items.length > 0);
@@ -594,7 +602,11 @@ function openCanvas(c){
 /* ===== Card create flow ===== */
 let createCardEl = null;
 let createKind = 'classic';
-function closeCreateCard(){ createCardEl?.remove(); createCardEl = null; }
+function closeCreateCard(){
+    createCardEl?.remove();
+    createCardEl = null;
+    boardEmptyHint.classList.toggle('hidden', canvasesInProject(currentProjectId).length > 0);
+}
 function openCreateCard(worldPt){
     closeCreateCard();
     closeCardMenu();
@@ -615,6 +627,7 @@ function openCreateCard(worldPt){
         </div>`;
     boardWorld.appendChild(el);
     createCardEl = el;
+    boardEmptyHint.classList.add('hidden');
     el.addEventListener('mousedown', e => e.stopPropagation());
     const input = el.querySelector('.ws-create-input');
     input.focus();
@@ -652,18 +665,20 @@ async function createCanvasOnBoard(title, kind, worldPt){
                 board_y: Math.round(worldPt.y)
             })
         });
-        if(!res.ok) throw new Error('create canvas failed');
+        if(!res.ok) throw new Error(await responseError(res, L('创建画布失败','Create canvas failed')));
         const data = await res.json();
         const nc = data.canvas;
-        if(nc){
-            if(nc.project == null) nc.project = currentProjectId;
-            if(nc.board_x == null) nc.board_x = Math.round(worldPt.x);
-            if(nc.board_y == null) nc.board_y = Math.round(worldPt.y);
-            canvases.push(nc);
-            renderBoard();
-            renderProjects();
-        }
-    } catch(e){ console.error(e); setStatus(L('创建失败','Create failed')); }
+        if(!nc?.id) throw new Error(L('服务端未返回画布数据','The server returned no canvas data'));
+        if(nc.project == null) nc.project = currentProjectId;
+        if(nc.board_x == null) nc.board_x = Math.round(worldPt.x);
+        if(nc.board_y == null) nc.board_y = Math.round(worldPt.y);
+        canvases.push(nc);
+        renderBoard();
+        renderProjects();
+    } catch(e){
+        console.error(e);
+        setStatus(e?.message || L('创建画布失败','Create canvas failed'));
+    }
 }
 
 /* ===== Card context menu (rename / delete / move) ===== */
@@ -1168,12 +1183,6 @@ board.addEventListener('dblclick', e => {
     openCreateCard(screenToWorld(e.clientX, e.clientY));
 });
 
-newCanvasBtn.addEventListener('click', () => openCreateCard(boardCenterWorld()));
-emptyCreateCanvasBtn?.addEventListener('mousedown', e => e.stopPropagation());
-emptyCreateCanvasBtn?.addEventListener('click', e => {
-    e.stopPropagation();
-    openCreateCard(boardCenterWorld());
-});
 boardRefreshBtn.addEventListener('click', loadAll);
 boardResetViewBtn.addEventListener('click', resetView);
 pasteCanvasBtn?.addEventListener('click', pasteCanvas);

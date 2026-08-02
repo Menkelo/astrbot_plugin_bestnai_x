@@ -140,12 +140,11 @@ html[data-studio-scale="off"].studio-scale-managed .workspace {
 .ws-board.panning { cursor:grabbing; }
 .ws-board-world { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
 
-.ws-board-empty { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; gap:12px; width:min(320px, calc(100% - 48px)); color:var(--faint); }
+.ws-board-empty { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; gap:12px; width:min(320px, calc(100% - 48px)); color:var(--faint); pointer-events:none; }
 .ws-board-empty.hidden { display:none; }
 .ws-board-empty-icon { width:58px; height:58px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:var(--card-solid); border:1px solid var(--line); color:var(--faint); box-shadow:0 12px 28px var(--shadow); }
 .ws-board-empty-text { font-size:15px; font-weight:850; color:var(--text); }
 .ws-board-empty-sub { margin-top:-6px; font-size:12px; font-weight:650; color:var(--muted); text-align:center; }
-.ws-board-empty-actions { display:flex; align-items:center; gap:8px; }
 
 /* ===== Board card ===== */
 .ws-card {
@@ -282,7 +281,6 @@ html[data-studio-scale="off"].studio-scale-managed .workspace {
     .ws-board-name { max-width:46vw; font-size:15px; }
     .ws-board-count { height:18px; min-width:18px; font-size:10px; }
     .ws-primary-btn span { display:none; }
-    .ws-board-empty .ws-primary-btn span { display:inline; }
     .ws-primary-btn { padding:0 12px; }
     .ws-paste-btn span { display:none; }
     .ws-card { width:230px; height:146px; padding:12px; gap:10px; }
@@ -859,20 +857,6 @@ html[data-studio-scale="off"].studio-scale-managed .ws-topbar-right {
         display:none;
     }
 
-    #newCanvasBtn svg {
-        width:18px;
-        height:18px;
-        flex:0 0 18px;
-    }
-
-    .ws-board-empty .ws-primary-btn {
-        width:auto;
-        padding:0 13px;
-    }
-
-    .ws-board-empty .ws-primary-btn span {
-        display:inline;
-    }
 
     .ws-card {
         width:224px;

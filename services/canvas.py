@@ -705,6 +705,8 @@ class CanvasService:
 
     async def create_canvas(self) -> Any:
         payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
         try:
             return json_response({"canvas": self.store.create_canvas(payload)})
         except FileNotFoundError:
