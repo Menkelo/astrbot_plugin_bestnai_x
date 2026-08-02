@@ -38,6 +38,8 @@ body {
   background: var(--page);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button,
@@ -566,6 +568,10 @@ select:focus-visible,
   color: var(--text);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.prompt-text {
+  -webkit-user-select: text;
   user-select: text;
 }
 

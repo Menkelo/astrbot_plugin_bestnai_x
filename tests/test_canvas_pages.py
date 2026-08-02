@@ -31,6 +31,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
+    def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        self.assertIn('document.addEventListener("dragstart"', editor)
+        self.assertIn('document.addEventListener("selectstart"', editor)
+        self.assertIn('document.addEventListener("copy"', editor)
+        self.assertIn('targetElement?.closest(".prompt-text")', editor)
+        self.assertIn('document.activeElement?.closest?.(".prompt-text")', editor)
+        self.assertIn(".prompt-text {", styles)
+        self.assertIn("user-select: none;", styles)
+
 
 if __name__ == "__main__":
     unittest.main()

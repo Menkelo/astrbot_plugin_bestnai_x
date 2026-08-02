@@ -1575,6 +1575,28 @@ function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
 
+function isPromptTextTarget(target) {
+  const targetElement = target instanceof Element ? target : target?.parentElement;
+  return !!(
+    targetElement?.closest(".prompt-text")
+    || document.activeElement?.closest?.(".prompt-text")
+  );
+}
+
+document.addEventListener("dragstart", (event) => {
+  event.preventDefault();
+  clearDropOverlay();
+});
+document.addEventListener("selectstart", (event) => {
+  if (!isPromptTextTarget(event.target)) event.preventDefault();
+});
+document.addEventListener("copy", (event) => {
+  if (!isPromptTextTarget(event.target)) event.preventDefault();
+});
+document.addEventListener("cut", (event) => {
+  if (!isPromptTextTarget(event.target)) event.preventDefault();
+});
+
 els.viewport.addEventListener("dragover", (event) => {
   if (!dataTransferHasFiles(event.dataTransfer)) {
     clearDropOverlay();
