@@ -238,6 +238,75 @@ button {
   cursor: grabbing;
 }
 
+.selection-box {
+  position: absolute;
+  z-index: 18;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-soft) 68%, transparent);
+  pointer-events: none;
+}
+
+.selection-box[hidden],
+.create-menu[hidden],
+.arrange-selection-btn[hidden] {
+  display: none;
+}
+
+.create-menu {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: min(330px, calc(100% - 16px));
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 18px 48px rgba(32, 36, 33, 0.16);
+  backdrop-filter: blur(16px);
+}
+
+.create-menu button {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 46px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.create-menu button:hover,
+.create-menu button:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--panel-soft);
+}
+
+.create-menu-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.create-menu strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 12px;
+}
+
 .canvas-world {
   position: absolute;
   left: 0;
@@ -383,6 +452,20 @@ button {
 .node.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow);
+}
+
+.node.dragging {
+  z-index: 12;
+  transition: none;
+}
+
+.dragging-nodes,
+.dragging-nodes * {
+  user-select: none !important;
+}
+
+.dragging-nodes .node:not(.dragging) {
+  pointer-events: none;
 }
 
 .node.generating {
@@ -811,6 +894,30 @@ button {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+.arrange-selection-btn {
+  position: absolute;
+  z-index: 13;
+  right: 14px;
+  bottom: 134px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  box-shadow: 0 8px 22px rgba(32, 36, 33, 0.1);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.arrange-selection-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
 .toast-region {
   position: fixed;
   z-index: 100;
@@ -914,8 +1021,14 @@ button {
   .action-divider,
   .app-actions .icon-btn,
   .danger-text,
-  .minimap-wrap {
+  .minimap-wrap,
+  .arrange-selection-btn {
     display: none;
+  }
+
+  .create-menu {
+    grid-template-columns: 1fr;
+    width: min(260px, calc(100% - 16px));
   }
 
   .brand-mark {

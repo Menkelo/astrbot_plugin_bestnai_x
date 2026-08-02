@@ -65,6 +65,23 @@
             <span>图片会成为新的画布节点</span>
           </div>
 
+          <div class="selection-box" id="selectionBox" hidden></div>
+
+          <div class="create-menu" id="createMenu" hidden role="menu" aria-label="创建节点">
+            <button type="button" role="menuitem" data-create-type="prompt">
+              <span class="create-menu-icon" aria-hidden="true">＋</span>
+              <strong>提示词</strong>
+            </button>
+            <button type="button" role="menuitem" data-create-type="image">
+              <span class="create-menu-icon" aria-hidden="true">↑</span>
+              <strong>图片</strong>
+            </button>
+            <button type="button" role="menuitem" data-create-type="note">
+              <span class="create-menu-icon" aria-hidden="true">T</span>
+              <strong>备注</strong>
+            </button>
+          </div>
+
           <div class="zoom-controls" aria-label="画布缩放">
             <button type="button" id="zoomOutBtn" title="缩小" aria-label="缩小">−</button>
             <button type="button" class="zoom-value" id="zoomValue" title="重置为 100%">100%</button>
@@ -75,6 +92,9 @@
           <aside class="minimap-wrap" aria-label="画布概览">
             <canvas id="minimap" width="180" height="110" tabindex="0" aria-label="画布导航小地图，拖动以定位" title="拖动定位画布"></canvas>
           </aside>
+          <button type="button" class="arrange-selection-btn" id="arrangeSelectionBtn" title="整理选中节点" aria-label="整理选中节点" hidden>
+            <span aria-hidden="true">▦</span><span>整理选中</span>
+          </button>
         </section>
       </main>
     </div>

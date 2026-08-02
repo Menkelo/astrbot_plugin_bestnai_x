@@ -16,6 +16,9 @@ const els = {
   imageInput: document.getElementById("imageInput"),
   workspaceInput: document.getElementById("workspaceInput"),
   toastRegion: document.getElementById("toastRegion"),
+  selectionBox: document.getElementById("selectionBox"),
+  createMenu: document.getElementById("createMenu"),
+  arrangeSelectionBtn: document.getElementById("arrangeSelectionBtn"),
 };
 
 const state = {
@@ -32,6 +35,7 @@ const state = {
   connections: [],
   viewport: { x: 160, y: 120, scale: 1 },
   selectedId: "",
+  selectedIds: [],
   saveTimer: null,
   saving: false,
   history: [],
@@ -39,6 +43,8 @@ const state = {
   restoring: false,
   connectionDrag: null,
   minimapTransform: null,
+  createPoint: null,
+  pendingUploadPoint: null,
 };
 
 const MAX_HISTORY = 40;
@@ -86,6 +92,7 @@ function snapshot() {
   return JSON.stringify({
     ...serializableWorkspace(),
     selectedId: state.selectedId,
+    selectedIds: [...state.selectedIds],
   });
 }
 
@@ -104,6 +111,7 @@ function restoreSnapshot(raw) {
   state.connections = Array.isArray(data.connections) ? data.connections : [];
   state.viewport = data.viewport || { x: 160, y: 120, scale: 1 };
   state.selectedId = data.selectedId || "";
+  state.selectedIds = Array.isArray(data.selectedIds) ? data.selectedIds : (state.selectedId ? [state.selectedId] : []);
   state.restoring = false;
   renderAll();
   scheduleSave();
@@ -196,7 +204,7 @@ function createNoteNode(point = null) {
 function addNode(node) {
   pushHistory();
   state.nodes.push(node);
-  state.selectedId = node.id;
+  setSelection([node.id], node.id);
   renderAll();
   scheduleSave();
 }
@@ -205,14 +213,45 @@ function findNode(id) {
   return state.nodes.find((node) => node.id === id);
 }
 
-function deleteNode(id) {
-  if (!findNode(id)) return;
+function selectedNodeIds() {
+  return state.selectedIds.filter((id) => !!findNode(id));
+}
+
+function isNodeSelected(id) {
+  return state.selectedIds.includes(id);
+}
+
+function setSelection(ids, primaryId = "") {
+  state.selectedIds = [...new Set(ids)].filter((id) => !!findNode(id));
+  state.selectedId = state.selectedIds.includes(primaryId)
+    ? primaryId
+    : state.selectedIds[state.selectedIds.length - 1] || "";
+  updateSelectionControls();
+}
+
+function clearSelection() {
+  setSelection([]);
+}
+
+function updateSelectionControls() {
+  els.arrangeSelectionBtn.hidden = selectedNodeIds().length < 2;
+}
+
+function deleteNodes(ids) {
+  const deleteIds = new Set(ids.filter((id) => !!findNode(id)));
+  if (!deleteIds.size) return;
   pushHistory();
-  state.nodes = state.nodes.filter((node) => node.id !== id);
-  state.connections = state.connections.filter((edge) => edge.source !== id && edge.target !== id);
-  if (state.selectedId === id) state.selectedId = "";
+  state.nodes = state.nodes.filter((node) => !deleteIds.has(node.id));
+  state.connections = state.connections.filter(
+    (edge) => !deleteIds.has(edge.source) && !deleteIds.has(edge.target),
+  );
+  clearSelection();
   renderAll();
   scheduleSave();
+}
+
+function deleteNode(id) {
+  deleteNodes([id]);
 }
 
 function deleteConnection(sourceId, targetId) {
@@ -241,16 +280,25 @@ function duplicateNode(id) {
     error: "",
   };
   state.nodes.push(copy);
-  state.selectedId = copy.id;
+  setSelection([copy.id], copy.id);
   renderAll();
   scheduleSave();
 }
 
-function selectNode(id) {
-  if (state.selectedId === id) return;
-  state.selectedId = id;
+function selectNode(id, additive = false) {
+  if (!findNode(id)) return;
+  if (additive) {
+    const next = new Set(selectedNodeIds());
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelection([...next], next.has(id) ? id : "");
+  } else {
+    if (state.selectedIds.length === 1 && isNodeSelected(id)) return;
+    setSelection([id], id);
+  }
   document.querySelectorAll(".node.selected").forEach((node) => node.classList.remove("selected"));
-  document.querySelector(`[data-node-id="${CSS.escape(id)}"]`)?.classList.add("selected");
+  selectedNodeIds().forEach((selectedId) => {
+    document.querySelector(`[data-node-id="${CSS.escape(selectedId)}"]`)?.classList.add("selected");
+  });
   renderConnections();
 }
 
@@ -271,7 +319,7 @@ function makeAction(label, title, action) {
 
 function makeNodeShell(node, label) {
   const element = document.createElement("article");
-  element.className = `node ${node.type}-node${state.selectedId === node.id ? " selected" : ""}${node.status === "generating" ? " generating" : ""}`;
+  element.className = `node ${node.type}-node${isNodeSelected(node.id) ? " selected" : ""}${node.status === "generating" ? " generating" : ""}`;
   element.dataset.nodeId = node.id;
   element.style.left = `${node.x}px`;
   element.style.top = `${node.y}px`;
@@ -295,7 +343,11 @@ function makeNodeShell(node, label) {
   );
   handle.append(nodeLabel, actions);
   element.appendChild(handle);
-  element.addEventListener("pointerdown", () => selectNode(node.id));
+  element.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (event.ctrlKey || event.metaKey) selectNode(node.id, true);
+    else if (!isNodeSelected(node.id)) selectNode(node.id);
+  });
   attachNodeDrag(handle, element, node);
   return element;
 }
@@ -581,7 +633,7 @@ function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
 
 function renderConnections() {
   els.paths.replaceChildren();
-  const selected = state.selectedId;
+  const selected = new Set(selectedNodeIds());
   state.connections.forEach((edge) => {
     const source = findNode(edge.source);
     const target = findNode(edge.target);
@@ -593,7 +645,7 @@ function renderConnections() {
       start.y,
       end.x,
       end.y,
-      `connection-path${selected === source.id || selected === target.id ? " active" : ""}`,
+      `connection-path${selected.has(source.id) || selected.has(target.id) ? " active" : ""}`,
       edge,
     );
   });
@@ -725,6 +777,7 @@ function renderAll() {
     drawMinimap();
   });
   updateHistoryButtons();
+  updateSelectionControls();
 }
 
 function attachNodeDrag(handle, element, node) {
@@ -732,28 +785,58 @@ function attachNodeDrag(handle, element, node) {
     if (event.button !== 0 || event.target.closest("button")) return;
     event.preventDefault();
     event.stopPropagation();
-    selectNode(node.id);
-    pushHistory();
-    const start = { x: event.clientX, y: event.clientY, nodeX: node.x, nodeY: node.y };
-    handle.setPointerCapture(event.pointerId);
+
+    if (event.ctrlKey || event.metaKey) {
+      selectNode(node.id, true);
+      if (!isNodeSelected(node.id)) return;
+    } else if (!isNodeSelected(node.id)) {
+      selectNode(node.id);
+    }
+
+    const group = selectedNodeIds().map((id) => {
+      const selectedNode = findNode(id);
+      return {
+        node: selectedNode,
+        x: selectedNode.x,
+        y: selectedNode.y,
+        element: document.querySelector(`[data-node-id="${CSS.escape(id)}"]`),
+      };
+    });
+    const start = { x: event.clientX, y: event.clientY };
+    let moved = false;
 
     const move = (moveEvent) => {
-      node.x = start.nodeX + (moveEvent.clientX - start.x) / state.viewport.scale;
-      node.y = start.nodeY + (moveEvent.clientY - start.y) / state.viewport.scale;
-      element.style.left = `${node.x}px`;
-      element.style.top = `${node.y}px`;
+      const dx = (moveEvent.clientX - start.x) / state.viewport.scale;
+      const dy = (moveEvent.clientY - start.y) / state.viewport.scale;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
+      if (!moved) {
+        moved = true;
+        pushHistory();
+        document.body.classList.add("dragging-nodes");
+        group.forEach((item) => item.element?.classList.add("dragging"));
+      }
+      group.forEach((item) => {
+        item.node.x = item.x + dx;
+        item.node.y = item.y + dy;
+        if (item.element) {
+          item.element.style.left = `${item.node.x}px`;
+          item.element.style.top = `${item.node.y}px`;
+        }
+      });
       renderConnections();
       drawMinimap();
     };
     const end = () => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
-      handle.removeEventListener("pointercancel", end);
-      scheduleSave();
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      document.body.classList.remove("dragging-nodes");
+      group.forEach((item) => item.element?.classList.remove("dragging"));
+      if (moved) scheduleSave();
     };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
-    handle.addEventListener("pointercancel", end);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   });
 }
 
@@ -768,6 +851,68 @@ function clientToWorld(clientX, clientY) {
 function worldCenter() {
   const rect = els.viewport.getBoundingClientRect();
   return clientToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+}
+
+function nodeRect(node) {
+  const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
+  return {
+    x: node.x,
+    y: node.y,
+    width: node.width || 320,
+    height: element?.offsetHeight || 280,
+  };
+}
+
+function closeCreateMenu() {
+  els.createMenu.hidden = true;
+  state.createPoint = null;
+}
+
+function openCreateMenu(event) {
+  const viewportRect = els.viewport.getBoundingClientRect();
+  state.createPoint = clientToWorld(event.clientX, event.clientY);
+  els.createMenu.hidden = false;
+  const menuWidth = els.createMenu.offsetWidth || 330;
+  const menuHeight = els.createMenu.offsetHeight || 90;
+  els.createMenu.style.left = `${clamp(event.clientX - viewportRect.left, 8, viewportRect.width - menuWidth - 8)}px`;
+  els.createMenu.style.top = `${clamp(event.clientY - viewportRect.top, 8, viewportRect.height - menuHeight - 8)}px`;
+}
+
+function finishBoxSelection(startWorld, endEvent) {
+  const endWorld = clientToWorld(endEvent.clientX, endEvent.clientY);
+  const minX = Math.min(startWorld.x, endWorld.x);
+  const minY = Math.min(startWorld.y, endWorld.y);
+  const maxX = Math.max(startWorld.x, endWorld.x);
+  const maxY = Math.max(startWorld.y, endWorld.y);
+  const ids = state.nodes.filter((node) => {
+    const rect = nodeRect(node);
+    return rect.x < maxX
+      && rect.x + rect.width > minX
+      && rect.y < maxY
+      && rect.y + rect.height > minY;
+  }).map((node) => node.id);
+  setSelection(ids, ids[ids.length - 1] || "");
+  renderAll();
+}
+
+function arrangeSelectedNodes() {
+  const nodes = selectedNodeIds().map(findNode).filter(Boolean);
+  if (nodes.length < 2) return;
+  pushHistory();
+  const items = nodes.map((node) => ({ node, rect: nodeRect(node) }))
+    .sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
+  const startX = Math.min(...items.map((item) => item.rect.x));
+  const startY = Math.min(...items.map((item) => item.rect.y));
+  const columns = Math.ceil(Math.sqrt(items.length));
+  const cellWidth = Math.max(...items.map((item) => item.rect.width)) + 56;
+  const cellHeight = Math.max(...items.map((item) => item.rect.height)) + 56;
+  items.forEach((item, index) => {
+    item.node.x = startX + (index % columns) * cellWidth;
+    item.node.y = startY + Math.floor(index / columns) * cellHeight;
+  });
+  renderAll();
+  scheduleSave();
+  toast(`已整理 ${items.length} 个节点`);
 }
 
 function setZoom(nextScale, clientX, clientY) {
@@ -833,6 +978,7 @@ async function generateFromNode(id) {
     const assets = Array.isArray(result?.assets) ? result.assets : [];
     if (!assets.length) throw new Error("服务未返回图片");
     pushHistory();
+    const createdIds = [];
     assets.forEach((asset, index) => {
       const imageNode = {
         id: uid("image"),
@@ -854,8 +1000,9 @@ async function generateFromNode(id) {
       };
       state.nodes.push(imageNode);
       state.connections.push({ source: node.id, target: imageNode.id });
-      state.selectedId = imageNode.id;
+      createdIds.push(imageNode.id);
     });
+    setSelection(createdIds, createdIds[createdIds.length - 1]);
     node.statusText = `已生成 ${assets.length} 张图片`;
     toast("生成完成");
     renderAll();
@@ -1102,8 +1249,51 @@ async function loadInitialState() {
 }
 
 els.viewport.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0 || event.target.closest(".node") || event.target.closest("button")) return;
-  state.selectedId = "";
+  if (
+    event.button !== 0
+    || event.target.closest(".node, button, .create-menu, .connection-hit, .connection-delete")
+  ) return;
+  closeCreateMenu();
+
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    const viewportRect = els.viewport.getBoundingClientRect();
+    const startWorld = clientToWorld(event.clientX, event.clientY);
+    const startX = event.clientX - viewportRect.left;
+    const startY = event.clientY - viewportRect.top;
+    els.selectionBox.hidden = false;
+    els.selectionBox.style.left = `${startX}px`;
+    els.selectionBox.style.top = `${startY}px`;
+    els.selectionBox.style.width = "0";
+    els.selectionBox.style.height = "0";
+    els.viewport.setPointerCapture(event.pointerId);
+
+    const moveSelection = (moveEvent) => {
+      const currentX = moveEvent.clientX - viewportRect.left;
+      const currentY = moveEvent.clientY - viewportRect.top;
+      els.selectionBox.style.left = `${Math.min(startX, currentX)}px`;
+      els.selectionBox.style.top = `${Math.min(startY, currentY)}px`;
+      els.selectionBox.style.width = `${Math.abs(currentX - startX)}px`;
+      els.selectionBox.style.height = `${Math.abs(currentY - startY)}px`;
+    };
+    const endSelection = (endEvent) => {
+      if (els.viewport.hasPointerCapture(endEvent.pointerId)) {
+        els.viewport.releasePointerCapture(endEvent.pointerId);
+      }
+      els.selectionBox.hidden = true;
+      els.viewport.removeEventListener("pointermove", moveSelection);
+      els.viewport.removeEventListener("pointerup", endSelection);
+      els.viewport.removeEventListener("pointercancel", endSelection);
+      finishBoxSelection(startWorld, endEvent);
+    };
+    els.viewport.addEventListener("pointermove", moveSelection);
+    els.viewport.addEventListener("pointerup", endSelection);
+    els.viewport.addEventListener("pointercancel", endSelection);
+    return;
+  }
+
+  clearSelection();
   renderNodes();
   requestAnimationFrame(renderConnections);
   const start = { x: event.clientX, y: event.clientY, vx: state.viewport.x, vy: state.viewport.y };
@@ -1134,8 +1324,16 @@ els.viewport.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 els.viewport.addEventListener("dblclick", (event) => {
-  if (event.target.closest(".node") || event.target.closest("button")) return;
-  addNode(createPromptNode(clientToWorld(event.clientX, event.clientY)));
+  if (event.target.closest(".node, button, .create-menu, .connection-hit, .connection-delete")) return;
+  event.preventDefault();
+  openCreateMenu(event);
+});
+
+els.viewport.addEventListener("contextmenu", (event) => {
+  if (event.target.closest(".node, button, .create-menu, .connection-hit, .connection-delete")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openCreateMenu(event);
 });
 
 els.viewport.addEventListener("dragover", (event) => {
@@ -1200,16 +1398,37 @@ els.minimap.addEventListener("keydown", (event) => {
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
-document.getElementById("uploadBtn").addEventListener("click", () => els.imageInput.click());
+document.getElementById("uploadBtn").addEventListener("click", () => {
+  state.pendingUploadPoint = null;
+  els.imageInput.click();
+});
 document.getElementById("zoomInBtn").addEventListener("click", () => setZoom(state.viewport.scale * 1.2));
 document.getElementById("zoomOutBtn").addEventListener("click", () => setZoom(state.viewport.scale / 1.2));
 document.getElementById("fitBtn").addEventListener("click", fitView);
 els.zoomValue.addEventListener("click", () => setZoom(1));
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
+els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);
+
+els.createMenu.addEventListener("pointerdown", (event) => event.stopPropagation());
+els.createMenu.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-create-type]");
+  if (!button) return;
+  event.stopPropagation();
+  const point = state.createPoint || worldCenter();
+  const type = button.dataset.createType;
+  if (type === "prompt") addNode(createPromptNode(point));
+  else if (type === "note") addNode(createNoteNode(point));
+  else if (type === "image") {
+    state.pendingUploadPoint = point;
+    els.imageInput.click();
+  }
+  closeCreateMenu();
+});
 
 els.imageInput.addEventListener("change", () => {
-  uploadFiles(els.imageInput.files);
+  uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());
+  state.pendingUploadPoint = null;
   els.imageInput.value = "";
 });
 
@@ -1233,7 +1452,7 @@ els.workspaceInput.addEventListener("change", async () => {
     state.nodes = workspace.nodes || [];
     state.connections = workspace.connections || [];
     state.viewport = workspace.viewport || state.viewport;
-    state.selectedId = "";
+    clearSelection();
     renderAll();
     setSaveState("已导入");
     toast("工作区导入完成");
@@ -1256,7 +1475,7 @@ document.getElementById("confirmClearBtn").addEventListener("click", () => {
   pushHistory();
   state.nodes = [];
   state.connections = [];
-  state.selectedId = "";
+  clearSelection();
   renderAll();
   scheduleSave();
 });
@@ -1266,6 +1485,14 @@ clearModal.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const editing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+  if (event.key === "Escape") {
+    closeCreateMenu();
+    if (!editing) {
+      clearSelection();
+      renderAll();
+    }
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     saveWorkspace();
@@ -1281,9 +1508,16 @@ document.addEventListener("keydown", (event) => {
     fitView();
     return;
   }
-  if (!editing && (event.key === "Delete" || event.key === "Backspace") && state.selectedId) {
+  if (!editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
     event.preventDefault();
-    deleteNode(state.selectedId);
+    const ids = state.nodes.map((node) => node.id);
+    setSelection(ids, ids[ids.length - 1] || "");
+    renderAll();
+    return;
+  }
+  if (!editing && (event.key === "Delete" || event.key === "Backspace") && selectedNodeIds().length) {
+    event.preventDefault();
+    deleteNodes(selectedNodeIds());
   }
 });
 

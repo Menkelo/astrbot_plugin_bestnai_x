@@ -2,7 +2,7 @@
 
 ## Infinite-Canvas
 
-The canvas minimap navigation and connection interaction patterns are adapted from:
+The canvas viewport, minimap navigation, multi-selection, group dragging, creation menu, and connection interaction patterns are adapted from:
 
 - Project: `hero8152/Infinite-Canvas`
 - Source: https://github.com/hero8152/Infinite-Canvas
