@@ -27,7 +27,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn("while (!window.AstrBotPluginPage", editor)
 
-    def test_editor_only_opens_drop_overlay_for_files(self) -> None:
+    def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn('includes("Files")', editor)
         self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
@@ -155,9 +155,43 @@ class CanvasPageBridgeTest(unittest.TestCase):
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('id="imageViewer"', html)
+        self.assertIn('id="imageViewerPrompt"', html)
+        self.assertIn('id="imageViewerTags"', html)
         self.assertIn('makeAction("maximize-2", "放大查看"', editor)
         self.assertIn("function openImageViewer", editor)
+        self.assertIn('frame.addEventListener("click", () => openImageViewer(node))', editor)
         self.assertIn(".image-viewer {", styles)
+
+    def test_library_preloads_and_uses_click_preview_with_drag_placement(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertNotIn('class="asset-tabs"', html)
+        self.assertNotIn("data-asset-tab", html)
+        self.assertIn("function preloadLibraryImages()", editor)
+        self.assertIn("preloadLibraryImages();", editor)
+        self.assertIn("ensureLibraryImageData(item)", editor)
+        self.assertIn("openLibraryImageViewer(item);", editor)
+        self.assertIn("function attachLibraryImageDrag", editor)
+        self.assertIn("isCanvasDropPoint(endEvent.clientX, endEvent.clientY)", editor)
+        self.assertIn("placeImageAssetOnCanvas(", editor)
+        self.assertIn("clientToWorld(endEvent.clientX, endEvent.clientY)", editor)
+        self.assertNotIn('card.addEventListener("click", () => addImageAssetToCanvas(item))', editor)
+        self.assertIn('thumb.style.aspectRatio = `${item.width} / ${item.height}`', editor)
+        self.assertIn("object-fit: contain;", styles)
+
+    def test_clicked_nodes_move_to_front_and_image_labels_keep_source_prompt(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        self.assertIn("function bringNodeToFront", editor)
+        self.assertIn("state.nodes.splice(index, 1)", editor)
+        self.assertIn("els.nodeLayer.appendChild(current)", editor)
+        self.assertIn(
+            'prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果")',
+            editor,
+        )
+        self.assertIn("tags: result.meta?.translatedPrompt || workingPrompt", editor)
 
     def test_plugin_metadata_and_astrbot_compatibility_are_exposed(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
@@ -183,6 +217,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('bridge.apiGet("canvas/health")', editor)
         self.assertIn(".connection-indicator.online", styles)
         self.assertIn(".connection-indicator.offline", styles)
+        self.assertIn("overflow: visible;", styles)
+        self.assertIn(".plugin-meta > span:not(.connection-indicator)", styles)
         self.assertIn("left: -22px;", styles)
         self.assertIn("right: -22px;", styles)
 

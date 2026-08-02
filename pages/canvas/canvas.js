@@ -40,6 +40,9 @@ const els = {
   imageViewer: document.getElementById("imageViewer"),
   imageViewerImage: document.getElementById("imageViewerImage"),
   imageViewerCaption: document.getElementById("imageViewerCaption"),
+  imageViewerDimensions: document.getElementById("imageViewerDimensions"),
+  imageViewerPrompt: document.getElementById("imageViewerPrompt"),
+  imageViewerTags: document.getElementById("imageViewerTags"),
   assetPanel: document.getElementById("assetPanel"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
@@ -80,7 +83,8 @@ const state = {
   minimapTransform: null,
   pendingUploadPoint: null,
   library: { images: [], prompts: [] },
-  assetTab: "images",
+  libraryAssetPromises: new Map(),
+  libraryPreloadPromise: null,
   canvases: [],
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
@@ -644,11 +648,22 @@ function makeNodeShell(node, label) {
   element.appendChild(handle);
   element.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
+    bringNodeToFront(node.id, element);
     if (event.ctrlKey || event.metaKey) selectNode(node.id, true);
     else if (!isNodeSelected(node.id)) selectNode(node.id);
   });
   attachNodeDrag(handle, element, node);
   return element;
+}
+
+function bringNodeToFront(id, element = null) {
+  const index = state.nodes.findIndex((node) => node.id === id);
+  if (index < 0 || index === state.nodes.length - 1) return;
+  const [node] = state.nodes.splice(index, 1);
+  state.nodes.push(node);
+  const current = element || document.querySelector(`[data-node-id="${CSS.escape(id)}"]`);
+  if (current?.parentElement === els.nodeLayer) els.nodeLayer.appendChild(current);
+  scheduleSave(800);
 }
 
 function renderPromptNode(node) {
@@ -878,6 +893,16 @@ function renderImageNode(node) {
 
   const frame = document.createElement("div");
   frame.className = "image-preview-wrap";
+  frame.tabIndex = 0;
+  frame.setAttribute("role", "button");
+  frame.setAttribute("aria-label", "放大图片并查看提示词");
+  frame.title = "点击放大图片并查看提示词";
+  frame.addEventListener("click", () => openImageViewer(node));
+  frame.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openImageViewer(node);
+  });
   if (node.dataUrl) {
     cacheImageAsset(node);
     const image = document.createElement("img");
@@ -1249,6 +1274,7 @@ function attachNodeDrag(handle, element, node) {
     } else if (!isNodeSelected(node.id)) {
       selectNode(node.id);
     }
+    bringNodeToFront(node.id, element);
 
     const group = selectedNodeIds().map((id) => {
       const selectedNode = findNode(id);
@@ -1303,6 +1329,7 @@ function attachNodeResize(handle, element, node) {
     event.preventDefault();
     event.stopPropagation();
     selectNode(node.id);
+    bringNodeToFront(node.id, element);
     const start = {
       x: event.clientX,
       y: event.clientY,
@@ -1350,6 +1377,7 @@ function attachImageNodeResize(handle, element, node) {
     event.preventDefault();
     event.stopPropagation();
     selectNode(node.id);
+    bringNodeToFront(node.id, element);
     const start = {
       x: event.clientX,
       y: event.clientY,
@@ -1529,7 +1557,8 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
         dataUrl: asset.dataUrl,
         createdAt: new Date().toISOString(),
         meta: {
-          prompt: result.meta?.cleanPrompt || workingPrompt,
+          prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
+          tags: result.meta?.translatedPrompt || workingPrompt,
           ratio: result.meta?.ratio || node.ratio,
           width: sourceWidth,
           height: sourceHeight,
@@ -1702,9 +1731,14 @@ function openImageViewer(node) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
   }
+  const meta = node.meta || {};
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.alt = node.title || "画布图片";
   els.imageViewerCaption.textContent = node.title || "图片预览";
+  const size = meta.width && meta.height ? `${meta.width}×${meta.height}` : "原始尺寸";
+  els.imageViewerDimensions.textContent = `${size}${meta.ratio ? ` · ${meta.ratio}` : ""}`;
+  els.imageViewerPrompt.textContent = meta.prompt || "暂无提示词记录";
+  els.imageViewerTags.textContent = meta.tags || meta.finalPrompt || "暂无英文 tags 记录";
   els.imageViewer.hidden = false;
   document.getElementById("imageViewerClose").focus();
 }
@@ -1712,7 +1746,53 @@ function openImageViewer(node) {
 function closeImageViewer() {
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
-  els.imageViewerCaption.textContent = "";
+  els.imageViewerCaption.textContent = "图片预览";
+  els.imageViewerDimensions.textContent = "原始尺寸";
+  els.imageViewerPrompt.textContent = "暂无提示词记录";
+  els.imageViewerTags.textContent = "暂无英文 tags 记录";
+}
+
+async function ensureLibraryImageData(item) {
+  if (item?.dataUrl) return item.dataUrl;
+  if (!item?.id) throw new Error("图片素材 ID 无效");
+  if (state.libraryAssetPromises.has(item.id)) {
+    return state.libraryAssetPromises.get(item.id);
+  }
+  const pending = bridge.apiGet("canvas/asset", { id: item.id }).then((payload) => {
+    item.dataUrl = payload.dataUrl;
+    cacheImageAsset({
+      assetId: item.id,
+      dataUrl: item.dataUrl,
+      meta: { width: item.width, height: item.height },
+    });
+    return item.dataUrl;
+  }).finally(() => {
+    state.libraryAssetPromises.delete(item.id);
+  });
+  state.libraryAssetPromises.set(item.id, pending);
+  return pending;
+}
+
+function preloadLibraryImages() {
+  if (state.libraryPreloadPromise) return state.libraryPreloadPromise;
+  const queue = state.library.images.filter((item) => !item.dataUrl);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < queue.length) {
+      const item = queue[cursor];
+      cursor += 1;
+      try {
+        await ensureLibraryImageData(item);
+      } catch (_) {
+        // Individual broken assets should not block the rest of the library.
+      }
+    }
+  };
+  const workers = Array.from({ length: Math.min(4, queue.length) }, worker);
+  state.libraryPreloadPromise = Promise.allSettled(workers).finally(() => {
+    state.libraryPreloadPromise = null;
+  });
+  return state.libraryPreloadPromise;
 }
 
 async function loadLibrary(render = true) {
@@ -1722,6 +1802,7 @@ async function loadLibrary(render = true) {
       images: Array.isArray(library?.images) ? library.images : [],
       prompts: Array.isArray(library?.prompts) ? library.prompts : [],
     };
+    preloadLibraryImages();
     if (render) renderAssetLibrary();
   } catch (error) {
     toast(error.message || "素材库读取失败", "error");
@@ -1736,20 +1817,24 @@ function setAssetPanel(open) {
 
 function activeAssetItems() {
   const query = els.assetSearch.value.trim().toLowerCase();
-  const items = state.assetTab === "images" ? state.library.images : state.library.prompts;
+  const items = [
+    ...state.library.images.map((item) => ({ kind: "image", item })),
+    ...state.library.prompts.map((item) => ({ kind: "prompt", item })),
+  ];
   if (!query) return items;
-  return items.filter((item) => `${item.name || ""} ${item.prompt || ""}`.toLowerCase().includes(query));
+  return items.filter(({ item }) => (
+    `${item.name || ""} ${item.prompt || ""} ${item.tags || ""}`.toLowerCase().includes(query)
+  ));
 }
 
 function renderAssetLibrary() {
   const items = activeAssetItems();
   els.assetGrid.replaceChildren();
-  els.assetPanel.classList.toggle("prompt-view", state.assetTab === "prompts");
   els.assetPanelCount.textContent = `${items.length} 项`;
   els.assetEmpty.classList.toggle("visible", items.length === 0);
 
-  items.forEach((item) => {
-    if (state.assetTab === "images") renderImageAssetCard(item);
+  items.forEach(({ kind, item }) => {
+    if (kind === "image") renderImageAssetCard(item);
     else renderPromptAssetCard(item);
   });
   refreshIcons(els.assetPanel);
@@ -1757,20 +1842,35 @@ function renderAssetLibrary() {
 
 function renderImageAssetCard(item) {
   const card = document.createElement("article");
-  card.className = "asset-card";
-  card.title = "点击添加到当前画布";
+  card.className = "asset-card asset-image-card";
+  card.title = "点击预览，拖到画布使用";
+  card.dataset.assetId = item.id;
   const thumb = document.createElement("div");
   thumb.className = "asset-thumb";
+  if (item.width && item.height) thumb.style.aspectRatio = `${item.width} / ${item.height}`;
+  const loading = document.createElement("span");
+  loading.className = "asset-thumb-loading";
+  loading.textContent = "预加载中…";
   const image = document.createElement("img");
   image.alt = item.name || "图片素材";
+  image.draggable = false;
+  image.hidden = true;
+  image.addEventListener("load", () => {
+    image.hidden = false;
+    loading.hidden = true;
+  });
+  image.addEventListener("error", () => {
+    image.hidden = true;
+    loading.hidden = false;
+    loading.textContent = "图片读取失败";
+  });
+  thumb.append(loading, image);
   if (item.dataUrl) image.src = item.dataUrl;
-  else {
-    bridge.apiGet("canvas/asset", { id: item.id }).then((payload) => {
-      item.dataUrl = payload.dataUrl;
-      if (image.isConnected) image.src = payload.dataUrl;
-    }).catch(() => {});
-  }
-  thumb.appendChild(image);
+  else ensureLibraryImageData(item).then((dataUrl) => {
+    if (image.isConnected) image.src = dataUrl;
+  }).catch(() => {
+    if (loading.isConnected) loading.textContent = "图片读取失败";
+  });
   const meta = document.createElement("div");
   meta.className = "asset-card-meta";
   const name = document.createElement("span");
@@ -1790,17 +1890,97 @@ function renderImageAssetCard(item) {
   });
   meta.append(name, remove);
   card.append(thumb, meta);
-  card.addEventListener("click", () => addImageAssetToCanvas(item));
+  attachLibraryImageDrag(card, item);
   els.assetGrid.appendChild(card);
 }
 
-async function addImageAssetToCanvas(item) {
-  try {
-    if (!item.dataUrl) {
-      const payload = await bridge.apiGet("canvas/asset", { id: item.id });
-      item.dataUrl = payload.dataUrl;
+function isCanvasDropPoint(clientX, clientY) {
+  const rect = els.viewport.getBoundingClientRect();
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+    return false;
+  }
+  const target = document.elementFromPoint(clientX, clientY);
+  return !target?.closest(".asset-panel, .topbar, .image-viewer");
+}
+
+function attachLibraryImageDrag(card, item) {
+  let suppressClick = false;
+  card.addEventListener("click", () => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
     }
-    const point = worldCenter();
+    openLibraryImageViewer(item);
+  });
+  card.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const start = { x: event.clientX, y: event.clientY };
+    let dragging = false;
+    let ghost = null;
+    let canDrop = false;
+    const moveGhost = (moveEvent) => {
+      ghost.style.left = `${moveEvent.clientX + 14}px`;
+      ghost.style.top = `${moveEvent.clientY + 14}px`;
+    };
+    const move = (moveEvent) => {
+      if (!dragging && Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < 6) return;
+      moveEvent.preventDefault();
+      if (!dragging) {
+        dragging = true;
+        card.classList.add("dragging");
+        ghost = card.cloneNode(true);
+        ghost.className = "asset-drag-ghost";
+        ghost.querySelectorAll("button").forEach((button) => button.remove());
+        document.body.appendChild(ghost);
+      }
+      moveGhost(moveEvent);
+      canDrop = isCanvasDropPoint(moveEvent.clientX, moveEvent.clientY);
+      els.viewport.classList.toggle("drag-over", canDrop);
+      ghost.classList.toggle("can-drop", canDrop);
+    };
+    const end = (endEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      card.classList.remove("dragging");
+      ghost?.remove();
+      clearDropOverlay();
+      if (!dragging) return;
+      endEvent.preventDefault();
+      suppressClick = true;
+      window.setTimeout(() => { suppressClick = false; }, 120);
+      if (canDrop && isCanvasDropPoint(endEvent.clientX, endEvent.clientY)) {
+        placeImageAssetOnCanvas(item, clientToWorld(endEvent.clientX, endEvent.clientY));
+      }
+    };
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+}
+
+async function openLibraryImageViewer(item) {
+  try {
+    await ensureLibraryImageData(item);
+    openImageViewer({
+      dataUrl: item.dataUrl,
+      title: item.name || "图片素材",
+      meta: {
+        prompt: item.prompt || "",
+        tags: item.tags || "",
+        width: item.width,
+        height: item.height,
+        ratio: item.ratio || "",
+      },
+    });
+  } catch (error) {
+    toast(error.message || "图片素材读取失败", "error");
+  }
+}
+
+async function placeImageAssetOnCanvas(item, point = worldCenter()) {
+  try {
+    await ensureLibraryImageData(item);
     const nodeWidth = fittedImageNodeWidth(item.width, item.height);
     addNode({
       id: uid("image"),
@@ -1812,7 +1992,13 @@ async function addImageAssetToCanvas(item) {
       assetId: item.id,
       dataUrl: item.dataUrl,
       createdAt: new Date().toISOString(),
-      meta: { prompt: item.name || "素材图片", width: item.width, height: item.height },
+      meta: {
+        prompt: item.prompt || item.name || "素材图片",
+        tags: item.tags || "",
+        width: item.width,
+        height: item.height,
+        ratio: item.ratio || "",
+      },
     });
     setAssetPanel(false);
   } catch (error) {
@@ -1896,6 +2082,9 @@ async function saveImageToLibrary(node) {
       assetId: node.assetId,
       name: node.title || node.meta?.prompt || "画布图片",
       source: "canvas",
+      prompt: node.meta?.prompt || "",
+      tags: node.meta?.tags || node.meta?.finalPrompt || "",
+      ratio: node.meta?.ratio || "",
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
@@ -2018,7 +2207,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.12"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.13"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2044,6 +2233,7 @@ async function loadInitialState() {
     images: Array.isArray(library?.images) ? library.images : [],
     prompts: Array.isArray(library?.prompts) ? library.prompts : [],
   };
+  preloadLibraryImages();
   await switchCanvas(canvasMeta, { saveCurrent: false });
   startHealthMonitor();
 }
@@ -2275,13 +2465,6 @@ document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
 document.getElementById("assetPanelClose").addEventListener("click", () => setAssetPanel(false));
-document.querySelectorAll("[data-asset-tab]").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.assetTab = button.dataset.assetTab;
-    document.querySelectorAll("[data-asset-tab]").forEach((item) => item.classList.toggle("active", item === button));
-    renderAssetLibrary();
-  });
-});
 els.assetSearch.addEventListener("input", renderAssetLibrary);
 els.saveSelectedPromptBtn.addEventListener("click", saveSelectedPrompt);
 

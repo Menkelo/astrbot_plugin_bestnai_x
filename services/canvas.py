@@ -374,6 +374,7 @@ class CanvasStore:
                     "width": int(_bounded_number(raw_meta.get("width"), 0, 0, 20_000)),
                     "height": int(_bounded_number(raw_meta.get("height"), 0, 0, 20_000)),
                     "finalPrompt": _short_text(raw_meta.get("finalPrompt"), 6000),
+                    "tags": _short_text(raw_meta.get("tags"), 6000),
                     "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
                     "translatedPromptExpanded": bool(
                         raw_meta.get("translatedPromptExpanded", False)
@@ -556,6 +557,9 @@ class CanvasStore:
         asset: Dict[str, Any],
         name: Any = "",
         source: Any = "",
+        prompt: Any = "",
+        tags: Any = "",
+        ratio: Any = "",
     ) -> Dict[str, Any]:
         asset_id = str(asset.get("id") or "")
         if not ASSET_ID_RE.fullmatch(asset_id):
@@ -570,6 +574,9 @@ class CanvasStore:
                 "height": int(_bounded_number(asset.get("height"), entry.get("height", 0), 0, 20_000)),
                 "format": _short_text(asset.get("format"), 16),
                 "source": _short_text(source, 80),
+                "prompt": _short_text(prompt, 6000),
+                "tags": _short_text(tags, 6000),
+                "ratio": _short_text(ratio, 32),
             }
         )
         if existing is None:
@@ -794,6 +801,9 @@ class CanvasService:
                 {"id": asset_id, "width": width, "height": height, "format": image_format},
                 payload.get("name"),
                 payload.get("source"),
+                payload.get("prompt"),
+                payload.get("tags"),
+                payload.get("ratio"),
             )
             return json_response({"image": entry, **asset_payload})
         except FileNotFoundError:

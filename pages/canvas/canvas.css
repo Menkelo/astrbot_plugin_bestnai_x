@@ -347,13 +347,13 @@ select:focus-visible,
   min-width: 0;
   align-items: center;
   gap: 6px;
-  overflow: hidden;
+  overflow: visible;
   color: var(--faint);
   font-size: 10px;
   white-space: nowrap;
 }
 
-.plugin-meta > span {
+.plugin-meta > span:not(.connection-indicator) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1023,6 +1023,12 @@ select:focus-visible,
     linear-gradient(-45deg, transparent 75%, var(--line) 75%);
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-size: 16px 16px;
+  cursor: zoom-in;
+}
+
+.image-preview-wrap:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .image-preview-wrap img {
@@ -1123,6 +1129,7 @@ select:focus-visible,
 
 .image-viewer-stage {
   display: grid;
+  width: min(92vw, 1600px);
   max-width: 100%;
   max-height: 100%;
   margin: 0;
@@ -1133,20 +1140,64 @@ select:focus-visible,
 .image-viewer-stage img {
   display: block;
   max-width: min(92vw, 1600px);
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 300px);
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
 }
 
-.image-viewer-stage figcaption {
-  max-width: min(80vw, 900px);
-  overflow: hidden;
+.image-viewer-details {
+  display: grid;
+  width: min(92vw, 900px);
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, .78);
   color: #e5e7eb;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .26);
+}
+
+.image-viewer-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.image-viewer-heading strong {
+  overflow: hidden;
   font-size: 12px;
-  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.image-viewer-heading span,
+.image-viewer-copy > span {
+  color: #94a3b8;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.image-viewer-heading span {
+  flex: 0 0 auto;
+}
+
+.image-viewer-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.image-viewer-copy p {
+  max-height: 72px;
+  margin: 0;
+  overflow: auto;
+  color: #f8fafc;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .image-viewer-close {
@@ -1445,37 +1496,6 @@ select:focus-visible,
   font-weight: 750;
 }
 
-.asset-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--soft-2);
-}
-
-.asset-tabs button {
-  display: flex;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 10.5px;
-  font-weight: 800;
-}
-
-.asset-tabs button.active {
-  background: var(--card-solid);
-  box-shadow: 0 4px 12px var(--shadow);
-  color: var(--text);
-}
-
-.asset-tabs svg,
 .asset-search svg,
 .asset-save-prompt svg {
   width: 14px;
@@ -1513,7 +1533,7 @@ select:focus-visible,
 }
 
 .asset-save-prompt {
-  display: none;
+  display: inline-flex;
   height: 34px;
   flex: 0 0 auto;
   align-items: center;
@@ -1526,10 +1546,6 @@ select:focus-visible,
   cursor: pointer;
   font-size: 10px;
   font-weight: 800;
-}
-
-.asset-panel.prompt-view .asset-save-prompt {
-  display: inline-flex;
 }
 
 .asset-grid {
@@ -1561,10 +1577,43 @@ select:focus-visible,
   transform: translateY(-1px);
 }
 
+.asset-image-card {
+  cursor: grab;
+  touch-action: none;
+}
+
+.asset-image-card:active {
+  cursor: grabbing;
+}
+
+.asset-image-card.dragging {
+  opacity: .58;
+  transform: scale(.98);
+}
+
+.asset-drag-ghost {
+  position: fixed;
+  z-index: 1400;
+  width: 180px;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--card-solid);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .2);
+  opacity: .82;
+  pointer-events: none;
+  transform: scale(.92);
+  transform-origin: top left;
+}
+
+.asset-drag-ghost.can-drop {
+  border-color: #2563eb;
+  opacity: .96;
+}
+
 .asset-thumb {
   display: grid;
   width: 100%;
-  aspect-ratio: 1 / 1;
   place-items: center;
   overflow: hidden;
   background: var(--soft-2);
@@ -1573,7 +1622,14 @@ select:focus-visible,
 .asset-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+}
+
+.asset-thumb-loading {
+  padding: 16px 8px;
+  color: var(--faint);
+  font-size: 9.5px;
+  font-weight: 750;
 }
 
 .asset-card-meta {
@@ -1904,7 +1960,17 @@ select:focus-visible,
 
   .image-viewer-stage img {
     max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 96px);
+    max-height: calc(100vh - 310px);
+  }
+
+  .image-viewer-details {
+    width: calc(100vw - 32px);
+  }
+
+  .image-viewer-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
 }

@@ -53,6 +53,7 @@ class CanvasStoreTest(unittest.TestCase):
                         "characterKeep": True,
                         "characterName": "Hatsune Miku",
                         "retagPrompt": "hatsune_miku, vocaloid",
+                        "tags": "1girl, hatsune_miku, vocaloid",
                     },
                     "dataUrl": "data:image/png;base64,not-persisted",
                     "status": "generating",
@@ -99,6 +100,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertTrue(loaded["nodes"][0]["meta"]["characterKeep"])
         self.assertEqual(loaded["nodes"][0]["meta"]["characterName"], "Hatsune Miku")
         self.assertEqual(loaded["nodes"][0]["meta"]["retagPrompt"], "hatsune_miku, vocaloid")
+        self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)
         self.assertEqual(loaded["nodes"][1]["meta"]["width"], 832)
         self.assertEqual(loaded["nodes"][2]["width"], 420)
@@ -160,13 +162,23 @@ class CanvasStoreTest(unittest.TestCase):
         image = self.store.store_asset(buffer.getvalue())
         self.store.add_image_to_library(image, "自动上传", "upload")
         self.assertEqual(self.store.list_library()["images"], [])
-        self.store.add_image_to_library(image, "天空参考", "canvas")
+        self.store.add_image_to_library(
+            image,
+            "天空参考",
+            "canvas",
+            "蓝色天空",
+            "blue sky, clouds",
+            "3:2",
+        )
         prompt = self.store.save_prompt_asset(
             {"name": "逆光人像", "prompt": "1girl, backlight", "ratio": "2:3"}
         )
 
         library = self.store.list_library()
         self.assertEqual(library["images"][0]["name"], "天空参考")
+        self.assertEqual(library["images"][0]["prompt"], "蓝色天空")
+        self.assertEqual(library["images"][0]["tags"], "blue sky, clouds")
+        self.assertEqual(library["images"][0]["ratio"], "3:2")
         self.assertEqual(library["prompts"][0]["prompt"], "1girl, backlight")
 
         self.store.remove_image_from_library(image["id"])
