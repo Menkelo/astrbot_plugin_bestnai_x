@@ -1177,9 +1177,11 @@ class BestNAIPlugin(Star):
                 yield event.plain_result("❌ 图片反推结果为空")
                 return
 
+            show_messages: List[str] = []
+
             if self.plugin_config.image_retag.show_result:
                 title = "头像反推结果" if mentioned_qq else "反推结果"
-                yield event.plain_result(f"🔎 {title}：\n{retag_prompt}")
+                show_messages.append(f"🔎 {title}：\n{retag_prompt}")
 
             if prompt:
                 ratio_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
@@ -1209,7 +1211,7 @@ class BestNAIPlugin(Star):
                         return
 
                     if tr_cfg.show_result:
-                        yield event.plain_result(f"🔎 翻译结果：\n{translated}")
+                        show_messages.append(f"🔎 翻译结果：\n{translated}")
 
                     parts = []
 
@@ -1233,6 +1235,9 @@ class BestNAIPlugin(Star):
                 merged_prompt = f"{merged_user_prompt}, {retag_prompt}"
             else:
                 merged_prompt = retag_prompt
+
+            if show_messages:
+                yield event.plain_result("\n\n".join(show_messages))
 
             if inferred_ratio:
                 merged_prompt = f"{merged_prompt} {inferred_ratio}"
