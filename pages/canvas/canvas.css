@@ -794,6 +794,21 @@ button {
   display: block;
   width: 180px;
   height: 110px;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+
+#minimap:hover {
+  filter: brightness(0.99);
+}
+
+#minimap.dragging {
+  cursor: grabbing;
+}
+
+#minimap:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .toast-region {

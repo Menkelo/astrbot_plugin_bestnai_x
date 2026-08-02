@@ -38,6 +38,7 @@ const state = {
   future: [],
   restoring: false,
   connectionDrag: null,
+  minimapTransform: null,
 };
 
 const MAX_HISTORY = 40;
@@ -986,6 +987,7 @@ async function uploadFiles(files, point = worldCenter()) {
   }
 }
 
+// Projection and drag navigation adapted from hero8152/Infinite-Canvas.
 function drawMinimap() {
   const canvas = els.minimap;
   const ctx = canvas.getContext("2d");
@@ -993,38 +995,90 @@ function drawMinimap() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = style.getPropertyValue("--panel-soft").trim();
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (!state.nodes.length) return;
 
-  const minX = Math.min(...state.nodes.map((node) => node.x)) - 120;
-  const minY = Math.min(...state.nodes.map((node) => node.y)) - 120;
-  const maxX = Math.max(...state.nodes.map((node) => node.x + (node.width || 320))) + 120;
-  const maxY = Math.max(...state.nodes.map((node) => node.y + 300)) + 120;
+  const viewportWidth = els.viewport.clientWidth / state.viewport.scale;
+  const viewportHeight = els.viewport.clientHeight / state.viewport.scale;
+  const viewportX = -state.viewport.x / state.viewport.scale;
+  const viewportY = -state.viewport.y / state.viewport.scale;
+  const viewportBounds = {
+    x: viewportX,
+    y: viewportY,
+    width: viewportWidth,
+    height: viewportHeight,
+  };
+  const nodeBounds = state.nodes.map((node) => {
+    const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
+    return {
+      x: node.x,
+      y: node.y,
+      width: node.width || 320,
+      height: element?.offsetHeight || 280,
+    };
+  });
+  const bounds = [...nodeBounds, viewportBounds];
+  const minX = Math.min(...bounds.map((item) => item.x), -200);
+  const minY = Math.min(...bounds.map((item) => item.y), -200);
+  const maxX = Math.max(...bounds.map((item) => item.x + item.width), viewportX + viewportWidth + 200);
+  const maxY = Math.max(...bounds.map((item) => item.y + item.height), viewportY + viewportHeight + 200);
   const scale = Math.min(canvas.width / Math.max(1, maxX - minX), canvas.height / Math.max(1, maxY - minY));
   const ox = (canvas.width - (maxX - minX) * scale) / 2;
   const oy = (canvas.height - (maxY - minY) * scale) / 2;
   const mapX = (x) => ox + (x - minX) * scale;
   const mapY = (y) => oy + (y - minY) * scale;
+  state.minimapTransform = { minX, minY, scale, ox, oy };
 
-  state.nodes.forEach((node) => {
-    ctx.fillStyle = node.type === "prompt"
+  nodeBounds.forEach((node, index) => {
+    const source = state.nodes[index];
+    ctx.fillStyle = source.type === "prompt"
       ? style.getPropertyValue("--accent").trim()
-      : node.type === "image"
+      : source.type === "image"
         ? style.getPropertyValue("--warm").trim()
         : style.getPropertyValue("--muted").trim();
-    ctx.fillRect(mapX(node.x), mapY(node.y), Math.max(3, (node.width || 320) * scale), Math.max(3, 220 * scale));
+    ctx.globalAlpha = 0.78;
+    ctx.fillRect(
+      mapX(node.x),
+      mapY(node.y),
+      Math.max(4, node.width * scale),
+      Math.max(4, node.height * scale),
+    );
   });
 
-  const rect = els.viewport.getBoundingClientRect();
-  const worldLeft = -state.viewport.x / state.viewport.scale;
-  const worldTop = -state.viewport.y / state.viewport.scale;
-  ctx.strokeStyle = style.getPropertyValue("--ink").trim();
-  ctx.lineWidth = 1;
-  ctx.strokeRect(
-    mapX(worldLeft),
-    mapY(worldTop),
-    (rect.width / state.viewport.scale) * scale,
-    (rect.height / state.viewport.scale) * scale,
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = style.getPropertyValue("--accent-soft").trim();
+  ctx.fillRect(
+    mapX(viewportX),
+    mapY(viewportY),
+    viewportWidth * scale,
+    viewportHeight * scale,
   );
+  ctx.strokeStyle = style.getPropertyValue("--ink").trim();
+  ctx.lineWidth = 2;
+  ctx.strokeRect(
+    mapX(viewportX),
+    mapY(viewportY),
+    viewportWidth * scale,
+    viewportHeight * scale,
+  );
+}
+
+function minimapEventToWorld(event) {
+  if (!state.minimapTransform) drawMinimap();
+  const transform = state.minimapTransform;
+  if (!transform) return worldCenter();
+  const rect = els.minimap.getBoundingClientRect();
+  const canvasX = (event.clientX - rect.left) * (els.minimap.width / Math.max(1, rect.width));
+  const canvasY = (event.clientY - rect.top) * (els.minimap.height / Math.max(1, rect.height));
+  return {
+    x: transform.minX + (canvasX - transform.ox) / Math.max(0.0001, transform.scale),
+    y: transform.minY + (canvasY - transform.oy) / Math.max(0.0001, transform.scale),
+  };
+}
+
+function centerViewportOnWorldPoint(point) {
+  state.viewport.x = els.viewport.clientWidth / 2 - point.x * state.viewport.scale;
+  state.viewport.y = els.viewport.clientHeight / 2 - point.y * state.viewport.scale;
+  renderViewport();
+  drawMinimap();
 }
 
 async function loadInitialState() {
@@ -1095,6 +1149,53 @@ els.viewport.addEventListener("drop", (event) => {
   event.preventDefault();
   els.viewport.classList.remove("drag-over");
   uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
+});
+
+els.minimap.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  els.minimap.classList.add("dragging");
+  els.minimap.setPointerCapture(event.pointerId);
+  centerViewportOnWorldPoint(minimapEventToWorld(event));
+
+  const move = (moveEvent) => {
+    moveEvent.preventDefault();
+    centerViewportOnWorldPoint(minimapEventToWorld(moveEvent));
+  };
+  const end = (endEvent) => {
+    els.minimap.classList.remove("dragging");
+    if (els.minimap.hasPointerCapture(endEvent.pointerId)) {
+      els.minimap.releasePointerCapture(endEvent.pointerId);
+    }
+    els.minimap.removeEventListener("pointermove", move);
+    els.minimap.removeEventListener("pointerup", end);
+    els.minimap.removeEventListener("pointercancel", end);
+    scheduleSave(800);
+  };
+
+  els.minimap.addEventListener("pointermove", move);
+  els.minimap.addEventListener("pointerup", end);
+  els.minimap.addEventListener("pointercancel", end);
+});
+
+els.minimap.addEventListener("keydown", (event) => {
+  const directions = {
+    ArrowLeft: [-80, 0],
+    ArrowRight: [80, 0],
+    ArrowUp: [0, -80],
+    ArrowDown: [0, 80],
+  };
+  const direction = directions[event.key];
+  if (!direction) return;
+  event.preventDefault();
+  const multiplier = event.shiftKey ? 2.5 : 1;
+  const center = worldCenter();
+  centerViewportOnWorldPoint({
+    x: center.x + direction[0] * multiplier / state.viewport.scale,
+    y: center.y + direction[1] * multiplier / state.viewport.scale,
+  });
+  scheduleSave(800);
 });
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
