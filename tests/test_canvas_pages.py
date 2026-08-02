@@ -193,6 +193,22 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertIn("tags: result.meta?.translatedPrompt || workingPrompt", editor)
 
+    def test_generation_avoids_existing_nodes_and_text_inputs_keep_native_undo(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn("function findOpenGeneratedPosition", editor)
+        self.assertIn("function rectanglesOverlap", editor)
+        self.assertIn("estimatedImageNodeHeight(imageNodeWidth, sourceWidth, sourceHeight)", editor)
+        self.assertIn("x: position.x", editor)
+        self.assertIn("y: position.y", editor)
+        self.assertIn("const editing = !!target?.closest", editor)
+        self.assertIn("if (editing) return;", editor)
+        self.assertNotIn('id="saveSelectedPromptBtn"', html)
+        self.assertNotIn("saveSelectedPrompt", editor)
+        self.assertNotIn(".asset-save-prompt", styles)
+
     def test_plugin_metadata_and_astrbot_compatibility_are_exposed(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         metadata = (ROOT / "metadata.yaml").read_text(encoding="utf-8")

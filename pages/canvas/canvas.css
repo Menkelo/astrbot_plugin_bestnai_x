@@ -1496,8 +1496,7 @@ select:focus-visible,
   font-weight: 750;
 }
 
-.asset-search svg,
-.asset-save-prompt svg {
+.asset-search svg {
   width: 14px;
   height: 14px;
 }
@@ -1530,22 +1529,6 @@ select:focus-visible,
   background: transparent;
   color: var(--text);
   font-size: 11px;
-}
-
-.asset-save-prompt {
-  display: inline-flex;
-  height: 34px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--card-solid);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 800;
 }
 
 .asset-grid {

@@ -48,7 +48,6 @@ const els = {
   assetEmpty: document.getElementById("assetEmpty"),
   assetSearch: document.getElementById("assetSearch"),
   assetPanelCount: document.getElementById("assetPanelCount"),
-  saveSelectedPromptBtn: document.getElementById("saveSelectedPromptBtn"),
   projectMenuBtn: document.getElementById("projectMenuBtn"),
   projectMenu: document.getElementById("projectMenu"),
   projectList: document.getElementById("projectList"),
@@ -1433,8 +1432,46 @@ function nodeRect(node) {
     x: node.x,
     y: node.y,
     width: node.width || 320,
-    height: node.height || element?.offsetHeight || 280,
+    height: node.height || element?.offsetHeight || estimatedImageNodeHeight(
+      node.width,
+      node.meta?.width,
+      node.meta?.height,
+    ),
   };
+}
+
+function estimatedImageNodeHeight(nodeWidth, sourceWidth, sourceHeight) {
+  const width = Number(nodeWidth) || 300;
+  const imageWidth = Number(sourceWidth);
+  const imageHeight = Number(sourceHeight);
+  if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
+    return 280;
+  }
+  const previewHeight = Math.min(720, Math.max(1, width - 20) * imageHeight / imageWidth);
+  return Math.ceil(previewHeight + 96);
+}
+
+function rectanglesOverlap(first, second, gap = 36) {
+  return first.x < second.x + second.width + gap
+    && first.x + first.width + gap > second.x
+    && first.y < second.y + second.height + gap
+    && first.y + first.height + gap > second.y;
+}
+
+function findOpenGeneratedPosition(sourceNode, width, height) {
+  const candidate = {
+    x: sourceNode.x + (sourceNode.width || 320) + 100,
+    y: sourceNode.y,
+    width,
+    height,
+  };
+  const occupied = state.nodes.map(nodeRect);
+  for (let attempt = 0; attempt < occupied.length + 1; attempt += 1) {
+    const collisions = occupied.filter((rect) => rectanglesOverlap(candidate, rect));
+    if (!collisions.length) return { x: candidate.x, y: candidate.y };
+    candidate.y = Math.max(...collisions.map((rect) => rect.y + rect.height + 36));
+  }
+  return { x: candidate.x, y: candidate.y };
 }
 
 function finishBoxSelection(startWorld, endEvent) {
@@ -1543,15 +1580,21 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       translatedPrompt: result.meta?.translatedPrompt || node.meta?.retagPrompt || "",
     };
     const createdIds = [];
-    assets.forEach((asset, index) => {
+    assets.forEach((asset) => {
       const sourceWidth = asset.width || result.meta?.width;
       const sourceHeight = asset.height || result.meta?.height;
+      const imageNodeWidth = fittedImageNodeWidth(sourceWidth, sourceHeight);
+      const position = findOpenGeneratedPosition(
+        node,
+        imageNodeWidth,
+        estimatedImageNodeHeight(imageNodeWidth, sourceWidth, sourceHeight),
+      );
       const imageNode = {
         id: uid("image"),
         type: "image",
-        x: node.x + (node.width || 320) + 100,
-        y: node.y + index * 340,
-        width: fittedImageNodeWidth(sourceWidth, sourceHeight),
+        x: position.x,
+        y: position.y,
+        width: imageNodeWidth,
         title: `${retagged ? "反推图片" : "生成结果"} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
@@ -2053,28 +2096,6 @@ function applyPromptAsset(item) {
   toast("已应用提示词素材");
 }
 
-async function saveSelectedPrompt() {
-  const node = findNode(state.selectedId);
-  if (node?.type !== "prompt" || !node.prompt?.trim()) {
-    toast("请先选中包含内容的提示词节点", "error");
-    return;
-  }
-  try {
-    const result = await bridge.apiPost("canvas/library/prompt/save", {
-      name: node.title || node.prompt.slice(0, 32),
-      prompt: node.prompt,
-      ratio: node.ratio,
-      artist: node.artist,
-      raw: !!node.raw,
-    });
-    state.library.prompts = [result.prompt, ...state.library.prompts.filter((item) => item.id !== result.prompt.id)];
-    renderAssetLibrary();
-    toast("提示词已保存到素材库");
-  } catch (error) {
-    toast(error.message || "提示词保存失败", "error");
-  }
-}
-
 async function saveImageToLibrary(node) {
   if (!node?.assetId) return;
   try {
@@ -2207,7 +2228,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.13"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.14"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2466,7 +2487,6 @@ document.getElementById("assetLibraryBtn").addEventListener("click", () => {
 });
 document.getElementById("assetPanelClose").addEventListener("click", () => setAssetPanel(false));
 els.assetSearch.addEventListener("input", renderAssetLibrary);
-els.saveSelectedPromptBtn.addEventListener("click", saveSelectedPrompt);
 
 els.imageInput.addEventListener("change", () => {
   uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());
@@ -2529,7 +2549,8 @@ els.imageViewer.addEventListener("pointerdown", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  const editing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+  const target = event.target instanceof Element ? event.target : null;
+  const editing = !!target?.closest("textarea, input, select, [contenteditable='true']");
   if (event.key === "Escape") {
     if (!els.imageViewer.hidden) {
       closeImageViewer();
@@ -2555,6 +2576,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    if (editing) return;
     event.preventDefault();
     if (event.shiftKey) redo(); else undo();
     return;
