@@ -1,16 +1,19 @@
 const bridge = window.AstrBotPluginPage;
 
 const els = {
-  viewport: document.getElementById("canvasViewport"),
-  world: document.getElementById("canvasWorld"),
-  nodeLayer: document.getElementById("nodeLayer"),
-  paths: document.getElementById("connectionPaths"),
+  viewport: document.getElementById("board"),
+  world: document.getElementById("world"),
+  nodeLayer: document.getElementById("nodes"),
+  paths: document.getElementById("links"),
+  linkControls: document.getElementById("linkControls"),
   empty: document.getElementById("emptyState"),
   minimap: document.getElementById("minimap"),
+  minimapContent: document.getElementById("minimapContent"),
+  minimapViewport: document.getElementById("minimapViewport"),
   providerDot: document.getElementById("providerDot"),
   providerStatus: document.getElementById("providerStatus"),
   saveState: document.getElementById("saveState"),
-  zoomValue: document.getElementById("zoomValue"),
+  zoomValue: document.getElementById("zoomBadge"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
   imageInput: document.getElementById("imageInput"),
@@ -18,7 +21,7 @@ const els = {
   toastRegion: document.getElementById("toastRegion"),
   selectionBox: document.getElementById("selectionBox"),
   createMenu: document.getElementById("createMenu"),
-  arrangeSelectionBtn: document.getElementById("arrangeSelectionBtn"),
+  arrangeSelectionBtn: document.getElementById("canvasArrangeBtn"),
 };
 
 const state = {
@@ -51,6 +54,19 @@ const MAX_HISTORY = 40;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 const nowLabel = () => new Date().toLocaleString([], { hour: "2-digit", minute: "2-digit" });
+
+function icon(name, className = "") {
+  const element = document.createElement("i");
+  element.dataset.lucide = name;
+  if (className) element.className = className;
+  return element;
+}
+
+function refreshIcons(root = document) {
+  if (window.lucide?.createIcons) {
+    window.lucide.createIcons({ root, attrs: { "stroke-width": 1.8 } });
+  }
+}
 
 function toast(message, type = "info") {
   const item = document.createElement("div");
@@ -234,7 +250,7 @@ function clearSelection() {
 }
 
 function updateSelectionControls() {
-  els.arrangeSelectionBtn.hidden = selectedNodeIds().length < 2;
+  els.arrangeSelectionBtn.classList.toggle("visible", selectedNodeIds().length >= 2);
 }
 
 function deleteNodes(ids) {
@@ -261,6 +277,11 @@ function deleteConnection(sourceId, targetId) {
   if (index < 0) return;
   pushHistory();
   state.connections.splice(index, 1);
+  const source = findNode(sourceId);
+  const target = findNode(targetId);
+  if (source?.type === "image" && target?.type === "prompt") {
+    target.statusText = "";
+  }
   renderAll();
   scheduleSave();
   toast("已删除连线");
@@ -302,13 +323,13 @@ function selectNode(id, additive = false) {
   renderConnections();
 }
 
-function makeAction(label, title, action) {
+function makeAction(iconName, title, action, className = "") {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "node-action";
-  button.textContent = label;
+  button.className = `node-action${className ? ` ${className}` : ""}`;
   button.title = title;
   button.setAttribute("aria-label", title);
+  button.appendChild(icon(iconName));
   button.addEventListener("pointerdown", (event) => event.stopPropagation());
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -326,20 +347,22 @@ function makeNodeShell(node, label) {
   element.style.width = `${node.width || 320}px`;
 
   const handle = document.createElement("header");
-  handle.className = "node-handle";
+  handle.className = "node-head";
   const nodeLabel = document.createElement("span");
-  nodeLabel.className = "node-label";
+  nodeLabel.className = "node-title-wrap";
   const kind = document.createElement("span");
-  kind.className = "node-kind";
+  kind.className = "node-type-icon";
+  kind.appendChild(icon({ prompt: "text-cursor-input", image: "image", note: "notebook-pen" }[node.type] || "box"));
   const text = document.createElement("span");
+  text.className = "node-title";
   text.textContent = label;
   nodeLabel.append(kind, text);
 
   const actions = document.createElement("span");
   actions.className = "node-actions";
   actions.append(
-    makeAction("⧉", "复制节点", () => duplicateNode(node.id)),
-    makeAction("×", "删除节点", () => deleteNode(node.id)),
+    makeAction("copy", "复制节点", () => duplicateNode(node.id)),
+    makeAction("x", "删除节点", () => deleteNode(node.id), "delete"),
   );
   handle.append(nodeLabel, actions);
   element.appendChild(handle);
@@ -412,7 +435,7 @@ function renderPromptNode(node) {
   retag.type = "button";
   retag.className = "retag-btn";
   retag.disabled = !!node.status || !sourceImage || !state.config.retagConfigured;
-  retag.textContent = node.status === "retagging" ? "反推中…" : "反推原图";
+  retag.append(icon("scan-search"), document.createTextNode(node.status === "retagging" ? "反推中…" : "反推原图"));
   if (!state.config.retagEnabled) {
     retag.title = "请先在插件配置中启用图片反推";
   } else if (!state.config.retagConfigured) {
@@ -432,7 +455,7 @@ function renderPromptNode(node) {
   generate.type = "button";
   generate.className = "generate-btn";
   generate.disabled = !!node.status || !state.config.configured;
-  generate.textContent = node.status === "generating" ? "生成中…" : "生成";
+  generate.append(icon("wand-sparkles"), document.createTextNode(node.status === "generating" ? "生成中…" : "生成"));
   generate.title = state.config.configured ? "生成图片 (Ctrl+Enter)" : "请先配置生图提供商";
   generate.addEventListener("pointerdown", (event) => event.stopPropagation());
   generate.addEventListener("click", (event) => {
@@ -449,10 +472,10 @@ function renderPromptNode(node) {
     || (sourceImage ? "已连接原图，可反推提示词" : "Ctrl + Enter 快速生成");
 
   const inputPort = document.createElement("span");
-  inputPort.className = "node-port in";
+  inputPort.className = "port in";
   attachConnectionPort(inputPort, node.id, "in");
   const outputPort = document.createElement("span");
-  outputPort.className = "node-port out";
+  outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
   body.append(prompt, options, footer, status);
@@ -482,12 +505,12 @@ function renderImageNode(node) {
   const element = makeNodeShell(node, node.title || "生成结果");
   const actions = element.querySelector(".node-actions");
   actions.insertBefore(
-    makeAction("↓", "下载图片", () => downloadImage(node)),
+    makeAction("download", "下载图片", () => downloadImage(node)),
     actions.firstChild,
   );
 
   const frame = document.createElement("div");
-  frame.className = "image-frame";
+  frame.className = "image-preview-wrap";
   if (node.dataUrl) {
     const image = document.createElement("img");
     image.src = node.dataUrl;
@@ -512,12 +535,15 @@ function renderImageNode(node) {
   meta.append(title, detail);
 
   const inputPort = document.createElement("span");
-  inputPort.className = "node-port in";
+  inputPort.className = "port in";
   attachConnectionPort(inputPort, node.id, "in");
   const outputPort = document.createElement("span");
-  outputPort.className = "node-port out";
+  outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
-  element.append(frame, meta, inputPort, outputPort);
+  const body = document.createElement("div");
+  body.className = "node-body";
+  body.append(frame, meta);
+  element.append(body, inputPort, outputPort);
   return element;
 }
 
@@ -549,11 +575,12 @@ function renderNodes() {
     els.nodeLayer.appendChild(element);
   });
   els.empty.classList.toggle("hidden", state.nodes.length > 0);
+  refreshIcons(els.nodeLayer);
 }
 
 function connectionPath(x1, y1, x2, y2) {
   const curve = Math.max(70, Math.abs(x2 - x1) * 0.45);
-  return `M ${x1 + 10000} ${y1 + 10000} C ${x1 + curve + 10000} ${y1 + 10000}, ${x2 - curve + 10000} ${y2 + 10000}, ${x2 + 10000} ${y2 + 10000}`;
+  return `M ${x1} ${y1} C ${x1 + curve} ${y1}, ${x2 - curve} ${y2}, ${x2} ${y2}`;
 }
 
 function nodePortPoint(node, role) {
@@ -585,7 +612,7 @@ function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
 
   const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
   hitPath.setAttribute("d", pathData);
-  hitPath.setAttribute("class", "connection-hit");
+  hitPath.setAttribute("class", "link-hit");
   hitPath.setAttribute("aria-label", `${label}（双击）`);
   hitPath.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -593,24 +620,18 @@ function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
   });
   hitPath.addEventListener("dblclick", remove);
 
-  const control = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  control.setAttribute("class", "connection-delete");
-  control.setAttribute("transform", `translate(${(x1 + x2) / 2 + 10000} ${(y1 + y2) / 2 + 10000})`);
-  control.setAttribute("role", "button");
-  control.setAttribute("tabindex", "0");
+  const control = document.createElement("button");
+  control.type = "button";
+  control.className = `link-delete${className.includes("active") ? " visible" : ""}`;
+  control.style.left = `${(x1 + x2) / 2}px`;
+  control.style.top = `${(y1 + y2) / 2}px`;
+  control.title = label;
   control.setAttribute("aria-label", label);
-
-  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-  title.textContent = label;
-  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-  circle.setAttribute("r", "9");
-  const cross = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  cross.setAttribute("d", "M -3 -3 L 3 3 M 3 -3 L -3 3");
-  control.append(title, circle, cross);
+  control.appendChild(icon("x"));
 
   const setHovered = (hovered) => {
     path.classList.toggle("hover", hovered);
-    control.classList.toggle("hover", hovered);
+    control.classList.toggle("visible", hovered || className.includes("active"));
   };
   hitPath.addEventListener("pointerenter", () => setHovered(true));
   hitPath.addEventListener("pointerleave", () => setHovered(false));
@@ -624,15 +645,13 @@ function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
     event.preventDefault();
     event.stopPropagation();
   });
-  control.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") remove(event);
-  });
-
-  els.paths.append(hitPath, control);
+  els.paths.appendChild(hitPath);
+  els.linkControls.appendChild(control);
 }
 
 function renderConnections() {
   els.paths.replaceChildren();
+  els.linkControls.replaceChildren();
   const selected = new Set(selectedNodeIds());
   state.connections.forEach((edge) => {
     const source = findNode(edge.source);
@@ -645,19 +664,23 @@ function renderConnections() {
       start.y,
       end.x,
       end.y,
-      `connection-path${selected.has(source.id) || selected.has(target.id) ? " active" : ""}`,
+      `link-path${selected.has(source.id) || selected.has(target.id) ? " active" : ""}`,
       edge,
     );
   });
 
   const drag = state.connectionDrag;
-  if (!drag) return;
+  if (!drag) {
+    refreshIcons(els.linkControls);
+    return;
+  }
   const node = findNode(drag.nodeId);
   if (!node) return;
   const anchor = nodePortPoint(node, drag.role);
   const start = drag.role === "out" ? anchor : drag.point;
   const end = drag.role === "out" ? drag.point : anchor;
-  appendConnectionPath(start.x, start.y, end.x, end.y, "connection-path preview");
+  appendConnectionPath(start.x, start.y, end.x, end.y, "link-path preview");
+  refreshIcons(els.linkControls);
 }
 
 function connectionAllowed(sourceId, targetId) {
@@ -670,7 +693,7 @@ function connectionAllowed(sourceId, targetId) {
 }
 
 function compatibleConnectionPort(element, nodeId, role) {
-  const port = element?.closest?.(".node-port");
+  const port = element?.closest?.(".port");
   if (!port || port.dataset.role === role || port.dataset.nodeId === nodeId) return null;
   const source = role === "out" ? nodeId : port.dataset.nodeId;
   const target = role === "out" ? port.dataset.nodeId : nodeId;
@@ -698,7 +721,7 @@ function attachConnectionPort(port, nodeId, role) {
     renderConnections();
 
     const clearTarget = () => {
-      document.querySelectorAll(".node-port.connection-target").forEach((item) => {
+      document.querySelectorAll(".port.connection-target").forEach((item) => {
         item.classList.remove("connection-target");
       });
     };
@@ -864,14 +887,14 @@ function nodeRect(node) {
 }
 
 function closeCreateMenu() {
-  els.createMenu.hidden = true;
+  els.createMenu.classList.remove("open");
   state.createPoint = null;
 }
 
 function openCreateMenu(event) {
   const viewportRect = els.viewport.getBoundingClientRect();
   state.createPoint = clientToWorld(event.clientX, event.clientY);
-  els.createMenu.hidden = false;
+  els.createMenu.classList.add("open");
   const menuWidth = els.createMenu.offsetWidth || 330;
   const menuHeight = els.createMenu.offsetHeight || 90;
   els.createMenu.style.left = `${clamp(event.clientX - viewportRect.left, 8, viewportRect.width - menuWidth - 8)}px`;
@@ -1134,15 +1157,8 @@ async function uploadFiles(files, point = worldCenter()) {
   }
 }
 
-// Projection and drag navigation adapted from hero8152/Infinite-Canvas.
+// DOM projection and drag navigation follow hero8152/Infinite-Canvas.
 function drawMinimap() {
-  const canvas = els.minimap;
-  const ctx = canvas.getContext("2d");
-  const style = getComputedStyle(document.documentElement);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = style.getPropertyValue("--panel-soft").trim();
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
   const viewportWidth = els.viewport.clientWidth / state.viewport.scale;
   const viewportHeight = els.viewport.clientHeight / state.viewport.scale;
   const viewportX = -state.viewport.x / state.viewport.scale;
@@ -1167,54 +1183,39 @@ function drawMinimap() {
   const minY = Math.min(...bounds.map((item) => item.y), -200);
   const maxX = Math.max(...bounds.map((item) => item.x + item.width), viewportX + viewportWidth + 200);
   const maxY = Math.max(...bounds.map((item) => item.y + item.height), viewportY + viewportHeight + 200);
-  const scale = Math.min(canvas.width / Math.max(1, maxX - minX), canvas.height / Math.max(1, maxY - minY));
-  const ox = (canvas.width - (maxX - minX) * scale) / 2;
-  const oy = (canvas.height - (maxY - minY) * scale) / 2;
+  const mapWidth = els.minimapContent.clientWidth || 172;
+  const mapHeight = els.minimapContent.clientHeight || 110;
+  const scale = Math.min(mapWidth / Math.max(1, maxX - minX), mapHeight / Math.max(1, maxY - minY));
+  const ox = (mapWidth - (maxX - minX) * scale) / 2;
+  const oy = (mapHeight - (maxY - minY) * scale) / 2;
   const mapX = (x) => ox + (x - minX) * scale;
   const mapY = (y) => oy + (y - minY) * scale;
-  state.minimapTransform = { minX, minY, scale, ox, oy };
+  state.minimapTransform = { minX, minY, scale, ox, oy, mapWidth, mapHeight };
 
-  nodeBounds.forEach((node, index) => {
-    const source = state.nodes[index];
-    ctx.fillStyle = source.type === "prompt"
-      ? style.getPropertyValue("--accent").trim()
-      : source.type === "image"
-        ? style.getPropertyValue("--warm").trim()
-        : style.getPropertyValue("--muted").trim();
-    ctx.globalAlpha = 0.78;
-    ctx.fillRect(
-      mapX(node.x),
-      mapY(node.y),
-      Math.max(4, node.width * scale),
-      Math.max(4, node.height * scale),
-    );
+  const selected = new Set(selectedNodeIds());
+  const fragments = nodeBounds.map((node, index) => {
+    const item = document.createElement("div");
+    item.className = `minimap-node${selected.has(state.nodes[index].id) ? " selected" : ""}`;
+    item.style.left = `${mapX(node.x)}px`;
+    item.style.top = `${mapY(node.y)}px`;
+    item.style.width = `${Math.max(4, node.width * scale)}px`;
+    item.style.height = `${Math.max(4, node.height * scale)}px`;
+    return item;
   });
-
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = style.getPropertyValue("--accent-soft").trim();
-  ctx.fillRect(
-    mapX(viewportX),
-    mapY(viewportY),
-    viewportWidth * scale,
-    viewportHeight * scale,
-  );
-  ctx.strokeStyle = style.getPropertyValue("--ink").trim();
-  ctx.lineWidth = 2;
-  ctx.strokeRect(
-    mapX(viewportX),
-    mapY(viewportY),
-    viewportWidth * scale,
-    viewportHeight * scale,
-  );
+  els.minimapViewport.style.left = `${mapX(viewportX)}px`;
+  els.minimapViewport.style.top = `${mapY(viewportY)}px`;
+  els.minimapViewport.style.width = `${Math.max(4, viewportWidth * scale)}px`;
+  els.minimapViewport.style.height = `${Math.max(4, viewportHeight * scale)}px`;
+  els.minimapContent.replaceChildren(...fragments, els.minimapViewport);
 }
 
 function minimapEventToWorld(event) {
   if (!state.minimapTransform) drawMinimap();
   const transform = state.minimapTransform;
   if (!transform) return worldCenter();
-  const rect = els.minimap.getBoundingClientRect();
-  const canvasX = (event.clientX - rect.left) * (els.minimap.width / Math.max(1, rect.width));
-  const canvasY = (event.clientY - rect.top) * (els.minimap.height / Math.max(1, rect.height));
+  const rect = els.minimapContent.getBoundingClientRect();
+  const canvasX = clamp(event.clientX - rect.left, 0, rect.width);
+  const canvasY = clamp(event.clientY - rect.top, 0, rect.height);
   return {
     x: transform.minX + (canvasX - transform.ox) / Math.max(0.0001, transform.scale),
     y: transform.minY + (canvasY - transform.oy) / Math.max(0.0001, transform.scale),
@@ -1251,7 +1252,7 @@ async function loadInitialState() {
 els.viewport.addEventListener("pointerdown", (event) => {
   if (
     event.button !== 0
-    || event.target.closest(".node, button, .create-menu, .connection-hit, .connection-delete")
+    || event.target.closest(".node, button, .create-menu, .link-hit, .link-delete")
   ) return;
   closeCreateMenu();
 
@@ -1262,7 +1263,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
     const startWorld = clientToWorld(event.clientX, event.clientY);
     const startX = event.clientX - viewportRect.left;
     const startY = event.clientY - viewportRect.top;
-    els.selectionBox.hidden = false;
+    els.selectionBox.classList.add("visible");
     els.selectionBox.style.left = `${startX}px`;
     els.selectionBox.style.top = `${startY}px`;
     els.selectionBox.style.width = "0";
@@ -1281,7 +1282,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
       if (els.viewport.hasPointerCapture(endEvent.pointerId)) {
         els.viewport.releasePointerCapture(endEvent.pointerId);
       }
-      els.selectionBox.hidden = true;
+      els.selectionBox.classList.remove("visible");
       els.viewport.removeEventListener("pointermove", moveSelection);
       els.viewport.removeEventListener("pointerup", endSelection);
       els.viewport.removeEventListener("pointercancel", endSelection);
@@ -1324,13 +1325,13 @@ els.viewport.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 els.viewport.addEventListener("dblclick", (event) => {
-  if (event.target.closest(".node, button, .create-menu, .connection-hit, .connection-delete")) return;
+  if (event.target.closest(".node, button, .create-menu, .link-hit, .link-delete")) return;
   event.preventDefault();
   openCreateMenu(event);
 });
 
 els.viewport.addEventListener("contextmenu", (event) => {
-  if (event.target.closest(".node, button, .create-menu, .connection-hit, .connection-delete")) return;
+  if (event.target.closest(".node, button, .create-menu, .link-hit, .link-delete")) return;
   event.preventDefault();
   event.stopPropagation();
   openCreateMenu(event);
@@ -1398,14 +1399,11 @@ els.minimap.addEventListener("keydown", (event) => {
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
-document.getElementById("uploadBtn").addEventListener("click", () => {
+document.getElementById("addImageBtn").addEventListener("click", () => {
   state.pendingUploadPoint = null;
   els.imageInput.click();
 });
-document.getElementById("zoomInBtn").addEventListener("click", () => setZoom(state.viewport.scale * 1.2));
-document.getElementById("zoomOutBtn").addEventListener("click", () => setZoom(state.viewport.scale / 1.2));
 document.getElementById("fitBtn").addEventListener("click", fitView);
-els.zoomValue.addEventListener("click", () => setZoom(1));
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
 els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);
@@ -1526,6 +1524,7 @@ window.addEventListener("beforeunload", () => {
   if (state.saveTimer) saveWorkspace();
 });
 
+refreshIcons();
 loadInitialState().catch((error) => {
   els.providerDot.classList.add("error");
   els.providerStatus.textContent = "连接失败";

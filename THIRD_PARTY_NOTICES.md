@@ -2,14 +2,14 @@
 
 ## Infinite-Canvas
 
-The canvas viewport, minimap navigation, multi-selection, group dragging, creation menu, and connection interaction patterns are adapted from:
+The canvas page structure, visual system, node presentation, viewport controls, DOM minimap, multi-selection, group dragging, creation menu, and connection interactions are reproduced and adapted from:
 
 - Project: `hero8152/Infinite-Canvas`
 - Source: https://github.com/hero8152/Infinite-Canvas
 - Original author: `hero8152`
 - License: the custom license distributed in the upstream repository at https://github.com/hero8152/Infinite-Canvas/blob/main/LICENSE
 
-The upstream license prohibits commercial use without authorization, requires derivative software to remain open source, and requires attribution to the original author. This notice applies to the adapted canvas interaction code only; the AstrBot integration, NovelAI generation flow, plugin services, and data model remain part of this plugin.
+The upstream license prohibits commercial use without authorization, requires derivative software to remain open source, and requires attribution to the original author. This notice applies to the reproduced canvas frontend; the AstrBot integration, NovelAI generation flow, plugin services, and data model remain part of this plugin.
 
 ### Upstream License Text
 
@@ -24,3 +24,13 @@ The upstream license prohibits commercial use without authorization, requires de
 > This software is for personal and company use only, but is prohibited from being modified or packaged into commercial products in any way. Commercial use requires authorization.
 >
 > Software developed based on this code must remain open source and the original author must be credited.
+
+## Lucide
+
+The canvas bundles Lucide `1.16.0`, copied from the Infinite-Canvas local vendor mirror and used for interface icons.
+
+- Project: `lucide-icons/lucide`
+- Source: https://github.com/lucide-icons/lucide
+- License: ISC
+
+The bundled file retains its upstream license header.

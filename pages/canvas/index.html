@@ -3,113 +3,116 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BestNAI Infinite Canvas</title>
+    <title>BestNAI 无限画布</title>
     <link rel="stylesheet" href="./canvas.css" />
+    <script src="./vendor/lucide.js"></script>
   </head>
   <body>
-    <div class="app-shell">
-      <header class="appbar">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">N</span>
-          <span class="brand-copy">
-            <strong>NAI Canvas</strong>
-            <small>Infinite workspace</small>
-          </span>
-        </div>
-
-        <div class="app-status">
-          <span class="status-dot" id="providerDot"></span>
-          <span id="providerStatus">正在连接</span>
-          <span class="save-state" id="saveState">尚未保存</span>
-        </div>
-
-        <nav class="app-actions" aria-label="工作区操作">
-          <button type="button" class="icon-btn" id="undoBtn" title="撤销 (Ctrl+Z)" aria-label="撤销">↶</button>
-          <button type="button" class="icon-btn" id="redoBtn" title="重做 (Ctrl+Shift+Z)" aria-label="重做">↷</button>
-          <span class="action-divider"></span>
-          <button type="button" class="text-btn" id="importBtn">导入</button>
-          <button type="button" class="text-btn" id="exportBtn">导出</button>
-          <button type="button" class="text-btn danger-text" id="clearBtn">清空</button>
-        </nav>
-      </header>
-
-      <main class="workspace">
-        <aside class="tool-rail" aria-label="节点工具">
-          <button type="button" class="tool-btn primary" id="addPromptBtn" title="添加提示词节点">
-            <span aria-hidden="true">＋</span><span>提示词</span>
-          </button>
-          <button type="button" class="tool-btn" id="addNoteBtn" title="添加备注节点">
-            <span aria-hidden="true">T</span><span>备注</span>
-          </button>
-          <button type="button" class="tool-btn" id="uploadBtn" title="上传图片">
-            <span aria-hidden="true">↑</span><span>图片</span>
-          </button>
-        </aside>
-
-        <section class="canvas-viewport" id="canvasViewport" aria-label="无限画布">
-          <div class="canvas-world" id="canvasWorld">
-            <svg class="connections" id="connections" aria-label="节点连线">
-              <g id="connectionPaths"></g>
-            </svg>
-            <div id="nodeLayer"></div>
+    <div id="shell" class="shell">
+      <div class="topbar">
+        <section class="panel canvas-nav" aria-label="画布状态">
+          <span class="canvas-mark" aria-hidden="true"><i data-lucide="sparkles"></i></span>
+          <div class="canvas-nav-meta">
+            <strong class="current-canvas-title">BestNAI 无限画布</strong>
+            <span class="current-canvas-time">
+              <i id="providerDot" class="status-dot"></i>
+              <span id="providerStatus">正在连接</span>
+              <span class="status-divider"></span>
+              <span id="saveState">尚未保存</span>
+            </span>
           </div>
-
-          <div class="empty-state" id="emptyState">
-            <div class="empty-symbol" aria-hidden="true">＋</div>
-            <strong>创建第一个提示词节点</strong>
-            <span>双击画布，或使用左侧工具</span>
-          </div>
-
-          <div class="drop-indicator" id="dropIndicator">
-            <strong>放下图片</strong>
-            <span>图片会成为新的画布节点</span>
-          </div>
-
-          <div class="selection-box" id="selectionBox" hidden></div>
-
-          <div class="create-menu" id="createMenu" hidden role="menu" aria-label="创建节点">
-            <button type="button" role="menuitem" data-create-type="prompt">
-              <span class="create-menu-icon" aria-hidden="true">＋</span>
-              <strong>提示词</strong>
-            </button>
-            <button type="button" role="menuitem" data-create-type="image">
-              <span class="create-menu-icon" aria-hidden="true">↑</span>
-              <strong>图片</strong>
-            </button>
-            <button type="button" role="menuitem" data-create-type="note">
-              <span class="create-menu-icon" aria-hidden="true">T</span>
-              <strong>备注</strong>
-            </button>
-          </div>
-
-          <div class="zoom-controls" aria-label="画布缩放">
-            <button type="button" id="zoomOutBtn" title="缩小" aria-label="缩小">−</button>
-            <button type="button" class="zoom-value" id="zoomValue" title="重置为 100%">100%</button>
-            <button type="button" id="zoomInBtn" title="放大" aria-label="放大">＋</button>
-            <button type="button" id="fitBtn" title="适配全部节点" aria-label="适配全部节点">⊙</button>
-          </div>
-
-          <aside class="minimap-wrap" aria-label="画布概览">
-            <canvas id="minimap" width="180" height="110" tabindex="0" aria-label="画布导航小地图，拖动以定位" title="拖动定位画布"></canvas>
-          </aside>
-          <button type="button" class="arrange-selection-btn" id="arrangeSelectionBtn" title="整理选中节点" aria-label="整理选中节点" hidden>
-            <span aria-hidden="true">▦</span><span>整理选中</span>
-          </button>
         </section>
+
+        <nav id="quickToolbar" class="panel toolbar" aria-label="画布工具">
+          <div class="toolbar-items">
+            <button class="tool-btn" id="addImageBtn" type="button" title="上传图片">
+              <i data-lucide="image-plus"></i><span>图片</span>
+            </button>
+            <button class="tool-btn" id="addPromptBtn" type="button" title="添加提示词节点">
+              <i data-lucide="text-cursor-input"></i><span>提示词</span>
+            </button>
+            <button class="tool-btn" id="addNoteBtn" type="button" title="添加备注节点">
+              <i data-lucide="notebook-pen"></i><span>备注</span>
+            </button>
+          </div>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <div class="toolbar-fixed">
+            <button class="tool-btn icon-only" id="undoBtn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销">
+              <i data-lucide="undo-2"></i>
+            </button>
+            <button class="tool-btn icon-only" id="redoBtn" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做">
+              <i data-lucide="redo-2"></i>
+            </button>
+            <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
+              <i data-lucide="scan"></i>
+            </button>
+            <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
+              <i data-lucide="upload"></i>
+            </button>
+            <button class="tool-btn icon-only" id="exportBtn" type="button" title="导出工作区" aria-label="导出工作区">
+              <i data-lucide="download"></i>
+            </button>
+            <button class="tool-btn icon-only danger" id="clearBtn" type="button" title="清空画布" aria-label="清空画布">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
+        </nav>
+      </div>
+
+      <main id="board" class="board" aria-label="无限画布">
+        <div id="dropOverlay" class="drop-overlay">
+          <i data-lucide="image-down"></i>
+          <strong>拖放图片到画布</strong>
+        </div>
+        <div id="selectionBox" class="selection-box"></div>
+        <div id="createMenu" class="create-menu" role="menu" aria-label="创建节点">
+          <button class="menu-btn" type="button" role="menuitem" data-create-type="image">
+            <i data-lucide="image-plus"></i><span>上传节点</span>
+          </button>
+          <button class="menu-btn" type="button" role="menuitem" data-create-type="prompt">
+            <i data-lucide="text-cursor-input"></i><span>提示词</span>
+          </button>
+          <button class="menu-btn" type="button" role="menuitem" data-create-type="note">
+            <i data-lucide="notebook-pen"></i><span>备注</span>
+          </button>
+        </div>
+
+        <div id="world" class="world">
+          <svg id="links" class="links" aria-label="节点连线"></svg>
+          <div id="linkControls" class="link-controls"></div>
+          <div id="nodes"></div>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+          <i data-lucide="mouse-pointer-2"></i>
+          <strong>双击或右键创建节点</strong>
+          <span>也可以从顶部工具栏开始</span>
+        </div>
+
+        <button id="canvasArrangeBtn" class="minimap-arrange-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
+          <i data-lucide="layout-grid"></i><span>整理选中</span>
+        </button>
+        <div id="minimap" class="minimap" tabindex="0" role="application" aria-label="画布导航小地图" title="拖动定位画布">
+          <div id="minimapContent" class="minimap-content">
+            <div id="minimapViewport" class="minimap-viewport"></div>
+          </div>
+        </div>
+        <div id="zoomBadge" class="zoom-badge" title="滚轮缩放，拖动空白区域平移">100%</div>
       </main>
     </div>
 
     <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
     <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
-    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 
-    <div class="modal-backdrop" id="clearModal" hidden>
+    <div id="clearModal" class="modal-backdrop" hidden>
       <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clearModalTitle">
+        <div class="dialog-icon"><i data-lucide="trash-2"></i></div>
         <h2 id="clearModalTitle">清空画布</h2>
-        <p>全部节点和连线会从工作区移除，已存储的图片文件会保留。</p>
+        <p>全部节点和连线会从工作区移除，已经存储的图片文件会保留。</p>
         <div class="dialog-actions">
-          <button type="button" class="text-btn" id="cancelClearBtn">取消</button>
-          <button type="button" class="confirm-danger" id="confirmClearBtn">清空</button>
+          <button class="dialog-btn secondary" type="button" id="cancelClearBtn">取消</button>
+          <button class="dialog-btn danger" type="button" id="confirmClearBtn">清空</button>
         </div>
       </section>
     </div>
