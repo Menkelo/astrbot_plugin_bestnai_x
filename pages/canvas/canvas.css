@@ -263,10 +263,68 @@ button {
   stroke: var(--line-strong);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+  transition: stroke 140ms ease;
 }
 
 .connection-path.active {
   stroke: var(--accent);
+}
+
+.connection-path.hover {
+  stroke: var(--danger);
+}
+
+.connection-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.connection-delete {
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0.56;
+  outline: none;
+  transition: opacity 140ms ease;
+}
+
+.connection-delete circle {
+  fill: var(--panel);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  transition: fill 140ms ease, stroke 140ms ease;
+}
+
+.connection-delete path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  transition: stroke 140ms ease;
+}
+
+.connection-delete:hover,
+.connection-delete.hover,
+.connection-delete:focus-visible {
+  opacity: 1;
+}
+
+.connection-delete:hover circle,
+.connection-delete.hover circle,
+.connection-delete:focus-visible circle {
+  fill: var(--warm-soft);
+  stroke: var(--danger);
+}
+
+.connection-delete:hover path,
+.connection-delete.hover path,
+.connection-delete:focus-visible path {
+  stroke: var(--danger);
 }
 
 .tool-rail {

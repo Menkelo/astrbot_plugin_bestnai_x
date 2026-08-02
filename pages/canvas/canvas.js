@@ -214,6 +214,18 @@ function deleteNode(id) {
   scheduleSave();
 }
 
+function deleteConnection(sourceId, targetId) {
+  const index = state.connections.findIndex(
+    (edge) => edge.source === sourceId && edge.target === targetId,
+  );
+  if (index < 0) return;
+  pushHistory();
+  state.connections.splice(index, 1);
+  renderAll();
+  scheduleSave();
+  toast("已删除连线");
+}
+
 function duplicateNode(id) {
   const source = findNode(id);
   if (!source) return;
@@ -500,11 +512,70 @@ function nodePortPoint(node, role) {
   };
 }
 
-function appendConnectionPath(x1, y1, x2, y2, className) {
+function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
+  const pathData = connectionPath(x1, y1, x2, y2);
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", connectionPath(x1, y1, x2, y2));
+  path.setAttribute("d", pathData);
   path.setAttribute("class", className);
   els.paths.appendChild(path);
+
+  if (!edge) return;
+
+  const source = findNode(edge.source);
+  const target = findNode(edge.target);
+  const label = `删除 ${source?.title || "来源节点"} 到 ${target?.title || "目标节点"} 的连线`;
+  const remove = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteConnection(edge.source, edge.target);
+  };
+
+  const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  hitPath.setAttribute("d", pathData);
+  hitPath.setAttribute("class", "connection-hit");
+  hitPath.setAttribute("aria-label", `${label}（双击）`);
+  hitPath.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  hitPath.addEventListener("dblclick", remove);
+
+  const control = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  control.setAttribute("class", "connection-delete");
+  control.setAttribute("transform", `translate(${(x1 + x2) / 2 + 10000} ${(y1 + y2) / 2 + 10000})`);
+  control.setAttribute("role", "button");
+  control.setAttribute("tabindex", "0");
+  control.setAttribute("aria-label", label);
+
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = label;
+  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  circle.setAttribute("r", "9");
+  const cross = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  cross.setAttribute("d", "M -3 -3 L 3 3 M 3 -3 L -3 3");
+  control.append(title, circle, cross);
+
+  const setHovered = (hovered) => {
+    path.classList.toggle("hover", hovered);
+    control.classList.toggle("hover", hovered);
+  };
+  hitPath.addEventListener("pointerenter", () => setHovered(true));
+  hitPath.addEventListener("pointerleave", () => setHovered(false));
+  control.addEventListener("pointerenter", () => setHovered(true));
+  control.addEventListener("pointerleave", () => setHovered(false));
+  control.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  control.addEventListener("click", remove);
+  control.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  control.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") remove(event);
+  });
+
+  els.paths.append(hitPath, control);
 }
 
 function renderConnections() {
@@ -522,6 +593,7 @@ function renderConnections() {
       end.x,
       end.y,
       `connection-path${selected === source.id || selected === target.id ? " active" : ""}`,
+      edge,
     );
   });
 
