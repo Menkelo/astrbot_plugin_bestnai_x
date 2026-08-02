@@ -1211,7 +1211,10 @@ class BestNAIPlugin(Star):
                         return
 
                     if tr_cfg.show_result:
-                        show_messages.append(f"🔎 翻译结果：\n{translated}")
+                        if show_messages:
+                            show_messages[0] += f"\n{translated}"
+                        else:
+                            show_messages.append(f"🔎 翻译结果：\n{translated}")
 
                     parts = []
 
