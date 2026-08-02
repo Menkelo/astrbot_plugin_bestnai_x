@@ -32,6 +32,7 @@ MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_IMAGE_PIXELS = 30_000_000
 
 ASSET_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+ENTITY_ID_RE = re.compile(r"^(?:default|[a-f0-9]{32})$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 ALLOWED_NODE_TYPES = {"prompt", "image", "note"}
 FORMAT_EXTENSIONS = {
@@ -76,8 +77,229 @@ class CanvasStore:
         )
         self.assets_dir = self.data_dir / "assets"
         self.workspace_path = self.data_dir / "workspace.json"
+        self.workspaces_dir = self.data_dir / "workspaces"
+        self.projects_path = self.data_dir / "projects.json"
+        self.canvases_path = self.data_dir / "canvases.json"
+        self.library_path = self.data_dir / "library.json"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
+        self.workspaces_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_collections()
+
+    @staticmethod
+    def _timestamp() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _read_json(path: Path, fallback: Any) -> Any:
+        if not path.exists():
+            return fallback
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise CanvasValidationError(f"读取 {path.name} 失败：{exc}") from exc
+
+    @staticmethod
+    def _write_json(path: Path, payload: Any) -> None:
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        temp_path.write_bytes(encoded)
+        temp_path.replace(path)
+
+    def _ensure_collections(self) -> None:
+        now = self._timestamp()
+        if not self.projects_path.exists():
+            self._write_json(
+                self.projects_path,
+                {"projects": [{"id": "default", "name": "默认项目", "order": 0, "createdAt": now}]},
+            )
+        if not self.canvases_path.exists():
+            canvases: List[Dict[str, Any]] = []
+            if self.workspace_path.exists():
+                canvas_id = uuid4().hex
+                try:
+                    workspace = self.sanitize_workspace(
+                        json.loads(self.workspace_path.read_text(encoding="utf-8"))
+                    )
+                except Exception:
+                    workspace = self.empty_workspace()
+                self._write_json(self.workspaces_dir / f"{canvas_id}.json", workspace)
+                canvases.append(
+                    {
+                        "id": canvas_id,
+                        "title": "迁移画布",
+                        "projectId": "default",
+                        "x": 120.0,
+                        "y": 100.0,
+                        "kind": "classic",
+                        "nodeCount": len(workspace.get("nodes", [])),
+                        "createdAt": now,
+                        "updatedAt": workspace.get("updatedAt") or now,
+                        "deletedAt": "",
+                    }
+                )
+            self._write_json(self.canvases_path, {"canvases": canvases})
+        if not self.library_path.exists():
+            self._write_json(self.library_path, {"images": [], "prompts": []})
+
+    def _projects(self) -> List[Dict[str, Any]]:
+        payload = self._read_json(self.projects_path, {"projects": []})
+        return payload.get("projects", []) if isinstance(payload, dict) else []
+
+    def _canvases(self) -> List[Dict[str, Any]]:
+        payload = self._read_json(self.canvases_path, {"canvases": []})
+        return payload.get("canvases", []) if isinstance(payload, dict) else []
+
+    def _library(self) -> Dict[str, List[Dict[str, Any]]]:
+        payload = self._read_json(self.library_path, {"images": [], "prompts": []})
+        if not isinstance(payload, dict):
+            return {"images": [], "prompts": []}
+        return {
+            "images": payload.get("images", []) if isinstance(payload.get("images"), list) else [],
+            "prompts": payload.get("prompts", []) if isinstance(payload.get("prompts"), list) else [],
+        }
+
+    @staticmethod
+    def _validate_entity_id(value: Any, label: str) -> str:
+        entity_id = str(value or "")
+        if not ENTITY_ID_RE.fullmatch(entity_id):
+            raise CanvasValidationError(f"{label} ID 无效")
+        return entity_id
+
+    def list_projects(self) -> List[Dict[str, Any]]:
+        canvases = self._canvases()
+        result = []
+        for project in sorted(self._projects(), key=lambda item: int(item.get("order", 0))):
+            item = dict(project)
+            item["canvasCount"] = sum(
+                1
+                for canvas in canvases
+                if canvas.get("projectId") == project.get("id") and not canvas.get("deletedAt")
+            )
+            result.append(item)
+        return result
+
+    def create_project(self, name: Any) -> Dict[str, Any]:
+        projects = self._projects()
+        project = {
+            "id": uuid4().hex,
+            "name": _short_text(name, 60).strip() or "新项目",
+            "order": len(projects),
+            "createdAt": self._timestamp(),
+        }
+        projects.append(project)
+        self._write_json(self.projects_path, {"projects": projects})
+        return {**project, "canvasCount": 0}
+
+    def update_project(self, project_id: Any, name: Any) -> Dict[str, Any]:
+        project_id = self._validate_entity_id(project_id, "项目")
+        projects = self._projects()
+        project = next((item for item in projects if item.get("id") == project_id), None)
+        if project is None:
+            raise FileNotFoundError(project_id)
+        project["name"] = _short_text(name, 60).strip() or project.get("name") or "未命名项目"
+        self._write_json(self.projects_path, {"projects": projects})
+        return dict(project)
+
+    def delete_project(self, project_id: Any) -> None:
+        project_id = self._validate_entity_id(project_id, "项目")
+        if project_id == "default":
+            raise CanvasValidationError("默认项目不能删除")
+        projects = self._projects()
+        if not any(item.get("id") == project_id for item in projects):
+            raise FileNotFoundError(project_id)
+        projects = [item for item in projects if item.get("id") != project_id]
+        canvases = self._canvases()
+        for canvas in canvases:
+            if canvas.get("projectId") == project_id:
+                canvas["projectId"] = "default"
+        self._write_json(self.projects_path, {"projects": projects})
+        self._write_json(self.canvases_path, {"canvases": canvases})
+
+    def list_canvases(self, include_deleted: bool = False) -> List[Dict[str, Any]]:
+        items = self._canvases()
+        if include_deleted:
+            return [dict(item) for item in items if item.get("deletedAt")]
+        return [dict(item) for item in items if not item.get("deletedAt")]
+
+    def create_canvas(self, payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            payload = {}
+        project_id = self._validate_entity_id(payload.get("projectId") or "default", "项目")
+        if not any(item.get("id") == project_id for item in self._projects()):
+            raise FileNotFoundError(project_id)
+        canvas_id = uuid4().hex
+        now = self._timestamp()
+        canvas = {
+            "id": canvas_id,
+            "title": _short_text(payload.get("title"), 120).strip() or "未命名画布",
+            "projectId": project_id,
+            "x": _bounded_number(payload.get("x"), 120, -1_000_000, 1_000_000),
+            "y": _bounded_number(payload.get("y"), 100, -1_000_000, 1_000_000),
+            "kind": "classic",
+            "nodeCount": 0,
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": "",
+        }
+        canvases = self._canvases()
+        canvases.append(canvas)
+        self._write_json(self.canvases_path, {"canvases": canvases})
+        self._write_json(self.workspaces_dir / f"{canvas_id}.json", self.empty_workspace())
+        return dict(canvas)
+
+    def update_canvas(self, payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise CanvasValidationError("画布更新数据必须是 JSON 对象")
+        canvas_id = self._validate_entity_id(payload.get("id"), "画布")
+        canvases = self._canvases()
+        canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+        if canvas is None:
+            raise FileNotFoundError(canvas_id)
+        if "title" in payload:
+            canvas["title"] = _short_text(payload.get("title"), 120).strip() or canvas.get("title")
+        if "projectId" in payload:
+            project_id = self._validate_entity_id(payload.get("projectId"), "项目")
+            if not any(item.get("id") == project_id for item in self._projects()):
+                raise FileNotFoundError(project_id)
+            canvas["projectId"] = project_id
+        if "x" in payload:
+            canvas["x"] = _bounded_number(payload.get("x"), canvas.get("x", 0), -1_000_000, 1_000_000)
+        if "y" in payload:
+            canvas["y"] = _bounded_number(payload.get("y"), canvas.get("y", 0), -1_000_000, 1_000_000)
+        canvas["updatedAt"] = self._timestamp()
+        self._write_json(self.canvases_path, {"canvases": canvases})
+        return dict(canvas)
+
+    def trash_canvas(self, canvas_id: Any) -> None:
+        self._set_canvas_deleted(canvas_id, self._timestamp())
+
+    def restore_canvas(self, canvas_id: Any) -> None:
+        self._set_canvas_deleted(canvas_id, "")
+
+    def _set_canvas_deleted(self, canvas_id: Any, deleted_at: str) -> None:
+        canvas_id = self._validate_entity_id(canvas_id, "画布")
+        canvases = self._canvases()
+        canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+        if canvas is None:
+            raise FileNotFoundError(canvas_id)
+        canvas["deletedAt"] = deleted_at
+        canvas["updatedAt"] = self._timestamp()
+        self._write_json(self.canvases_path, {"canvases": canvases})
+
+    def purge_canvas(self, canvas_id: Any) -> None:
+        canvas_id = self._validate_entity_id(canvas_id, "画布")
+        canvases = self._canvases()
+        canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+        if canvas is None or not canvas.get("deletedAt"):
+            raise FileNotFoundError(canvas_id)
+        self._write_json(
+            self.canvases_path,
+            {"canvases": [item for item in canvases if item.get("id") != canvas_id]},
+        )
+        workspace_path = self.workspaces_dir / f"{canvas_id}.json"
+        if workspace_path.exists():
+            workspace_path.unlink()
 
     @staticmethod
     def empty_workspace() -> Dict[str, Any]:
@@ -193,7 +415,17 @@ class CanvasStore:
             "updatedAt": datetime.now(timezone.utc).isoformat(),
         }
 
-    def save_workspace(self, payload: Any) -> Dict[str, Any]:
+    def _workspace_file(self, canvas_id: str | None = None) -> Path:
+        if canvas_id is None:
+            return self.workspace_path
+        canvas_id = self._validate_entity_id(canvas_id, "画布")
+        if canvas_id == "default":
+            raise CanvasValidationError("画布 ID 无效")
+        if not any(item.get("id") == canvas_id for item in self._canvases()):
+            raise FileNotFoundError(canvas_id)
+        return self.workspaces_dir / f"{canvas_id}.json"
+
+    def save_workspace(self, payload: Any, canvas_id: str | None = None) -> Dict[str, Any]:
         workspace = self.sanitize_workspace(payload)
         encoded = json.dumps(
             workspace,
@@ -204,20 +436,29 @@ class CanvasStore:
         if len(encoded) > MAX_WORKSPACE_BYTES:
             raise CanvasValidationError("工作区数据超过 2 MB 限制")
 
-        temp_path = self.workspace_path.with_suffix(".json.tmp")
+        workspace_path = self._workspace_file(canvas_id)
+        temp_path = workspace_path.with_suffix(".json.tmp")
         temp_path.write_bytes(encoded)
-        temp_path.replace(self.workspace_path)
+        temp_path.replace(workspace_path)
+        if canvas_id is not None:
+            canvases = self._canvases()
+            canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+            if canvas is not None:
+                canvas["nodeCount"] = len(workspace["nodes"])
+                canvas["updatedAt"] = workspace["updatedAt"]
+                self._write_json(self.canvases_path, {"canvases": canvases})
         return workspace
 
-    def load_workspace(self) -> Dict[str, Any]:
-        if not self.workspace_path.exists():
+    def load_workspace(self, canvas_id: str | None = None) -> Dict[str, Any]:
+        workspace_path = self._workspace_file(canvas_id)
+        if not workspace_path.exists():
             return self.empty_workspace()
 
         try:
-            if self.workspace_path.stat().st_size > MAX_WORKSPACE_BYTES:
+            if workspace_path.stat().st_size > MAX_WORKSPACE_BYTES:
                 raise CanvasValidationError("已保存的工作区数据超过大小限制")
 
-            payload = json.loads(self.workspace_path.read_text(encoding="utf-8"))
+            payload = json.loads(workspace_path.read_text(encoding="utf-8"))
             return self.sanitize_workspace(payload)
         except CanvasValidationError:
             raise
@@ -285,6 +526,80 @@ class CanvasStore:
         data_url = f"data:{mime_type};base64,{base64.b64encode(path.read_bytes()).decode()}"
         return {"id": asset_id, "dataUrl": data_url, "mimeType": mime_type}
 
+    def list_library(self) -> Dict[str, List[Dict[str, Any]]]:
+        return self._library()
+
+    def add_image_to_library(
+        self,
+        asset: Dict[str, Any],
+        name: Any = "",
+        source: Any = "",
+    ) -> Dict[str, Any]:
+        asset_id = str(asset.get("id") or "")
+        if not ASSET_ID_RE.fullmatch(asset_id):
+            raise CanvasValidationError("图片资源 ID 无效")
+        library = self._library()
+        existing = next((item for item in library["images"] if item.get("id") == asset_id), None)
+        entry = existing or {"id": asset_id, "createdAt": self._timestamp()}
+        entry.update(
+            {
+                "name": _short_text(name, 160).strip() or entry.get("name") or f"图片 {asset_id[:8]}",
+                "width": int(_bounded_number(asset.get("width"), entry.get("width", 0), 0, 20_000)),
+                "height": int(_bounded_number(asset.get("height"), entry.get("height", 0), 0, 20_000)),
+                "format": _short_text(asset.get("format"), 16),
+                "source": _short_text(source, 80),
+            }
+        )
+        if existing is None:
+            library["images"].insert(0, entry)
+        self._write_json(self.library_path, library)
+        return dict(entry)
+
+    def remove_image_from_library(self, asset_id: Any) -> None:
+        asset_id = str(asset_id or "")
+        if not ASSET_ID_RE.fullmatch(asset_id):
+            raise CanvasValidationError("图片资源 ID 无效")
+        library = self._library()
+        library["images"] = [item for item in library["images"] if item.get("id") != asset_id]
+        self._write_json(self.library_path, library)
+
+    def save_prompt_asset(self, payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise CanvasValidationError("提示词素材必须是 JSON 对象")
+        prompt = _short_text(payload.get("prompt"), 6000).strip()
+        if not prompt:
+            raise CanvasValidationError("提示词不能为空")
+        library = self._library()
+        prompt_id = str(payload.get("id") or "")
+        entry = None
+        if prompt_id:
+            if not ENTITY_ID_RE.fullmatch(prompt_id) or prompt_id == "default":
+                raise CanvasValidationError("提示词素材 ID 无效")
+            entry = next((item for item in library["prompts"] if item.get("id") == prompt_id), None)
+        if entry is None:
+            entry = {"id": uuid4().hex, "createdAt": self._timestamp()}
+            library["prompts"].insert(0, entry)
+        entry.update(
+            {
+                "name": _short_text(payload.get("name"), 120).strip() or prompt[:32],
+                "prompt": prompt,
+                "ratio": _short_text(payload.get("ratio"), 32),
+                "artist": _short_text(payload.get("artist"), 120),
+                "raw": bool(payload.get("raw", False)),
+                "updatedAt": self._timestamp(),
+            }
+        )
+        self._write_json(self.library_path, library)
+        return dict(entry)
+
+    def delete_prompt_asset(self, prompt_id: Any) -> None:
+        prompt_id = self._validate_entity_id(prompt_id, "提示词素材")
+        if prompt_id == "default":
+            raise CanvasValidationError("提示词素材 ID 无效")
+        library = self._library()
+        library["prompts"] = [item for item in library["prompts"] if item.get("id") != prompt_id]
+        self._write_json(self.library_path, library)
+
 
 class CanvasService:
     def __init__(
@@ -313,6 +628,21 @@ class CanvasService:
             ("workspace/export", self.export_workspace, ["GET"], "Infinite Canvas：导出工作区"),
             ("upload", self.upload_asset, ["POST"], "Infinite Canvas：上传图片"),
             ("asset", self.get_asset, ["GET"], "Infinite Canvas：读取图片"),
+            ("projects", self.list_projects, ["GET"], "Infinite Canvas：项目列表"),
+            ("projects/create", self.create_project, ["POST"], "Infinite Canvas：创建项目"),
+            ("projects/update", self.update_project, ["POST"], "Infinite Canvas：更新项目"),
+            ("projects/delete", self.delete_project, ["POST"], "Infinite Canvas：删除项目"),
+            ("canvases", self.list_canvases, ["GET"], "Infinite Canvas：画布列表"),
+            ("canvases/create", self.create_canvas, ["POST"], "Infinite Canvas：创建画布"),
+            ("canvases/update", self.update_canvas, ["POST"], "Infinite Canvas：更新画布"),
+            ("canvases/delete", self.delete_canvas, ["POST"], "Infinite Canvas：移入回收站"),
+            ("canvases/restore", self.restore_canvas, ["POST"], "Infinite Canvas：恢复画布"),
+            ("canvases/purge", self.purge_canvas, ["POST"], "Infinite Canvas：彻底删除画布"),
+            ("library", self.get_library, ["GET"], "Infinite Canvas：读取素材库"),
+            ("library/image/add", self.add_library_image, ["POST"], "Infinite Canvas：收藏图片"),
+            ("library/image/delete", self.delete_library_image, ["POST"], "Infinite Canvas：移除图片素材"),
+            ("library/prompt/save", self.save_library_prompt, ["POST"], "Infinite Canvas：保存提示词素材"),
+            ("library/prompt/delete", self.delete_library_prompt, ["POST"], "Infinite Canvas：删除提示词素材"),
         ]
 
         for suffix, handler, methods, description in routes:
@@ -326,6 +656,152 @@ class CanvasService:
     async def get_config(self) -> Any:
         return json_response(self.config_callback())
 
+    async def list_projects(self) -> Any:
+        try:
+            return json_response({"projects": self.store.list_projects()})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=500)
+
+    async def create_project(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            return json_response({"project": self.store.create_project(payload.get("name"))})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def update_project(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            return json_response(
+                {"project": self.store.update_project(payload.get("id"), payload.get("name"))}
+            )
+        except FileNotFoundError:
+            return error_response("项目不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def delete_project(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            self.store.delete_project(payload.get("id"))
+            return json_response({"deleted": True})
+        except FileNotFoundError:
+            return error_response("项目不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def list_canvases(self) -> Any:
+        include_deleted = str(request.query.get("deleted", "") or "").lower() in {"1", "true"}
+        try:
+            return json_response({"canvases": self.store.list_canvases(include_deleted)})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=500)
+
+    async def create_canvas(self) -> Any:
+        payload = await request.json(default={})
+        try:
+            return json_response({"canvas": self.store.create_canvas(payload)})
+        except FileNotFoundError:
+            return error_response("项目不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def update_canvas(self) -> Any:
+        payload = await request.json(default={})
+        try:
+            return json_response({"canvas": self.store.update_canvas(payload)})
+        except FileNotFoundError:
+            return error_response("画布或项目不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def delete_canvas(self) -> Any:
+        return await self._canvas_state_action("delete")
+
+    async def restore_canvas(self) -> Any:
+        return await self._canvas_state_action("restore")
+
+    async def purge_canvas(self) -> Any:
+        return await self._canvas_state_action("purge")
+
+    async def _canvas_state_action(self, action: str) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            canvas_id = payload.get("id")
+            if action == "delete":
+                self.store.trash_canvas(canvas_id)
+            elif action == "restore":
+                self.store.restore_canvas(canvas_id)
+            else:
+                self.store.purge_canvas(canvas_id)
+            return json_response({"ok": True})
+        except FileNotFoundError:
+            return error_response("画布不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def get_library(self) -> Any:
+        return json_response(self.store.list_library())
+
+    async def add_library_image(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            asset_id = str(payload.get("assetId") or "")
+            asset_payload = self.store.asset_payload(asset_id)
+            asset_path, _ = self.store.get_asset(asset_id)
+            with PILImage.open(asset_path) as image:
+                width, height = image.size
+                image_format = str(image.format or "").lower().replace("jpeg", "jpg")
+            entry = self.store.add_image_to_library(
+                {"id": asset_id, "width": width, "height": height, "format": image_format},
+                payload.get("name"),
+                payload.get("source"),
+            )
+            return json_response({"image": entry, **asset_payload})
+        except FileNotFoundError:
+            return error_response("图片资源不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def delete_library_image(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            self.store.remove_image_from_library(payload.get("id"))
+            return json_response({"deleted": True})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def save_library_prompt(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            return json_response({"prompt": self.store.save_prompt_asset(payload)})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def delete_library_prompt(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            self.store.delete_prompt_asset(payload.get("id"))
+            return json_response({"deleted": True})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
     async def generate(self) -> Any:
         payload = await request.json(default={})
         if not isinstance(payload, dict):
@@ -337,6 +813,11 @@ class CanvasService:
 
             for image_format, image_bytes in images:
                 asset = self.store.store_asset(image_bytes, image_format)
+                self.store.add_image_to_library(
+                    asset,
+                    metadata.get("cleanPrompt") or metadata.get("prompt") or "NAI 生成图片",
+                    "generation",
+                )
                 asset.update(self.store.asset_payload(asset["id"]))
                 assets.append(asset)
 
@@ -377,16 +858,24 @@ class CanvasService:
             return error_response(message, status_code=502)
 
     async def load_workspace(self) -> Any:
+        canvas_id = str(request.query.get("id", "") or "") or None
         try:
-            return json_response(self.store.load_workspace())
+            return json_response(self.store.load_workspace(canvas_id))
+        except FileNotFoundError:
+            return error_response("画布不存在", status_code=404)
         except CanvasValidationError as exc:
             return error_response(str(exc), status_code=500)
 
     async def save_workspace(self) -> Any:
         payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
         try:
-            workspace = self.store.save_workspace(payload)
+            canvas_id = str(payload.get("canvasId") or "") or None
+            workspace = self.store.save_workspace(payload, canvas_id)
             return json_response({"saved": True, "updatedAt": workspace["updatedAt"]})
+        except FileNotFoundError:
+            return error_response("画布不存在", status_code=404)
         except CanvasValidationError as exc:
             return error_response(str(exc), status_code=400)
         except Exception as exc:
@@ -405,6 +894,11 @@ class CanvasService:
 
             data = await upload.read(MAX_UPLOAD_BYTES + 1)
             asset = self.store.store_asset(data)
+            self.store.add_image_to_library(
+                asset,
+                getattr(upload, "filename", "") or "上传图片",
+                "upload",
+            )
             asset.update(self.store.asset_payload(asset["id"]))
             return json_response(asset)
         except CanvasValidationError as exc:
@@ -423,16 +917,24 @@ class CanvasService:
             return error_response(str(exc), status_code=400)
 
     async def export_workspace(self) -> Any:
-        if not self.store.workspace_path.exists():
-            self.store.save_workspace(self.store.empty_workspace())
+        canvas_id = str(request.query.get("id", "") or "") or None
+        try:
+            workspace_path = self.store._workspace_file(canvas_id)
+            if not workspace_path.exists():
+                self.store.save_workspace(self.store.empty_workspace(), canvas_id)
+        except FileNotFoundError:
+            return error_response("画布不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
 
         return file_response(
-            self.store.workspace_path,
+            workspace_path,
             filename="bestnai-canvas.json",
             content_type="application/json",
         )
 
     async def import_workspace(self) -> Any:
+        canvas_id = str(request.query.get("id", "") or "") or None
         try:
             files = await request.files()
             upload = files.get("file")
@@ -447,8 +949,10 @@ class CanvasService:
                 return error_response("工作区文件不能超过 2 MB", status_code=413)
 
             payload = json.loads(raw.decode("utf-8-sig"))
-            workspace = self.store.save_workspace(payload)
+            workspace = self.store.save_workspace(payload, canvas_id)
             return json_response(workspace)
+        except FileNotFoundError:
+            return error_response("画布不存在", status_code=404)
         except (UnicodeDecodeError, json.JSONDecodeError):
             return error_response("文件不是有效的 JSON", status_code=400)
         except CanvasValidationError as exc:

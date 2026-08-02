@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BestNAI 无限画布</title>
+    <link rel="stylesheet" href="./canvas.css" />
+    <script src="./vendor/lucide.js"></script>
+  </head>
+  <body>
+    <div id="shell" class="shell">
+      <div class="topbar">
+        <section class="panel canvas-nav" aria-label="画布状态">
+          <button id="backToManagerBtn" class="nav-back-btn" type="button" title="返回项目工作台" aria-label="返回项目工作台"><i data-lucide="arrow-left"></i></button>
+          <span class="canvas-mark" aria-hidden="true"><i data-lucide="sparkles"></i></span>
+          <div class="canvas-nav-meta">
+            <strong class="current-canvas-title" id="currentCanvasTitle">未命名画布</strong>
+            <span class="current-canvas-time">
+              <i id="providerDot" class="status-dot"></i>
+              <span id="providerStatus">正在连接</span>
+              <span class="status-divider"></span>
+              <span id="saveState">尚未保存</span>
+            </span>
+          </div>
+        </section>
+
+        <nav id="quickToolbar" class="panel toolbar" aria-label="画布工具">
+          <div class="toolbar-items">
+            <button class="tool-btn" id="addImageBtn" type="button" title="上传图片">
+              <i data-lucide="image-plus"></i><span>图片</span>
+            </button>
+            <button class="tool-btn" id="addPromptBtn" type="button" title="添加提示词节点">
+              <i data-lucide="text-cursor-input"></i><span>提示词</span>
+            </button>
+            <button class="tool-btn" id="addNoteBtn" type="button" title="添加备注节点">
+              <i data-lucide="notebook-pen"></i><span>备注</span>
+            </button>
+            <button class="tool-btn" id="assetLibraryBtn" type="button" title="素材库">
+              <i data-lucide="library"></i><span>素材库</span>
+            </button>
+          </div>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <div class="toolbar-fixed">
+            <button class="tool-btn icon-only" id="undoBtn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销">
+              <i data-lucide="undo-2"></i>
+            </button>
+            <button class="tool-btn icon-only" id="redoBtn" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做">
+              <i data-lucide="redo-2"></i>
+            </button>
+            <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
+              <i data-lucide="scan"></i>
+            </button>
+            <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
+              <i data-lucide="upload"></i>
+            </button>
+            <button class="tool-btn icon-only" id="exportBtn" type="button" title="导出工作区" aria-label="导出工作区">
+              <i data-lucide="download"></i>
+            </button>
+            <button class="tool-btn icon-only danger" id="clearBtn" type="button" title="清空画布" aria-label="清空画布">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
+        </nav>
+      </div>
+
+      <main id="board" class="board" aria-label="无限画布">
+        <div id="dropOverlay" class="drop-overlay">
+          <i data-lucide="image-down"></i>
+          <strong>拖放图片到画布</strong>
+        </div>
+        <div id="selectionBox" class="selection-box"></div>
+        <div id="createMenu" class="create-menu" role="menu" aria-label="创建节点">
+          <button class="menu-btn" type="button" role="menuitem" data-create-type="image">
+            <i data-lucide="image-plus"></i><span>上传节点</span>
+          </button>
+          <button class="menu-btn" type="button" role="menuitem" data-create-type="prompt">
+            <i data-lucide="text-cursor-input"></i><span>提示词</span>
+          </button>
+          <button class="menu-btn" type="button" role="menuitem" data-create-type="note">
+            <i data-lucide="notebook-pen"></i><span>备注</span>
+          </button>
+        </div>
+
+        <div id="world" class="world">
+          <svg id="links" class="links" aria-label="节点连线"></svg>
+          <div id="linkControls" class="link-controls"></div>
+          <div id="nodes"></div>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+          <i data-lucide="mouse-pointer-2"></i>
+          <strong>双击或右键创建节点</strong>
+          <span>也可以从顶部工具栏开始</span>
+        </div>
+
+        <button id="canvasArrangeBtn" class="minimap-arrange-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
+          <i data-lucide="layout-grid"></i><span>整理选中</span>
+        </button>
+        <div id="minimap" class="minimap" tabindex="0" role="application" aria-label="画布导航小地图" title="拖动定位画布">
+          <div id="minimapContent" class="minimap-content">
+            <div id="minimapViewport" class="minimap-viewport"></div>
+          </div>
+        </div>
+        <div id="zoomBadge" class="zoom-badge" title="滚轮缩放，拖动空白区域平移">100%</div>
+
+        <aside id="assetPanel" class="asset-panel" aria-label="素材库">
+          <header class="asset-panel-head">
+            <div>
+              <strong>素材库</strong>
+              <span id="assetPanelCount">0 项</span>
+            </div>
+            <button id="assetPanelClose" class="asset-icon-btn" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+          </header>
+          <div class="asset-tabs" role="tablist">
+            <button class="active" type="button" role="tab" data-asset-tab="images"><i data-lucide="image"></i><span>图片</span></button>
+            <button type="button" role="tab" data-asset-tab="prompts"><i data-lucide="text-cursor-input"></i><span>提示词</span></button>
+          </div>
+          <div class="asset-panel-tools">
+            <label class="asset-search"><i data-lucide="search"></i><input id="assetSearch" type="search" placeholder="搜索素材" /></label>
+            <button id="saveSelectedPromptBtn" class="asset-save-prompt" type="button"><i data-lucide="bookmark-plus"></i><span>保存当前提示词</span></button>
+          </div>
+          <div id="assetGrid" class="asset-grid"></div>
+          <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>素材库为空</span></div>
+        </aside>
+      </main>
+    </div>
+
+    <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+    <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
+    <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+
+    <div id="clearModal" class="modal-backdrop" hidden>
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clearModalTitle">
+        <div class="dialog-icon"><i data-lucide="trash-2"></i></div>
+        <h2 id="clearModalTitle">清空画布</h2>
+        <p>全部节点和连线会从工作区移除，已经存储的图片文件会保留。</p>
+        <div class="dialog-actions">
+          <button class="dialog-btn secondary" type="button" id="cancelClearBtn">取消</button>
+          <button class="dialog-btn danger" type="button" id="confirmClearBtn">清空</button>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="./canvas.js"></script>
+  </body>
+</html>

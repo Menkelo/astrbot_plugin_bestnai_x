@@ -3,120 +3,69 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BestNAI 无限画布</title>
-    <link rel="stylesheet" href="./canvas.css" />
+    <title>BestNAI 项目工作台</title>
+    <link rel="stylesheet" href="./manager.css" />
     <script src="./vendor/lucide.js"></script>
   </head>
   <body>
-    <div id="shell" class="shell">
-      <div class="topbar">
-        <section class="panel canvas-nav" aria-label="画布状态">
-          <span class="canvas-mark" aria-hidden="true"><i data-lucide="sparkles"></i></span>
-          <div class="canvas-nav-meta">
-            <strong class="current-canvas-title">BestNAI 无限画布</strong>
-            <span class="current-canvas-time">
-              <i id="providerDot" class="status-dot"></i>
-              <span id="providerStatus">正在连接</span>
-              <span class="status-divider"></span>
-              <span id="saveState">尚未保存</span>
-            </span>
-          </div>
-        </section>
-
-        <nav id="quickToolbar" class="panel toolbar" aria-label="画布工具">
-          <div class="toolbar-items">
-            <button class="tool-btn" id="addImageBtn" type="button" title="上传图片">
-              <i data-lucide="image-plus"></i><span>图片</span>
-            </button>
-            <button class="tool-btn" id="addPromptBtn" type="button" title="添加提示词节点">
-              <i data-lucide="text-cursor-input"></i><span>提示词</span>
-            </button>
-            <button class="tool-btn" id="addNoteBtn" type="button" title="添加备注节点">
-              <i data-lucide="notebook-pen"></i><span>备注</span>
-            </button>
-          </div>
-          <span class="toolbar-divider" aria-hidden="true"></span>
-          <div class="toolbar-fixed">
-            <button class="tool-btn icon-only" id="undoBtn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销">
-              <i data-lucide="undo-2"></i>
-            </button>
-            <button class="tool-btn icon-only" id="redoBtn" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做">
-              <i data-lucide="redo-2"></i>
-            </button>
-            <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
-              <i data-lucide="scan"></i>
-            </button>
-            <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
-              <i data-lucide="upload"></i>
-            </button>
-            <button class="tool-btn icon-only" id="exportBtn" type="button" title="导出工作区" aria-label="导出工作区">
-              <i data-lucide="download"></i>
-            </button>
-            <button class="tool-btn icon-only danger" id="clearBtn" type="button" title="清空画布" aria-label="清空画布">
-              <i data-lucide="trash-2"></i>
-            </button>
-          </div>
-        </nav>
-      </div>
-
-      <main id="board" class="board" aria-label="无限画布">
-        <div id="dropOverlay" class="drop-overlay">
-          <i data-lucide="image-down"></i>
-          <strong>拖放图片到画布</strong>
-        </div>
-        <div id="selectionBox" class="selection-box"></div>
-        <div id="createMenu" class="create-menu" role="menu" aria-label="创建节点">
-          <button class="menu-btn" type="button" role="menuitem" data-create-type="image">
-            <i data-lucide="image-plus"></i><span>上传节点</span>
-          </button>
-          <button class="menu-btn" type="button" role="menuitem" data-create-type="prompt">
-            <i data-lucide="text-cursor-input"></i><span>提示词</span>
-          </button>
-          <button class="menu-btn" type="button" role="menuitem" data-create-type="note">
-            <i data-lucide="notebook-pen"></i><span>备注</span>
+    <div id="workspace" class="workspace">
+      <aside id="sidebar" class="ws-sidebar">
+        <div class="ws-side-head">
+          <div class="ws-side-title">项目</div>
+          <button id="newProjectBtn" class="ws-side-add" type="button" title="新建项目" aria-label="新建项目">
+            <i data-lucide="plus"></i>
           </button>
         </div>
-
-        <div id="world" class="world">
-          <svg id="links" class="links" aria-label="节点连线"></svg>
-          <div id="linkControls" class="link-controls"></div>
-          <div id="nodes"></div>
+        <div id="newProjectRow" class="ws-newproj-row">
+          <input id="newProjectInput" class="ws-newproj-input" type="text" maxlength="60" placeholder="项目名称" />
+          <button id="newProjectConfirm" class="ws-mini-btn primary" type="button" title="确定" aria-label="确定"><i data-lucide="check"></i></button>
+          <button id="newProjectCancel" class="ws-mini-btn" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
         </div>
-
-        <div id="emptyState" class="empty-state">
-          <i data-lucide="mouse-pointer-2"></i>
-          <strong>双击或右键创建节点</strong>
-          <span>也可以从顶部工具栏开始</span>
+        <div id="projectList" class="ws-project-list"></div>
+        <div class="ws-side-foot">
+          <button id="trashEntry" class="ws-trash-entry" type="button">
+            <i data-lucide="trash-2"></i><span class="ws-trash-label">回收站</span><span id="trashBadge" class="ws-trash-badge">0</span>
+          </button>
         </div>
+      </aside>
 
-        <button id="canvasArrangeBtn" class="minimap-arrange-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
-          <i data-lucide="layout-grid"></i><span>整理选中</span>
-        </button>
-        <div id="minimap" class="minimap" tabindex="0" role="application" aria-label="画布导航小地图" title="拖动定位画布">
-          <div id="minimapContent" class="minimap-content">
-            <div id="minimapViewport" class="minimap-viewport"></div>
+      <main class="ws-main">
+        <div class="ws-topbar">
+          <div class="ws-topbar-left">
+            <div id="boardProjectName" class="ws-board-name">默认项目</div>
+            <span id="boardCanvasCount" class="ws-board-count">0</span>
+          </div>
+          <div class="ws-topbar-right">
+            <button id="pasteCanvasBtn" class="ws-paste-btn" type="button" title="粘贴到此项目" hidden><i data-lucide="clipboard-paste"></i><span>粘贴到此项目</span></button>
+            <button id="boardResetView" class="ws-icon-btn" type="button" title="重置视图" aria-label="重置视图"><i data-lucide="locate-fixed"></i></button>
+            <button id="boardRefresh" class="ws-icon-btn" type="button" title="刷新" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
+            <button id="newCanvasBtn" class="ws-primary-btn" type="button"><i data-lucide="plus"></i><span>新建画布</span></button>
           </div>
         </div>
-        <div id="zoomBadge" class="zoom-badge" title="滚轮缩放，拖动空白区域平移">100%</div>
+
+        <div id="board" class="ws-board">
+          <div id="boardWorld" class="ws-board-world"></div>
+          <div id="boardEmptyHint" class="ws-board-empty">
+            <div class="ws-board-empty-icon"><i data-lucide="mouse-pointer-click"></i></div>
+            <div class="ws-board-empty-text">暂无画布</div>
+            <div class="ws-board-empty-sub">为当前项目创建第一块画布</div>
+            <div class="ws-board-empty-actions">
+              <button id="emptyCreateCanvasBtn" class="ws-primary-btn" type="button"><i data-lucide="plus"></i><span>新建画布</span></button>
+            </div>
+          </div>
+        </div>
+
+        <div id="trashPanel" class="ws-trash-panel">
+          <div class="ws-trash-head">
+            <div class="ws-trash-head-title"><i data-lucide="trash-2"></i><span>回收站</span></div>
+            <button id="trashClose" class="ws-icon-btn" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+          </div>
+          <div class="ws-trash-note"><i data-lucide="info"></i><span>回收站中的画布会保留，直到手动彻底删除。</span></div>
+          <div id="trashList" class="ws-trash-list"></div>
+        </div>
+        <div id="boardStatus" class="ws-status"></div>
       </main>
     </div>
-
-    <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
-    <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
-    <div id="toastRegion" class="toast-region" aria-live="polite"></div>
-
-    <div id="clearModal" class="modal-backdrop" hidden>
-      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clearModalTitle">
-        <div class="dialog-icon"><i data-lucide="trash-2"></i></div>
-        <h2 id="clearModalTitle">清空画布</h2>
-        <p>全部节点和连线会从工作区移除，已经存储的图片文件会保留。</p>
-        <div class="dialog-actions">
-          <button class="dialog-btn secondary" type="button" id="cancelClearBtn">取消</button>
-          <button class="dialog-btn danger" type="button" id="confirmClearBtn">清空</button>
-        </div>
-      </section>
-    </div>
-
-    <script type="module" src="./canvas.js"></script>
+    <script src="./manager.js"></script>
   </body>
 </html>

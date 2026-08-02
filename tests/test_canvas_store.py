@@ -98,6 +98,67 @@ class CanvasStoreTest(unittest.TestCase):
         with self.assertRaises(CanvasValidationError):
             self.store.store_asset(b"this is not an image")
 
+    def test_projects_keep_canvas_workspaces_isolated(self) -> None:
+        project = self.store.create_project("角色设计")
+        first = self.store.create_canvas({"projectId": project["id"], "title": "角色 A"})
+        second = self.store.create_canvas({"projectId": project["id"], "title": "角色 B"})
+
+        self.store.save_workspace(
+            {"nodes": [{"id": "note_a", "type": "note", "note": "A"}], "connections": []},
+            first["id"],
+        )
+        self.store.save_workspace(
+            {"nodes": [{"id": "note_b", "type": "note", "note": "B"}], "connections": []},
+            second["id"],
+        )
+
+        self.assertEqual(self.store.load_workspace(first["id"])["nodes"][0]["note"], "A")
+        self.assertEqual(self.store.load_workspace(second["id"])["nodes"][0]["note"], "B")
+        self.assertEqual(len(self.store.list_projects()), 2)
+
+    def test_canvas_trash_restore_and_purge(self) -> None:
+        canvas = self.store.create_canvas({"title": "可恢复画布"})
+        self.store.trash_canvas(canvas["id"])
+        self.assertEqual(self.store.list_canvases(), [])
+        self.assertEqual(len(self.store.list_canvases(include_deleted=True)), 1)
+
+        self.store.restore_canvas(canvas["id"])
+        self.assertEqual(len(self.store.list_canvases()), 1)
+        self.store.trash_canvas(canvas["id"])
+        self.store.purge_canvas(canvas["id"])
+        self.assertEqual(self.store.list_canvases(include_deleted=True), [])
+
+    def test_image_and_prompt_assets_round_trip(self) -> None:
+        buffer = BytesIO()
+        Image.new("RGB", (48, 32), (90, 120, 200)).save(buffer, format="PNG")
+        image = self.store.store_asset(buffer.getvalue())
+        self.store.add_image_to_library(image, "天空参考", "upload")
+        prompt = self.store.save_prompt_asset(
+            {"name": "逆光人像", "prompt": "1girl, backlight", "ratio": "2:3"}
+        )
+
+        library = self.store.list_library()
+        self.assertEqual(library["images"][0]["name"], "天空参考")
+        self.assertEqual(library["prompts"][0]["prompt"], "1girl, backlight")
+
+        self.store.remove_image_from_library(image["id"])
+        self.store.delete_prompt_asset(prompt["id"])
+        self.assertEqual(self.store.list_library(), {"images": [], "prompts": []})
+
+    def test_legacy_workspace_is_migrated_to_default_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            (data_dir / "workspace.json").write_text(
+                '{"nodes":[{"id":"legacy","type":"note","note":"old"}],"connections":[]}',
+                encoding="utf-8",
+            )
+            store = CanvasStore("test_plugin", data_dir)
+            canvases = store.list_canvases()
+
+            self.assertEqual(len(canvases), 1)
+            self.assertEqual(canvases[0]["projectId"], "default")
+            self.assertEqual(store.load_workspace(canvases[0]["id"])["nodes"][0]["note"], "old")
+
     def test_canvas_registers_retag_route(self) -> None:
         routes = []
 

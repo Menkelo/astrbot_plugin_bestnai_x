@@ -2,7 +2,7 @@
 
 ## Infinite-Canvas
 
-The canvas page structure, visual system, node presentation, viewport controls, DOM minimap, multi-selection, group dragging, creation menu, and connection interactions are reproduced and adapted from:
+The project workspace, canvas-card layout, canvas-creation transition, editor page structure, visual system, node presentation, viewport controls, DOM minimap, multi-selection, group dragging, creation menu, and connection interactions are reproduced and adapted from:
 
 - Project: `hero8152/Infinite-Canvas`
 - Source: https://github.com/hero8152/Infinite-Canvas

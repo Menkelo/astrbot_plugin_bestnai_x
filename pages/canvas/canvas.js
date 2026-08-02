@@ -1,4 +1,7 @@
 const bridge = window.AstrBotPluginPage;
+const pageParams = new URLSearchParams(window.location.search);
+const canvasId = pageParams.get("id") || "";
+const projectId = pageParams.get("project") || "default";
 
 const els = {
   viewport: document.getElementById("board"),
@@ -22,6 +25,13 @@ const els = {
   selectionBox: document.getElementById("selectionBox"),
   createMenu: document.getElementById("createMenu"),
   arrangeSelectionBtn: document.getElementById("canvasArrangeBtn"),
+  currentCanvasTitle: document.getElementById("currentCanvasTitle"),
+  assetPanel: document.getElementById("assetPanel"),
+  assetGrid: document.getElementById("assetGrid"),
+  assetEmpty: document.getElementById("assetEmpty"),
+  assetSearch: document.getElementById("assetSearch"),
+  assetPanelCount: document.getElementById("assetPanelCount"),
+  saveSelectedPromptBtn: document.getElementById("saveSelectedPromptBtn"),
 };
 
 const state = {
@@ -48,6 +58,8 @@ const state = {
   minimapTransform: null,
   createPoint: null,
   pendingUploadPoint: null,
+  library: { images: [], prompts: [] },
+  assetTab: "images",
 };
 
 const MAX_HISTORY = 40;
@@ -167,7 +179,7 @@ async function saveWorkspace() {
   state.saving = true;
   setSaveState("保存中");
   try {
-    await bridge.apiPost("canvas/workspace", serializableWorkspace());
+    await bridge.apiPost("canvas/workspace", { canvasId, ...serializableWorkspace() });
     setSaveState(`已保存 ${nowLabel()}`);
   } catch (error) {
     setSaveState("保存失败");
@@ -506,6 +518,10 @@ function renderImageNode(node) {
   const actions = element.querySelector(".node-actions");
   actions.insertBefore(
     makeAction("download", "下载图片", () => downloadImage(node)),
+    actions.firstChild,
+  );
+  actions.insertBefore(
+    makeAction("bookmark-plus", "保存到素材库", () => saveImageToLibrary(node)),
     actions.firstChild,
   );
 
@@ -1030,6 +1046,7 @@ async function generateFromNode(id) {
     toast("生成完成");
     renderAll();
     scheduleSave();
+    loadLibrary(els.assetPanel.classList.contains("open"));
   } catch (error) {
     node.error = error.message || "生成失败";
     toast(node.error, "error");
@@ -1129,6 +1146,196 @@ function downloadImage(node) {
   anchor.click();
 }
 
+async function loadLibrary(render = true) {
+  try {
+    const library = await bridge.apiGet("canvas/library");
+    state.library = {
+      images: Array.isArray(library?.images) ? library.images : [],
+      prompts: Array.isArray(library?.prompts) ? library.prompts : [],
+    };
+    if (render) renderAssetLibrary();
+  } catch (error) {
+    toast(error.message || "素材库读取失败", "error");
+  }
+}
+
+function setAssetPanel(open) {
+  els.assetPanel.classList.toggle("open", open);
+  document.getElementById("assetLibraryBtn").classList.toggle("active", open);
+  if (open) renderAssetLibrary();
+}
+
+function activeAssetItems() {
+  const query = els.assetSearch.value.trim().toLowerCase();
+  const items = state.assetTab === "images" ? state.library.images : state.library.prompts;
+  if (!query) return items;
+  return items.filter((item) => `${item.name || ""} ${item.prompt || ""}`.toLowerCase().includes(query));
+}
+
+function renderAssetLibrary() {
+  const items = activeAssetItems();
+  els.assetGrid.replaceChildren();
+  els.assetPanel.classList.toggle("prompt-view", state.assetTab === "prompts");
+  els.assetPanelCount.textContent = `${items.length} 项`;
+  els.assetEmpty.classList.toggle("visible", items.length === 0);
+
+  items.forEach((item) => {
+    if (state.assetTab === "images") renderImageAssetCard(item);
+    else renderPromptAssetCard(item);
+  });
+  refreshIcons(els.assetPanel);
+}
+
+function renderImageAssetCard(item) {
+  const card = document.createElement("article");
+  card.className = "asset-card";
+  card.title = "点击添加到当前画布";
+  const thumb = document.createElement("div");
+  thumb.className = "asset-thumb";
+  const image = document.createElement("img");
+  image.alt = item.name || "图片素材";
+  if (item.dataUrl) image.src = item.dataUrl;
+  else {
+    bridge.apiGet("canvas/asset", { id: item.id }).then((payload) => {
+      item.dataUrl = payload.dataUrl;
+      if (image.isConnected) image.src = payload.dataUrl;
+    }).catch(() => {});
+  }
+  thumb.appendChild(image);
+  const meta = document.createElement("div");
+  meta.className = "asset-card-meta";
+  const name = document.createElement("span");
+  name.className = "asset-card-name";
+  name.textContent = item.name || `图片 ${item.id.slice(0, 8)}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "asset-card-remove";
+  remove.title = "从素材库移除";
+  remove.setAttribute("aria-label", `移除图片素材 ${name.textContent}`);
+  remove.appendChild(icon("x"));
+  remove.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await bridge.apiPost("canvas/library/image/delete", { id: item.id });
+    state.library.images = state.library.images.filter((entry) => entry.id !== item.id);
+    renderAssetLibrary();
+  });
+  meta.append(name, remove);
+  card.append(thumb, meta);
+  card.addEventListener("click", () => addImageAssetToCanvas(item));
+  els.assetGrid.appendChild(card);
+}
+
+async function addImageAssetToCanvas(item) {
+  try {
+    if (!item.dataUrl) {
+      const payload = await bridge.apiGet("canvas/asset", { id: item.id });
+      item.dataUrl = payload.dataUrl;
+    }
+    const point = worldCenter();
+    addNode({
+      id: uid("image"),
+      type: "image",
+      x: point.x - 130,
+      y: point.y - 120,
+      width: 260,
+      title: item.name || "素材图片",
+      assetId: item.id,
+      dataUrl: item.dataUrl,
+      createdAt: new Date().toISOString(),
+      meta: { prompt: item.name || "素材图片", width: item.width, height: item.height },
+    });
+    setAssetPanel(false);
+  } catch (error) {
+    toast(error.message || "添加图片素材失败", "error");
+  }
+}
+
+function renderPromptAssetCard(item) {
+  const card = document.createElement("article");
+  card.className = "asset-card asset-prompt-card";
+  card.title = "点击应用到当前提示词节点";
+  const title = document.createElement("strong");
+  title.textContent = item.name || "未命名提示词";
+  const prompt = document.createElement("p");
+  prompt.textContent = item.prompt || "";
+  const footer = document.createElement("footer");
+  const detail = document.createElement("span");
+  detail.textContent = [item.ratio, item.artist].filter(Boolean).join(" · ") || "NAI 提示词";
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "asset-card-remove";
+  remove.title = "删除提示词素材";
+  remove.setAttribute("aria-label", `删除提示词素材 ${title.textContent}`);
+  remove.appendChild(icon("trash-2"));
+  remove.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await bridge.apiPost("canvas/library/prompt/delete", { id: item.id });
+    state.library.prompts = state.library.prompts.filter((entry) => entry.id !== item.id);
+    renderAssetLibrary();
+  });
+  footer.append(detail, remove);
+  card.append(title, prompt, footer);
+  card.addEventListener("click", () => applyPromptAsset(item));
+  els.assetGrid.appendChild(card);
+}
+
+function applyPromptAsset(item) {
+  let node = findNode(state.selectedId);
+  pushHistory();
+  if (node?.type !== "prompt") {
+    node = createPromptNode();
+    state.nodes.push(node);
+  }
+  node.prompt = item.prompt || "";
+  node.ratio = item.ratio || node.ratio;
+  node.artist = item.artist || "";
+  node.raw = !!item.raw;
+  setSelection([node.id], node.id);
+  renderAll();
+  scheduleSave();
+  setAssetPanel(false);
+  toast("已应用提示词素材");
+}
+
+async function saveSelectedPrompt() {
+  const node = findNode(state.selectedId);
+  if (node?.type !== "prompt" || !node.prompt?.trim()) {
+    toast("请先选中包含内容的提示词节点", "error");
+    return;
+  }
+  try {
+    const result = await bridge.apiPost("canvas/library/prompt/save", {
+      name: node.title || node.prompt.slice(0, 32),
+      prompt: node.prompt,
+      ratio: node.ratio,
+      artist: node.artist,
+      raw: !!node.raw,
+    });
+    state.library.prompts = [result.prompt, ...state.library.prompts.filter((item) => item.id !== result.prompt.id)];
+    renderAssetLibrary();
+    toast("提示词已保存到素材库");
+  } catch (error) {
+    toast(error.message || "提示词保存失败", "error");
+  }
+}
+
+async function saveImageToLibrary(node) {
+  if (!node?.assetId) return;
+  try {
+    const result = await bridge.apiPost("canvas/library/image/add", {
+      assetId: node.assetId,
+      name: node.title || node.meta?.prompt || "画布图片",
+      source: "canvas",
+    });
+    const image = { ...result.image, dataUrl: node.dataUrl };
+    state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
+    if (els.assetPanel.classList.contains("open")) renderAssetLibrary();
+    toast("图片已保存到素材库");
+  } catch (error) {
+    toast(error.message || "图片保存失败", "error");
+  }
+}
+
 async function uploadFiles(files, point = worldCenter()) {
   const images = [...files].filter((file) => file.type.startsWith("image/"));
   if (!images.length) {
@@ -1155,6 +1362,7 @@ async function uploadFiles(files, point = worldCenter()) {
       toast(`${images[index].name}：${error.message}`, "error");
     }
   }
+  await loadLibrary(els.assetPanel.classList.contains("open"));
 }
 
 // DOM projection and drag navigation follow hero8152/Infinite-Canvas.
@@ -1231,19 +1439,29 @@ function centerViewportOnWorldPoint(point) {
 
 async function loadInitialState() {
   if (!bridge) throw new Error("请从 AstrBot WebUI 插件详情页打开 Canvas");
+  if (!canvasId) throw new Error("请先从项目工作台选择或创建画布");
   await bridge.ready();
-  const [config, workspace] = await Promise.all([
+  const [config, workspace, canvasList, library] = await Promise.all([
     bridge.apiGet("canvas/config"),
-    bridge.apiGet("canvas/workspace"),
+    bridge.apiGet("canvas/workspace", { id: canvasId }),
+    bridge.apiGet("canvas/canvases"),
+    bridge.apiGet("canvas/library"),
   ]);
   state.config = { ...state.config, ...(config || {}) };
   state.nodes = Array.isArray(workspace?.nodes) ? workspace.nodes : [];
   state.connections = Array.isArray(workspace?.connections) ? workspace.connections : [];
   state.viewport = workspace?.viewport || state.viewport;
+  state.library = {
+    images: Array.isArray(library?.images) ? library.images : [],
+    prompts: Array.isArray(library?.prompts) ? library.prompts : [],
+  };
+  const canvasMeta = (canvasList?.canvases || []).find((item) => item.id === canvasId);
+  els.currentCanvasTitle.textContent = canvasMeta?.title || "未命名画布";
+  document.title = `${els.currentCanvasTitle.textContent} · BestNAI`;
   els.providerDot.classList.toggle("ready", !!state.config.configured);
   els.providerDot.classList.toggle("error", !state.config.configured);
   els.providerStatus.textContent = state.config.configured
-    ? `${state.config.model} · 已就绪`
+    ? `${state.config.model || "NAI Diffusion"} · 已就绪`
     : "未配置生图提供商";
   setSaveState(workspace?.updatedAt ? "工作区已同步" : "新工作区");
   renderAll();
@@ -1407,6 +1625,22 @@ document.getElementById("fitBtn").addEventListener("click", fitView);
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
 els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);
+document.getElementById("backToManagerBtn").addEventListener("click", () => {
+  window.location.href = `./index.html?project=${encodeURIComponent(projectId)}`;
+});
+document.getElementById("assetLibraryBtn").addEventListener("click", () => {
+  setAssetPanel(!els.assetPanel.classList.contains("open"));
+});
+document.getElementById("assetPanelClose").addEventListener("click", () => setAssetPanel(false));
+document.querySelectorAll("[data-asset-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.assetTab = button.dataset.assetTab;
+    document.querySelectorAll("[data-asset-tab]").forEach((item) => item.classList.toggle("active", item === button));
+    renderAssetLibrary();
+  });
+});
+els.assetSearch.addEventListener("input", renderAssetLibrary);
+els.saveSelectedPromptBtn.addEventListener("click", saveSelectedPrompt);
 
 els.createMenu.addEventListener("pointerdown", (event) => event.stopPropagation());
 els.createMenu.addEventListener("click", (event) => {
@@ -1433,7 +1667,7 @@ els.imageInput.addEventListener("change", () => {
 document.getElementById("exportBtn").addEventListener("click", async () => {
   await saveWorkspace();
   try {
-    await bridge.download("canvas/workspace/export", {}, "bestnai-canvas.json");
+    await bridge.download("canvas/workspace/export", { id: canvasId }, `${els.currentCanvasTitle.textContent || "bestnai-canvas"}.json`);
   } catch (error) {
     toast(error.message, "error");
   }
@@ -1445,14 +1679,17 @@ els.workspaceInput.addEventListener("change", async () => {
   els.workspaceInput.value = "";
   if (!file) return;
   try {
-    const workspace = await bridge.upload("canvas/workspace/import", file);
+    const workspace = JSON.parse(await file.text());
+    if (!Array.isArray(workspace.nodes) || !Array.isArray(workspace.connections)) {
+      throw new Error("文件不是有效的画布工作区");
+    }
     pushHistory();
     state.nodes = workspace.nodes || [];
     state.connections = workspace.connections || [];
     state.viewport = workspace.viewport || state.viewport;
     clearSelection();
     renderAll();
-    setSaveState("已导入");
+    scheduleSave(0);
     toast("工作区导入完成");
   } catch (error) {
     toast(error.message, "error");
@@ -1484,6 +1721,10 @@ clearModal.addEventListener("pointerdown", (event) => {
 document.addEventListener("keydown", (event) => {
   const editing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
   if (event.key === "Escape") {
+    if (els.assetPanel.classList.contains("open")) {
+      setAssetPanel(false);
+      return;
+    }
     closeCreateMenu();
     if (!editing) {
       clearSelection();
