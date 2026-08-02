@@ -42,6 +42,33 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".prompt-text {", styles)
         self.assertIn("user-select: none;", styles)
 
+    def test_editor_double_click_creates_prompt_without_creation_menu(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertNotIn('id="createMenu"', html)
+        self.assertNotIn('id="zoomBadge"', html)
+        self.assertNotIn(".create-menu", styles)
+        self.assertNotIn(".zoom-badge", styles)
+        self.assertIn(
+            "addNode(createPromptNode(clientToWorld(event.clientX, event.clientY)))",
+            editor,
+        )
+        self.assertIn(
+            'event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")',
+            editor,
+        )
+
+    def test_editor_persists_resized_notes_and_fits_image_nodes(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        self.assertIn("height: node.height || 0", editor)
+        self.assertIn("function attachNoteResize", editor)
+        self.assertIn("node.height = clamp", editor)
+        self.assertIn("data.nodes.map(normalizeLoadedNodeDimensions)", editor)
+        self.assertIn("function fittedImageNodeWidth", editor)
+
 
 if __name__ == "__main__":
     unittest.main()

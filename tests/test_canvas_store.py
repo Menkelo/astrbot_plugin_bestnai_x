@@ -61,6 +61,15 @@ class CanvasStoreTest(unittest.TestCase):
                         "height": 1216,
                     },
                 },
+                {
+                    "id": "note_1",
+                    "type": "note",
+                    "x": 80,
+                    "y": 120,
+                    "width": 420,
+                    "height": 900,
+                    "note": "layout notes",
+                },
             ],
             "connections": [
                 {"source": "prompt_1", "target": "image_1"},
@@ -77,6 +86,8 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertNotIn("status", saved["nodes"][0])
         self.assertEqual(len(loaded["connections"]), 1)
         self.assertEqual(loaded["nodes"][1]["meta"]["width"], 832)
+        self.assertEqual(loaded["nodes"][2]["width"], 420)
+        self.assertEqual(loaded["nodes"][2]["height"], 800)
 
     def test_duplicate_node_id_is_rejected(self) -> None:
         node = {"id": "same", "type": "note"}

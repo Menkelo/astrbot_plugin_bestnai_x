@@ -69,18 +69,6 @@
           <strong>拖放图片到画布</strong>
         </div>
         <div id="selectionBox" class="selection-box"></div>
-        <div id="createMenu" class="create-menu" role="menu" aria-label="创建节点">
-          <button class="menu-btn" type="button" role="menuitem" data-create-type="image">
-            <i data-lucide="image-plus"></i><span>上传节点</span>
-          </button>
-          <button class="menu-btn" type="button" role="menuitem" data-create-type="prompt">
-            <i data-lucide="text-cursor-input"></i><span>提示词</span>
-          </button>
-          <button class="menu-btn" type="button" role="menuitem" data-create-type="note">
-            <i data-lucide="notebook-pen"></i><span>备注</span>
-          </button>
-        </div>
-
         <div id="world" class="world">
           <svg id="links" class="links" aria-label="节点连线"></svg>
           <div id="linkControls" class="link-controls"></div>
@@ -89,8 +77,8 @@
 
         <div id="emptyState" class="empty-state">
           <i data-lucide="mouse-pointer-2"></i>
-          <strong>双击或右键创建节点</strong>
-          <span>也可以从顶部工具栏开始</span>
+          <strong>双击创建提示词节点</strong>
+          <span>其他节点请使用顶部工具栏</span>
         </div>
 
         <button id="canvasArrangeBtn" class="minimap-arrange-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
@@ -101,8 +89,6 @@
             <div id="minimapViewport" class="minimap-viewport"></div>
           </div>
         </div>
-        <div id="zoomBadge" class="zoom-badge" title="滚轮缩放，拖动空白区域平移">100%</div>
-
         <aside id="assetPanel" class="asset-panel" aria-label="素材库">
           <header class="asset-panel-head">
             <div>

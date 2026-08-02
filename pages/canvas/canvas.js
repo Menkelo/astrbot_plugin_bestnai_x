@@ -29,14 +29,12 @@ const els = {
   providerDot: document.getElementById("providerDot"),
   providerStatus: document.getElementById("providerStatus"),
   saveState: document.getElementById("saveState"),
-  zoomValue: document.getElementById("zoomBadge"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
   imageInput: document.getElementById("imageInput"),
   workspaceInput: document.getElementById("workspaceInput"),
   toastRegion: document.getElementById("toastRegion"),
   selectionBox: document.getElementById("selectionBox"),
-  createMenu: document.getElementById("createMenu"),
   arrangeSelectionBtn: document.getElementById("canvasArrangeBtn"),
   currentCanvasTitle: document.getElementById("currentCanvasTitle"),
   assetPanel: document.getElementById("assetPanel"),
@@ -69,7 +67,6 @@ const state = {
   restoring: false,
   connectionDrag: null,
   minimapTransform: null,
-  createPoint: null,
   pendingUploadPoint: null,
   library: { images: [], prompts: [] },
   assetTab: "images",
@@ -115,6 +112,7 @@ function serializableWorkspace() {
       x: node.x,
       y: node.y,
       width: node.width,
+      height: node.height || 0,
       title: node.title || "",
       prompt: node.prompt || "",
       note: node.note || "",
@@ -148,7 +146,9 @@ function pushHistory() {
 function restoreSnapshot(raw) {
   const data = JSON.parse(raw);
   state.restoring = true;
-  state.nodes = Array.isArray(data.nodes) ? data.nodes : [];
+  state.nodes = Array.isArray(data.nodes)
+    ? data.nodes.map(normalizeLoadedNodeDimensions)
+    : [];
   state.connections = Array.isArray(data.connections) ? data.connections : [];
   state.viewport = data.viewport || { x: 160, y: 120, scale: 1 };
   state.selectedId = data.selectedId || "";
@@ -236,6 +236,7 @@ function createNoteNode(point = null) {
     x: center.x - 130,
     y: center.y - 100,
     width: 260,
+    height: 232,
     title: "备注",
     note: "",
     createdAt: new Date().toISOString(),
@@ -578,6 +579,7 @@ function renderImageNode(node) {
 
 function renderNoteNode(node) {
   const element = makeNodeShell(node, node.title || "备注");
+  element.style.height = `${node.height || 232}px`;
   const body = document.createElement("div");
   body.className = "node-body";
   const note = document.createElement("textarea");
@@ -590,7 +592,11 @@ function renderNoteNode(node) {
     scheduleSave();
   });
   body.appendChild(note);
-  element.appendChild(body);
+  const resizeHandle = document.createElement("span");
+  resizeHandle.className = "note-resize-handle";
+  resizeHandle.setAttribute("aria-hidden", "true");
+  attachNoteResize(resizeHandle, element, node);
+  element.append(body, resizeHandle);
   return element;
 }
 
@@ -614,11 +620,32 @@ function connectionPath(x1, y1, x2, y2) {
 
 function nodePortPoint(node, role) {
   const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
-  const height = element?.offsetHeight || 260;
+  const height = node.height || element?.offsetHeight || 260;
   return {
     x: role === "out" ? node.x + (node.width || 320) : node.x,
     y: node.y + height / 2,
   };
+}
+
+function fittedImageNodeWidth(width, height) {
+  const sourceWidth = Number(width);
+  const sourceHeight = Number(height);
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+    return 300;
+  }
+  const scale = Math.min(420 / sourceWidth, 360 / sourceHeight);
+  return clamp(Math.round(sourceWidth * scale) + 20, 220, 440);
+}
+
+function normalizeLoadedNodeDimensions(node) {
+  if (node.type === "note") {
+    node.width = clamp(Number(node.width) || 260, 220, 640);
+    node.height = clamp(Number(node.height) || 232, 180, 800);
+  }
+  if (node.type === "image" && (!node.width || [260, 300].includes(Math.round(node.width)))) {
+    node.width = fittedImageNodeWidth(node.meta?.width, node.meta?.height);
+  }
+  return node;
 }
 
 function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
@@ -818,7 +845,6 @@ function renderViewport() {
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   els.viewport.style.backgroundPosition = `${x}px ${y}px`;
   els.viewport.style.backgroundSize = `${24 * scale}px ${24 * scale}px`;
-  els.zoomValue.textContent = `${Math.round(scale * 100)}%`;
 }
 
 function renderAll() {
@@ -892,6 +918,46 @@ function attachNodeDrag(handle, element, node) {
   });
 }
 
+function attachNoteResize(handle, element, node) {
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectNode(node.id);
+    const start = {
+      x: event.clientX,
+      y: event.clientY,
+      width: node.width || element.offsetWidth || 260,
+      height: node.height || element.offsetHeight || 232,
+    };
+    let moved = false;
+    const move = (moveEvent) => {
+      const dx = (moveEvent.clientX - start.x) / state.viewport.scale;
+      const dy = (moveEvent.clientY - start.y) / state.viewport.scale;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
+      if (!moved) {
+        moved = true;
+        pushHistory();
+      }
+      node.width = clamp(Math.round(start.width + dx), 220, 640);
+      node.height = clamp(Math.round(start.height + dy), 180, 800);
+      element.style.width = `${node.width}px`;
+      element.style.height = `${node.height}px`;
+      renderConnections();
+      drawMinimap();
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (moved) scheduleSave();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+}
+
 function clientToWorld(clientX, clientY) {
   const rect = els.viewport.getBoundingClientRect();
   return {
@@ -911,23 +977,8 @@ function nodeRect(node) {
     x: node.x,
     y: node.y,
     width: node.width || 320,
-    height: element?.offsetHeight || 280,
+    height: node.height || element?.offsetHeight || 280,
   };
-}
-
-function closeCreateMenu() {
-  els.createMenu.classList.remove("open");
-  state.createPoint = null;
-}
-
-function openCreateMenu(event) {
-  const viewportRect = els.viewport.getBoundingClientRect();
-  state.createPoint = clientToWorld(event.clientX, event.clientY);
-  els.createMenu.classList.add("open");
-  const menuWidth = els.createMenu.offsetWidth || 330;
-  const menuHeight = els.createMenu.offsetHeight || 90;
-  els.createMenu.style.left = `${clamp(event.clientX - viewportRect.left, 8, viewportRect.width - menuWidth - 8)}px`;
-  els.createMenu.style.top = `${clamp(event.clientY - viewportRect.top, 8, viewportRect.height - menuHeight - 8)}px`;
 }
 
 function finishBoxSelection(startWorld, endEvent) {
@@ -1032,12 +1083,14 @@ async function generateFromNode(id) {
     pushHistory();
     const createdIds = [];
     assets.forEach((asset, index) => {
+      const sourceWidth = asset.width || result.meta?.width;
+      const sourceHeight = asset.height || result.meta?.height;
       const imageNode = {
         id: uid("image"),
         type: "image",
         x: node.x + (node.width || 320) + 100,
         y: node.y + index * 340,
-        width: 300,
+        width: fittedImageNodeWidth(sourceWidth, sourceHeight),
         title: `生成结果 ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
@@ -1045,8 +1098,8 @@ async function generateFromNode(id) {
         meta: {
           prompt: result.meta?.cleanPrompt || node.prompt,
           ratio: result.meta?.ratio || node.ratio,
-          width: asset.width || result.meta?.width,
-          height: asset.height || result.meta?.height,
+          width: sourceWidth,
+          height: sourceHeight,
           finalPrompt: result.meta?.finalPrompt || "",
         },
       };
@@ -1130,9 +1183,19 @@ async function retagFromNode(id) {
 async function ensureAssetLoaded(node) {
   if (!node.assetId || node.dataUrl || node.assetLoading || node.assetError) return;
   node.assetLoading = true;
+  let dimensionsChanged = false;
   try {
     const result = await bridge.apiGet("canvas/asset", { id: node.assetId });
     node.dataUrl = result.dataUrl;
+    node.meta = {
+      ...(node.meta || {}),
+      width: node.meta?.width || result.width,
+      height: node.meta?.height || result.height,
+    };
+    if (!node.width || [260, 300].includes(Math.round(node.width))) {
+      node.width = fittedImageNodeWidth(node.meta.width, node.meta.height);
+      dimensionsChanged = true;
+    }
   } catch (error) {
     node.assetError = error.message || "图片读取失败";
   } finally {
@@ -1141,8 +1204,12 @@ async function ensureAssetLoaded(node) {
     if (current) {
       const replacement = renderImageNode(node);
       current.replaceWith(replacement);
-      requestAnimationFrame(renderConnections);
+      requestAnimationFrame(() => {
+        renderConnections();
+        drawMinimap();
+      });
     }
+    if (dimensionsChanged) scheduleSave(800);
   }
 }
 
@@ -1245,12 +1312,13 @@ async function addImageAssetToCanvas(item) {
       item.dataUrl = payload.dataUrl;
     }
     const point = worldCenter();
+    const nodeWidth = fittedImageNodeWidth(item.width, item.height);
     addNode({
       id: uid("image"),
       type: "image",
-      x: point.x - 130,
+      x: point.x - nodeWidth / 2,
       y: point.y - 120,
-      width: 260,
+      width: nodeWidth,
       title: item.name || "素材图片",
       assetId: item.id,
       dataUrl: item.dataUrl,
@@ -1358,12 +1426,13 @@ async function uploadFiles(files, point = worldCenter()) {
   for (let index = 0; index < images.length; index += 1) {
     try {
       const asset = await bridge.upload("canvas/upload", images[index]);
+      const nodeWidth = fittedImageNodeWidth(asset.width, asset.height);
       const node = {
         id: uid("image"),
         type: "image",
-        x: point.x + index * 34 - 150,
+        x: point.x + index * 34 - nodeWidth / 2,
         y: point.y + index * 34 - 150,
-        width: 300,
+        width: nodeWidth,
         title: images[index].name,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
@@ -1460,7 +1529,9 @@ async function loadInitialState() {
     bridge.apiGet("canvas/library"),
   ]);
   state.config = { ...state.config, ...(config || {}) };
-  state.nodes = Array.isArray(workspace?.nodes) ? workspace.nodes : [];
+  state.nodes = Array.isArray(workspace?.nodes)
+    ? workspace.nodes.map(normalizeLoadedNodeDimensions)
+    : [];
   state.connections = Array.isArray(workspace?.connections) ? workspace.connections : [];
   state.viewport = workspace?.viewport || state.viewport;
   state.library = {
@@ -1482,9 +1553,8 @@ async function loadInitialState() {
 els.viewport.addEventListener("pointerdown", (event) => {
   if (
     event.button !== 0
-    || event.target.closest(".node, button, .create-menu, .link-hit, .link-delete")
+    || event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")
   ) return;
-  closeCreateMenu();
 
   if (event.ctrlKey || event.metaKey) {
     event.preventDefault();
@@ -1555,16 +1625,13 @@ els.viewport.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 els.viewport.addEventListener("dblclick", (event) => {
-  if (event.target.closest(".node, button, .create-menu, .link-hit, .link-delete")) return;
+  if (event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")) return;
   event.preventDefault();
-  openCreateMenu(event);
+  addNode(createPromptNode(clientToWorld(event.clientX, event.clientY)));
 });
 
 els.viewport.addEventListener("contextmenu", (event) => {
-  if (event.target.closest(".node, button, .create-menu, .link-hit, .link-delete")) return;
-  event.preventDefault();
-  event.stopPropagation();
-  openCreateMenu(event);
+  if (!event.target.closest(".prompt-text")) event.preventDefault();
 });
 
 function dataTransferHasFiles(dataTransfer) {
@@ -1699,22 +1766,6 @@ document.querySelectorAll("[data-asset-tab]").forEach((button) => {
 els.assetSearch.addEventListener("input", renderAssetLibrary);
 els.saveSelectedPromptBtn.addEventListener("click", saveSelectedPrompt);
 
-els.createMenu.addEventListener("pointerdown", (event) => event.stopPropagation());
-els.createMenu.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-create-type]");
-  if (!button) return;
-  event.stopPropagation();
-  const point = state.createPoint || worldCenter();
-  const type = button.dataset.createType;
-  if (type === "prompt") addNode(createPromptNode(point));
-  else if (type === "note") addNode(createNoteNode(point));
-  else if (type === "image") {
-    state.pendingUploadPoint = point;
-    els.imageInput.click();
-  }
-  closeCreateMenu();
-});
-
 els.imageInput.addEventListener("change", () => {
   uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());
   state.pendingUploadPoint = null;
@@ -1741,7 +1792,7 @@ els.workspaceInput.addEventListener("change", async () => {
       throw new Error("文件不是有效的画布工作区");
     }
     pushHistory();
-    state.nodes = workspace.nodes || [];
+    state.nodes = (workspace.nodes || []).map(normalizeLoadedNodeDimensions);
     state.connections = workspace.connections || [];
     state.viewport = workspace.viewport || state.viewport;
     clearSelection();
@@ -1782,7 +1833,6 @@ document.addEventListener("keydown", (event) => {
       setAssetPanel(false);
       return;
     }
-    closeCreateMenu();
     if (!editing) {
       clearSelection();
       renderAll();

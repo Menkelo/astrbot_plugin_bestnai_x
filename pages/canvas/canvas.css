@@ -560,7 +560,7 @@ select:focus-visible,
   width: 100%;
   min-height: 132px;
   padding: 12px;
-  resize: vertical;
+  resize: none;
   border: 1px solid #edf2f7;
   border-radius: 16px;
   outline: none;
@@ -571,6 +571,7 @@ select:focus-visible,
 }
 
 .prompt-text {
+  resize: vertical;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -710,8 +711,8 @@ select:focus-visible,
   position: relative;
   display: grid;
   width: 100%;
-  min-height: 170px;
-  max-height: 320px;
+  min-height: 0;
+  max-height: 360px;
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
@@ -727,7 +728,8 @@ select:focus-visible,
 .image-preview-wrap img {
   display: block;
   width: 100%;
-  max-height: 320px;
+  height: auto;
+  max-height: 360px;
   object-fit: contain;
   user-select: none;
 }
@@ -766,7 +768,9 @@ select:focus-visible,
 }
 
 .note-node {
+  display: flex;
   width: 260px;
+  flex-direction: column;
   background: rgba(254, 252, 232, .95);
 }
 
@@ -775,14 +779,31 @@ select:focus-visible,
 }
 
 .note-node .node-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 10px;
 }
 
 .note-text {
-  min-height: 150px;
+  height: 100%;
+  min-height: 0;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
+}
+
+.note-resize-handle {
+  position: absolute;
+  z-index: 8;
+  right: 4px;
+  bottom: 4px;
+  width: 20px;
+  height: 20px;
+  border-right: 2px solid rgba(100, 116, 139, .55);
+  border-bottom: 2px solid rgba(100, 116, 139, .55);
+  border-radius: 0 0 12px;
+  cursor: nwse-resize;
+  touch-action: none;
 }
 
 .port {
@@ -823,49 +844,6 @@ select:focus-visible,
 
 .port.out {
   right: -15px;
-}
-
-.create-menu {
-  position: absolute;
-  z-index: 40;
-  display: none;
-  width: 190px;
-  padding: 8px;
-  border: 1px solid #e8edf3;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, .96);
-  box-shadow: 0 20px 50px rgba(15, 23, 42, .14);
-  backdrop-filter: blur(16px);
-}
-
-.create-menu.open {
-  display: block;
-}
-
-.menu-btn {
-  display: flex;
-  width: 100%;
-  height: 38px;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 750;
-  text-align: left;
-}
-
-.menu-btn:hover {
-  background: var(--soft-2);
-  color: var(--text);
-}
-
-.menu-btn svg {
-  width: 16px;
-  height: 16px;
 }
 
 .selection-box {
@@ -1037,26 +1015,6 @@ select:focus-visible,
 .minimap-arrange-btn svg {
   width: 14px;
   height: 14px;
-}
-
-.zoom-badge {
-  position: absolute;
-  z-index: 24;
-  right: 222px;
-  bottom: 22px;
-  min-width: 48px;
-  height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: 0 10px 24px var(--shadow);
-  color: var(--faint);
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 26px;
-  text-align: center;
-  pointer-events: none;
 }
 
 .asset-panel {
@@ -1534,8 +1492,7 @@ select:focus-visible,
   }
 
   .minimap,
-  .minimap-arrange-btn,
-  .zoom-badge {
+  .minimap-arrange-btn {
     display: none;
   }
 
@@ -1569,9 +1526,6 @@ select:focus-visible,
     flex: 1;
   }
 
-  .create-menu {
-    width: min(190px, calc(100vw - 24px));
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

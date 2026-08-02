@@ -359,6 +359,7 @@ class CanvasStore:
                 "x": _bounded_number(raw_node.get("x"), 0, -1_000_000, 1_000_000),
                 "y": _bounded_number(raw_node.get("y"), 0, -1_000_000, 1_000_000),
                 "width": _bounded_number(raw_node.get("width"), 320, 220, 640),
+                "height": _bounded_number(raw_node.get("height"), 0, 0, 800),
                 "title": _short_text(raw_node.get("title"), 120),
                 "prompt": _short_text(raw_node.get("prompt"), 6000),
                 "note": _short_text(raw_node.get("note"), 6000),
