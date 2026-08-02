@@ -1063,6 +1063,7 @@ class BestNAIPlugin(Star):
         raw_mode: bool = False,
         show_progress: bool = True,
         progress_verb: str = "生图",
+        followup_messages: Optional[List[str]] = None,
     ) -> AsyncGenerator:
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
@@ -1191,6 +1192,9 @@ class BestNAIPlugin(Star):
                 yield event.plain_result(
                     f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."
                 )
+
+        if followup_messages:
+            yield event.plain_result("\n\n".join(followup_messages))
 
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
@@ -1429,9 +1433,6 @@ class BestNAIPlugin(Star):
             else:
                 merged_prompt = retag_prompt
 
-            if show_messages:
-                yield event.plain_result("\n\n".join(show_messages))
-
             if inferred_ratio:
                 merged_prompt = f"{merged_prompt} {inferred_ratio}"
 
@@ -1441,6 +1442,7 @@ class BestNAIPlugin(Star):
                 raw_mode=raw_mode,
                 show_progress=True,
                 progress_verb="反推",
+                followup_messages=show_messages,
             ):
                 yield result
 

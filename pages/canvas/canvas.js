@@ -666,11 +666,12 @@ function renderPromptNode(node) {
   prompt.addEventListener("input", () => {
     node.prompt = prompt.value;
     node.error = "";
-    if (node.meta?.retagMergedPrompt && node.prompt !== node.meta.retagMergedPrompt) {
+    if (node.meta?.translatedPrompt || node.meta?.retagPrompt) {
       const {
         retagBasePrompt: _retagBasePrompt,
         retagPrompt: _retagPrompt,
         retagMergedPrompt: _retagMergedPrompt,
+        translatedPrompt: _translatedPrompt,
         ...meta
       } = node.meta;
       node.meta = meta;
@@ -680,9 +681,20 @@ function renderPromptNode(node) {
   prompt.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
-      generateFromNode(node.id);
+      runPromptNode(node.id);
     }
   });
+
+  const translatedPanel = document.createElement("details");
+  translatedPanel.className = "translated-prompt-panel";
+  const translatedSummary = document.createElement("summary");
+  translatedSummary.textContent = "英文 tags";
+  const translatedPrompt = document.createElement("textarea");
+  translatedPrompt.className = "translated-prompt-text";
+  translatedPrompt.readOnly = true;
+  translatedPrompt.placeholder = "生成或反推后会在这里保存英文 tags";
+  translatedPrompt.value = node.meta?.translatedPrompt || node.meta?.retagPrompt || "";
+  translatedPanel.append(translatedSummary, translatedPrompt);
 
   const options = document.createElement("div");
   options.className = "prompt-options";
@@ -692,7 +704,6 @@ function renderPromptNode(node) {
   });
   const artistOptions = [
     { value: "", label: `默认 · ${state.config.defaultArtist || "配置预设"}` },
-    { value: "__none__", label: "不使用画师预设" },
     ...(state.config.artists || []),
   ];
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
@@ -705,6 +716,7 @@ function renderPromptNode(node) {
   footer.className = "node-footer";
   const rawLabel = document.createElement("label");
   rawLabel.className = "raw-toggle";
+  rawLabel.dataset.tooltip = "不使用画师预设和质量词，按原始英文 NAI tags 生成；普通负面提示词仍然生效。";
   const raw = document.createElement("input");
   raw.type = "checkbox";
   raw.checked = !!node.raw;
@@ -747,7 +759,7 @@ function renderPromptNode(node) {
   generate.addEventListener("pointerdown", (event) => event.stopPropagation());
   generate.addEventListener("click", (event) => {
     event.stopPropagation();
-    generateFromNode(node.id);
+    runPromptNode(node.id);
   });
   commands.append(retag, generate);
   footer.append(rawLabel, commands);
@@ -765,7 +777,7 @@ function renderPromptNode(node) {
   outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
-  body.append(prompt, options, footer, status);
+  body.append(prompt, translatedPanel, options, footer, status);
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
@@ -940,6 +952,7 @@ function normalizeLoadedNodeDimensions(node) {
   if (node.type === "prompt") {
     node.width = clamp(Number(node.width) || 320, 280, 640);
     node.height = clamp(Number(node.height) || 360, 300, 800);
+    if (node.artist === "__none__") node.artist = "";
   }
   if (node.type === "note") {
     node.width = clamp(Number(node.width) || 260, 220, 640);
@@ -1363,10 +1376,11 @@ function fitView() {
   scheduleSave();
 }
 
-async function generateFromNode(id, { retagged = false } = {}) {
+async function generateFromNode(id, { retagged = false, promptOverride = "" } = {}) {
   const node = findNode(id);
   if (!node || node.status) return;
-  if (!node.prompt?.trim()) {
+  const workingPrompt = promptOverride.trim() || node.prompt?.trim() || "";
+  if (!workingPrompt) {
     node.error = "请输入提示词";
     renderAll();
     return;
@@ -1377,7 +1391,7 @@ async function generateFromNode(id, { retagged = false } = {}) {
   renderAll();
   try {
     const result = await bridge.apiPost("canvas/generate", {
-      prompt: node.prompt,
+      prompt: workingPrompt,
       ratio: node.ratio,
       artist: node.artist,
       raw: !!node.raw,
@@ -1385,6 +1399,10 @@ async function generateFromNode(id, { retagged = false } = {}) {
     const assets = Array.isArray(result?.assets) ? result.assets : [];
     if (!assets.length) throw new Error("服务未返回图片");
     pushHistory();
+    node.meta = {
+      ...(node.meta || {}),
+      translatedPrompt: result.meta?.translatedPrompt || node.meta?.retagPrompt || "",
+    };
     const createdIds = [];
     assets.forEach((asset, index) => {
       const sourceWidth = asset.width || result.meta?.width;
@@ -1400,7 +1418,7 @@ async function generateFromNode(id, { retagged = false } = {}) {
         dataUrl: asset.dataUrl,
         createdAt: new Date().toISOString(),
         meta: {
-          prompt: result.meta?.cleanPrompt || node.prompt,
+          prompt: result.meta?.cleanPrompt || workingPrompt,
           ratio: result.meta?.ratio || node.ratio,
           width: sourceWidth,
           height: sourceHeight,
@@ -1443,6 +1461,12 @@ function mergeRetagPrompt(userPrompt, retagPrompt) {
     .join(", ");
 }
 
+function runPromptNode(id) {
+  return sourceImageForPrompt(id)
+    ? retagFromNode(id, true)
+    : generateFromNode(id);
+}
+
 async function retagFromNode(id, generateAfter = false) {
   const node = findNode(id);
   if (!node || node.status) return false;
@@ -1467,10 +1491,7 @@ async function retagFromNode(id, generateAfter = false) {
 
   let succeeded = false;
   try {
-    const currentPrompt = node.prompt?.trim() || "";
-    const basePrompt = node.meta?.retagMergedPrompt === currentPrompt
-      ? String(node.meta?.retagBasePrompt || "").trim()
-      : currentPrompt;
+    const basePrompt = node.prompt?.trim() || "";
     const result = await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
       userHint: basePrompt,
@@ -1480,12 +1501,12 @@ async function retagFromNode(id, generateAfter = false) {
     const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt);
 
     pushHistory();
-    node.prompt = mergedPrompt;
     node.meta = {
       ...(node.meta || {}),
       retagBasePrompt: basePrompt,
       retagPrompt,
       retagMergedPrompt: mergedPrompt,
+      translatedPrompt: retagPrompt,
     };
     if (result.ratio && state.config.ratios.some((item) => item.value === result.ratio)) {
       node.ratio = result.ratio;
@@ -1503,7 +1524,10 @@ async function retagFromNode(id, generateAfter = false) {
     node.status = "";
     renderAll();
   }
-  if (succeeded && generateAfter) await generateFromNode(id, { retagged: true });
+  if (succeeded && generateAfter) {
+    const mergedPrompt = node.meta?.retagMergedPrompt || node.prompt;
+    await generateFromNode(id, { retagged: true, promptOverride: mergedPrompt });
+  }
   return succeeded;
 }
 
@@ -1878,7 +1902,7 @@ async function loadInitialState() {
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
   els.pluginRepoLink.href = plugin.repo || "https://github.com/Menkelo/astrbot_plugin_bestnai_x";
   els.pluginRepoLink.textContent = "项目地址";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.9"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.10"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -1989,7 +2013,7 @@ els.viewport.addEventListener("dblclick", (event) => {
 });
 
 els.viewport.addEventListener("contextmenu", (event) => {
-  if (!event.target.closest(".prompt-text")) event.preventDefault();
+  if (!event.target.closest(".prompt-text, .translated-prompt-text")) event.preventDefault();
 });
 
 function dataTransferHasFiles(dataTransfer) {
@@ -2003,8 +2027,8 @@ function clearDropOverlay() {
 function isPromptTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   return !!(
-    targetElement?.closest(".prompt-text")
-    || document.activeElement?.closest?.(".prompt-text")
+    targetElement?.closest(".prompt-text, .translated-prompt-text")
+    || document.activeElement?.closest?.(".prompt-text, .translated-prompt-text")
   );
 }
 
@@ -2110,10 +2134,9 @@ els.projectMenuBtn.addEventListener("click", (event) => {
 els.pluginRepoLink.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
-  const repo = els.pluginRepoLink.href;
-  const popup = window.open(repo, "_blank");
+  const popup = window.open(els.pluginRepoLink.href, "_blank");
   if (popup) popup.opener = null;
-  else window.location.assign(repo);
+  else toast("AstrBot 阻止了新标签页，请允许此页面打开弹窗", "error");
 });
 document.getElementById("newProjectBtn").addEventListener("click", () => {
   els.newProjectRow.hidden = false;

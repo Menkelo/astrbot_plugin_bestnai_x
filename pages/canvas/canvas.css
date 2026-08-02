@@ -315,6 +315,13 @@ select:focus-visible,
   gap: 3px;
 }
 
+.plugin-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
 .current-canvas-title {
   max-width: 280px;
   overflow: hidden;
@@ -340,6 +347,12 @@ select:focus-visible,
 .plugin-meta > a {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.plugin-author {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 3px;
 }
 
 .plugin-meta > a {
@@ -805,6 +818,7 @@ select:focus-visible,
 }
 
 .raw-toggle {
+  position: relative;
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -816,6 +830,69 @@ select:focus-visible,
 
 .raw-toggle input {
   accent-color: var(--strong);
+}
+
+.raw-toggle::after {
+  position: absolute;
+  z-index: 80;
+  bottom: calc(100% + 9px);
+  left: 0;
+  width: 244px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, .18);
+  content: attr(data-tooltip);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity .15s var(--ease), transform .15s var(--ease);
+  white-space: normal;
+}
+
+.raw-toggle:hover::after,
+.raw-toggle:focus-within::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.translated-prompt-panel {
+  margin-top: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.translated-prompt-panel summary {
+  padding: 8px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.translated-prompt-text {
+  display: block;
+  width: calc(100% - 16px);
+  min-height: 76px;
+  margin: 0 8px 8px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: none;
+  background: var(--card-solid);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .node-commands {
@@ -1699,6 +1776,7 @@ select:focus-visible,
 
 @media (max-width: 620px) {
   .canvas-nav {
+    max-width: 250px;
     min-height: 44px;
     padding: 5px 9px 5px 5px;
   }
@@ -1715,11 +1793,11 @@ select:focus-visible,
   }
 
   .plugin-meta {
-    max-width: 118px;
+    max-width: 150px;
   }
 
   .toolbar {
-    max-width: calc(100vw - 196px);
+    max-width: calc(100vw - 226px);
     padding: 4px;
   }
 

@@ -39,8 +39,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.addEventListener("dragstart"', editor)
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
-        self.assertIn('targetElement?.closest(".prompt-text")', editor)
-        self.assertIn('document.activeElement?.closest?.(".prompt-text")', editor)
+        self.assertIn('targetElement?.closest(".prompt-text, .translated-prompt-text")', editor)
+        self.assertIn('document.activeElement?.closest?.(".prompt-text, .translated-prompt-text")', editor)
         self.assertIn(".prompt-text {", styles)
         self.assertIn("user-select: none;", styles)
 
@@ -106,12 +106,18 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('makeAction("scan-search", "反推并生成"', editor)
         self.assertIn("if (!state.config.retagConfigured)", editor)
         self.assertIn("retagFromNode(node.id, true)", editor)
+        self.assertIn("function runPromptNode(id)", editor)
+        self.assertIn("? retagFromNode(id, true)", editor)
         self.assertIn('document.createTextNode(node.status === "retagging" ? "反推中…" : "反推")', editor)
-        self.assertIn("if (succeeded && generateAfter) await generateFromNode(id, { retagged: true })", editor)
+        self.assertIn("promptOverride: mergedPrompt", editor)
         self.assertIn('retagged ? "反推图片" : "生成结果"', editor)
         self.assertIn("function mergeRetagPrompt", editor)
         self.assertIn("const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt)", editor)
         self.assertIn("retagMergedPrompt: mergedPrompt", editor)
+        self.assertIn('translatedSummary.textContent = "英文 tags"', editor)
+        self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
+        self.assertNotIn('label: "不使用画师预设"', editor)
+        self.assertIn('if (node.artist === "__none__") node.artist = ""', editor)
         self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
         generate_body = service.split("    async def generate(self)", 1)[1].split(
             "    async def retag(self)", 1
@@ -150,6 +156,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('class="topbar panel"', html)
         self.assertIn('id="connectionIndicator"', html)
+        self.assertIn('class="plugin-title-row"', html)
         self.assertNotIn('class="panel canvas-nav"', html)
         self.assertNotIn('class="panel toolbar"', html)
         self.assertIn('bridge.apiGet("canvas/health")', editor)
@@ -165,6 +172,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('progress_verb: str = "生图"', main)
         self.assertIn('progress_verb="反推"', main)
         self.assertIn('f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."', main)
+        self.assertIn("followup_messages=show_messages", main)
+        self.assertLess(
+            main.index('f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."'),
+            main.index('yield event.plain_result("\\n\\n".join(followup_messages))'),
+        )
+
+    def test_repository_link_only_targets_a_new_tab(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="pluginRepoLink"', html)
+        self.assertIn('target="_blank"', html)
+        self.assertIn('rel="noopener noreferrer"', html)
+        self.assertIn('window.open(els.pluginRepoLink.href, "_blank")', editor)
+        self.assertNotIn("window.location.assign(repo)", editor)
 
 
 if __name__ == "__main__":
