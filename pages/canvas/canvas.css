@@ -98,7 +98,7 @@ select:focus-visible,
   align-items: center;
   gap: 9px;
   width: max-content;
-  max-width: min(360px, calc(100vw - 48px));
+  max-width: min(500px, calc(100vw - 48px));
   min-height: 50px;
   padding: 7px 14px 7px 8px;
 }
@@ -295,14 +295,17 @@ select:focus-visible,
   height: 36px;
   flex: 0 0 36px;
   place-items: center;
-  border-radius: 15px;
-  background: var(--strong);
-  color: var(--strong-text);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card-solid);
 }
 
-.canvas-mark svg {
-  width: 17px;
-  height: 17px;
+.canvas-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .canvas-nav-meta {
@@ -322,7 +325,7 @@ select:focus-visible,
   text-overflow: ellipsis;
 }
 
-.current-canvas-time {
+.plugin-meta {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -333,35 +336,21 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-.current-canvas-time > span {
+.plugin-meta > span,
+.plugin-meta > a {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.status-dot {
-  display: block;
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: var(--faint);
+.plugin-meta > a {
+  max-width: 270px;
+  color: var(--muted);
+  text-decoration: none;
 }
 
-.status-dot.ready {
-  background: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, .1);
-}
-
-.status-dot.error {
-  background: var(--danger);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, .1);
-}
-
-.status-divider {
-  width: 1px;
-  height: 10px;
-  flex: 0 0 1px;
-  background: var(--line-2);
+.plugin-meta > a:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .toolbar {
@@ -369,12 +358,12 @@ select:focus-visible,
   flex: 0 1 auto;
   align-items: center;
   gap: 6px;
-  max-width: calc(100vw - 420px);
+  max-width: calc(100vw - 540px);
   min-width: 0;
   margin-left: auto;
   padding: 6px;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 24px;
 }
 
 .toolbar-items,
@@ -714,7 +703,16 @@ select:focus-visible,
 }
 
 .prompt-node {
+  display: flex;
   width: 310px;
+  flex-direction: column;
+}
+
+.prompt-node .node-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
 }
 
 .prompt-text,
@@ -734,7 +732,9 @@ select:focus-visible,
 }
 
 .prompt-text {
-  resize: vertical;
+  min-height: 88px;
+  flex: 1 1 auto;
+  resize: none;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -955,7 +955,7 @@ select:focus-visible,
   box-shadow: none;
 }
 
-.note-resize-handle {
+.node-resize-handle {
   position: absolute;
   z-index: 8;
   right: 4px;
@@ -967,6 +967,73 @@ select:focus-visible,
   border-radius: 0 0 12px;
   cursor: nwse-resize;
   touch-action: none;
+}
+
+.image-viewer {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 64px;
+  background: rgba(8, 12, 20, .92);
+}
+
+.image-viewer[hidden] {
+  display: none;
+}
+
+.image-viewer-stage {
+  display: grid;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  place-items: center;
+  gap: 12px;
+}
+
+.image-viewer-stage img {
+  display: block;
+  max-width: min(92vw, 1600px);
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
+}
+
+.image-viewer-stage figcaption {
+  max-width: min(80vw, 900px);
+  overflow: hidden;
+  color: #e5e7eb;
+  font-size: 12px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-viewer-close {
+  position: fixed;
+  z-index: 2;
+  top: 24px;
+  right: 24px;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 50%;
+  background: rgba(15, 23, 42, .72);
+  color: #fff;
+  cursor: pointer;
+}
+
+.image-viewer-close:hover {
+  background: rgba(30, 41, 59, .96);
+}
+
+.image-viewer-close svg {
+  width: 20px;
+  height: 20px;
 }
 
 .port {
@@ -1627,13 +1694,8 @@ select:focus-visible,
     font-size: 11px;
   }
 
-  .current-canvas-time {
+  .plugin-meta {
     max-width: 118px;
-  }
-
-  .status-divider,
-  #saveState {
-    display: none;
   }
 
   .toolbar {
@@ -1687,6 +1749,15 @@ select:focus-visible,
   .retag-btn,
   .generate-btn {
     flex: 1;
+  }
+
+  .image-viewer {
+    padding: 54px 16px 24px;
+  }
+
+  .image-viewer-stage img {
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 96px);
   }
 
 }

@@ -26,14 +26,15 @@
               <div id="projectList" class="project-list"></div>
             </div>
           </div>
-          <span class="canvas-mark" aria-hidden="true"><i data-lucide="sparkles"></i></span>
+          <span class="canvas-mark" aria-hidden="true"><img src="./plugin-logo.webp" alt="" /></span>
           <div class="canvas-nav-meta">
-            <strong class="current-canvas-title" id="currentCanvasTitle">未命名画布</strong>
-            <span class="current-canvas-time">
-              <i id="providerDot" class="status-dot"></i>
-              <span id="providerStatus">正在连接</span>
-              <span class="status-divider"></span>
-              <span id="saveState">尚未保存</span>
+            <strong class="current-canvas-title" id="pluginDisplayName">NAI Diffusion X</strong>
+            <span class="plugin-meta">
+              <a id="pluginRepoLink" href="https://github.com/Menkelo/astrbot_plugin_bestnai_x" target="_blank" rel="noopener noreferrer">GitHub</a>
+              <span aria-hidden="true">·</span>
+              <span id="pluginVersion">v3.0.8</span>
+              <span aria-hidden="true">·</span>
+              <span id="pluginAuthor">Menkelo</span>
             </span>
           </div>
         </section>
@@ -139,6 +140,14 @@
           <button class="dialog-btn danger" type="button" id="confirmClearBtn">清空</button>
         </div>
       </section>
+    </div>
+
+    <div id="imageViewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
+      <button id="imageViewerClose" class="image-viewer-close" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+      <figure class="image-viewer-stage">
+        <img id="imageViewerImage" alt="" />
+        <figcaption id="imageViewerCaption"></figcaption>
+      </figure>
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>

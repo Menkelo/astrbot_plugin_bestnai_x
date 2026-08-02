@@ -62,11 +62,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
 
-    def test_editor_persists_resized_notes_and_fits_image_nodes(self) -> None:
+    def test_editor_persists_resized_notes_and_prompts_and_fits_image_nodes(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
 
         self.assertIn("height: node.height || 0", editor)
-        self.assertIn("function attachNoteResize", editor)
+        self.assertIn("function attachNodeResize", editor)
+        self.assertIn('if (node.type === "prompt")', editor)
+        self.assertIn("height: 360", editor)
         self.assertIn("node.height = clamp", editor)
         self.assertIn("data.nodes.map(normalizeLoadedNodeDimensions)", editor)
         self.assertIn("function fittedImageNodeWidth", editor)
@@ -81,16 +83,22 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("backToManagerBtn", html)
         self.assertIn("async function createCanvasProject", editor)
         self.assertIn("async function deleteCanvasProject", editor)
+        self.assertIn("async function switchCanvas", editor)
+        self.assertIn('bridge.apiGet("canvas/workspace", { id: canvas.id })', editor)
+        self.assertNotIn("window.location.href =", editor)
         self.assertNotIn("请先从项目工作台选择或创建画布", editor)
 
-    def test_image_nodes_retag_then_generate_and_leave_library_explicit(self) -> None:
+    def test_prompt_nodes_retag_then_generate_and_leave_library_explicit(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
-        self.assertIn("function retagAndGenerateFromImage", editor)
+        self.assertNotIn("function retagAndGenerateFromImage", editor)
+        self.assertNotIn('makeAction("scan-search", "反推并生成"', editor)
         self.assertIn("if (!state.config.retagConfigured)", editor)
         self.assertIn("retagFromNode(node.id, true)", editor)
-        self.assertIn("if (succeeded && generateAfter) await generateFromNode(id)", editor)
+        self.assertIn('document.createTextNode(node.status === "retagging" ? "反推中…" : "反推")', editor)
+        self.assertIn("if (succeeded && generateAfter) await generateFromNode(id, { retagged: true })", editor)
+        self.assertIn('retagged ? "反推图片" : "生成结果"', editor)
         self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
         generate_body = service.split("    async def generate(self)", 1)[1].split(
             "    async def retag(self)", 1
@@ -100,6 +108,34 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertNotIn("add_image_to_library", generate_body)
         self.assertNotIn("add_image_to_library", upload_body)
+
+    def test_image_nodes_have_fullscreen_viewer(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="imageViewer"', html)
+        self.assertIn('makeAction("maximize-2", "放大查看"', editor)
+        self.assertIn("function openImageViewer", editor)
+        self.assertIn(".image-viewer {", styles)
+
+    def test_plugin_metadata_and_astrbot_compatibility_are_exposed(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        metadata = (ROOT / "metadata.yaml").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn('src="./plugin-logo.webp"', html)
+        self.assertIn('id="pluginRepoLink"', html)
+        self.assertIn('astrbot_version: ">=4.26.0"', metadata)
+        self.assertIn("最低要求：AstrBot `4.26.0`", readme)
+
+    def test_qq_retag_uses_detailed_retag_progress(self) -> None:
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        self.assertNotIn('yield event.plain_result("🎨 正在生图，请稍候...")', main)
+        self.assertIn('progress_verb: str = "生图"', main)
+        self.assertIn('progress_verb="反推"', main)
+        self.assertIn('f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."', main)
 
 
 if __name__ == "__main__":

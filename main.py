@@ -11,6 +11,13 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star
 
+from .constants import (
+    PLUGIN_AUTHOR,
+    PLUGIN_DISPLAY_NAME,
+    PLUGIN_NAME,
+    PLUGIN_REPO,
+    PLUGIN_VERSION,
+)
 from .core.generator import (
     APIKeyError,
     GenerationError,
@@ -49,7 +56,6 @@ from .services.runtime_state import RuntimeStateService
 
 FIXED_MODEL = "nai-diffusion-4-5-full"
 SAFETY_BLOCK_REPLY = "⚠️ 未能通过安全检测，已拦截"
-PLUGIN_NAME = "astrbot_plugin_bestnai_x"
 
 
 def _parse_size(size_str: str) -> Tuple[int, int]:
@@ -178,6 +184,12 @@ class BestNAIPlugin(Star):
         ]
 
         return {
+            "plugin": {
+                "name": PLUGIN_DISPLAY_NAME,
+                "version": PLUGIN_VERSION,
+                "author": PLUGIN_AUTHOR,
+                "repo": PLUGIN_REPO,
+            },
             "configured": self.plugin_config.is_configured(),
             "model": FIXED_MODEL,
             "defaultRatio": self._normalize_ratio_label(self.default_ratio),
@@ -1050,6 +1062,7 @@ class BestNAIPlugin(Star):
         prompt: str,
         raw_mode: bool = False,
         show_progress: bool = True,
+        progress_verb: str = "生图",
     ) -> AsyncGenerator:
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
@@ -1170,13 +1183,13 @@ class BestNAIPlugin(Star):
         if show_progress:
             if raw_mode:
                 yield event.plain_result(
-                    f"🎨 正在生图（{ratio_display} | nai0 原始提示词模式）..."
+                    f"🎨 正在{progress_verb}（{ratio_display} | nai0 原始提示词模式）..."
                 )
             else:
                 artist_display = self._get_artist_display_name(artist_slot_name)
 
                 yield event.plain_result(
-                    f"🎨 正在生图（{ratio_display} | 画师预设：{artist_display}）..."
+                    f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."
                 )
 
         final_prompt = clean_prompt
@@ -1340,8 +1353,6 @@ class BestNAIPlugin(Star):
                     logger.warning(f"[BestNAI/ImageRetag] 读取输入图片比例失败，使用默认比例: {e}")
                     inferred_ratio = ""
 
-            yield event.plain_result("🎨 正在生图，请稍候...")
-
             try:
                 retag_prompt = await self.image_retagger.retag(
                     image_src,
@@ -1428,7 +1439,8 @@ class BestNAIPlugin(Star):
                 event=event,
                 prompt=merged_prompt,
                 raw_mode=raw_mode,
-                show_progress=False,
+                show_progress=True,
+                progress_verb="反推",
             ):
                 yield result
 
