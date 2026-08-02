@@ -23,6 +23,7 @@ GenerateCallback = Callable[
     Awaitable[Tuple[List[Tuple[str, bytes]], Dict[str, Any]]],
 ]
 ConfigCallback = Callable[[], Dict[str, Any]]
+RetagCallback = Callable[[str, str], Awaitable[Dict[str, Any]]]
 
 MAX_NODES = 160
 MAX_CONNECTIONS = 320
@@ -291,17 +292,21 @@ class CanvasService:
         plugin_name: str,
         generate_callback: GenerateCallback,
         config_callback: ConfigCallback,
+        retag_callback: RetagCallback | None = None,
+        data_dir: Path | None = None,
     ) -> None:
         self.plugin_name = plugin_name
         self.generate_callback = generate_callback
         self.config_callback = config_callback
-        self.store = CanvasStore(plugin_name)
+        self.retag_callback = retag_callback
+        self.store = CanvasStore(plugin_name, data_dir=data_dir)
 
     def register(self, context: Any) -> None:
         prefix = f"/{self.plugin_name}/canvas"
         routes = [
             ("config", self.get_config, ["GET"], "Infinite Canvas：获取配置"),
             ("generate", self.generate, ["POST"], "Infinite Canvas：生成图片"),
+            ("retag", self.retag, ["POST"], "Infinite Canvas：反推图片提示词"),
             ("workspace", self.load_workspace, ["GET"], "Infinite Canvas：加载工作区"),
             ("workspace", self.save_workspace, ["POST"], "Infinite Canvas：保存工作区"),
             ("workspace/import", self.import_workspace, ["POST"], "Infinite Canvas：导入工作区"),
@@ -343,6 +348,32 @@ class CanvasService:
         except Exception as exc:
             logger.exception(f"[BestNAI/Canvas] 生成失败: {exc}")
             message = getattr(exc, "message", None) or str(exc) or "生成失败"
+            return error_response(message, status_code=502)
+
+    async def retag(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+
+        asset_id = str(payload.get("assetId") or "")
+        user_hint = _short_text(payload.get("userHint"), 6000).strip()
+
+        try:
+            if self.retag_callback is None:
+                raise ValueError("画布图片反推服务不可用")
+
+            asset_path, _ = self.store.get_asset(asset_id)
+            result = await self.retag_callback(str(asset_path), user_hint)
+            return json_response(result)
+        except FileNotFoundError:
+            return error_response("图片资源不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+        except ValueError as exc:
+            return error_response(str(exc), status_code=422)
+        except Exception as exc:
+            logger.exception(f"[BestNAI/Canvas] 图片反推失败: {exc}")
+            message = getattr(exc, "message", None) or str(exc) or "图片反推失败"
             return error_response(message, status_code=502)
 
     async def load_workspace(self) -> Any:

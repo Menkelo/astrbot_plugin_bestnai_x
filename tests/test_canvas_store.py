@@ -23,7 +23,7 @@ sys.modules.setdefault("astrbot", astrbot_module)
 sys.modules.setdefault("astrbot.api", astrbot_api_module)
 sys.modules.setdefault("astrbot.api.web", astrbot_web_module)
 
-from services.canvas import CanvasStore, CanvasValidationError
+from services.canvas import CanvasService, CanvasStore, CanvasValidationError
 
 
 class CanvasStoreTest(unittest.TestCase):
@@ -97,6 +97,37 @@ class CanvasStoreTest(unittest.TestCase):
     def test_invalid_image_is_rejected(self) -> None:
         with self.assertRaises(CanvasValidationError):
             self.store.store_asset(b"this is not an image")
+
+    def test_canvas_registers_retag_route(self) -> None:
+        routes = []
+
+        class FakeContext:
+            def register_web_api(self, path, handler, methods, description):
+                routes.append((path, tuple(methods), description))
+
+        async def generate(payload):
+            return [], {}
+
+        async def retag(image_path, user_hint):
+            return {"prompt": "1girl", "ratio": "1:1"}
+
+        service = CanvasService(
+            "test_plugin",
+            generate_callback=generate,
+            config_callback=lambda: {},
+            retag_callback=retag,
+            data_dir=Path(self.temp_dir.name),
+        )
+        service.register(FakeContext())
+
+        self.assertIn(
+            (
+                "/test_plugin/canvas/retag",
+                ("POST",),
+                "Infinite Canvas：反推图片提示词",
+            ),
+            routes,
+        )
 
 
 if __name__ == "__main__":

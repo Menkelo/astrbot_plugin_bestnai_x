@@ -462,6 +462,13 @@ button {
   accent-color: var(--accent);
 }
 
+.node-commands {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.retag-btn,
 .generate-btn {
   display: inline-flex;
   align-items: center;
@@ -473,6 +480,18 @@ button {
   color: #fff;
   font-size: 12px;
   font-weight: 700;
+}
+
+.retag-btn {
+  min-width: 76px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.retag-btn:hover {
+  border-color: var(--warm);
+  background: var(--warm-soft);
 }
 
 .generate-btn:hover {

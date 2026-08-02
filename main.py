@@ -120,6 +120,7 @@ class BestNAIPlugin(Star):
             PLUGIN_NAME,
             generate_callback=self._canvas_generate,
             config_callback=self._canvas_config,
+            retag_callback=self._canvas_retag,
         )
 
         api_source = (
@@ -185,6 +186,44 @@ class BestNAIPlugin(Star):
             "artists": artists,
             "maxConcurrency": self.plugin_config.max_concurrency,
             "translatorEnabled": self.plugin_config.translator.enabled,
+            "retagEnabled": self.plugin_config.image_retag.enabled,
+            "retagConfigured": self.plugin_config.image_retag.enabled
+            and self.plugin_config.image_retag.is_configured(),
+        }
+
+    async def _canvas_retag(
+        self,
+        image_path: str,
+        user_hint: str,
+    ) -> Dict[str, object]:
+        retag_config = self.plugin_config.image_retag
+        if not retag_config.enabled:
+            raise ValueError("图片反推功能未开启，请先在插件配置中启用")
+
+        if not retag_config.is_configured():
+            raise ValueError("图片反推功能未配置，请选择支持视觉输入的提供商")
+
+        try:
+            prompt = await self.image_retagger.retag(
+                image_path,
+                user_hint=user_hint,
+            )
+        except ImageRetagError as exc:
+            raise ValueError(str(exc)) from exc
+
+        if not prompt:
+            raise ValueError("图片反推结果为空")
+
+        ratio = ""
+        try:
+            width, height = await read_image_size_any(image_path)
+            ratio = infer_ratio_label_from_size(width, height)
+        except Exception as exc:
+            logger.warning(f"[BestNAI/Canvas] 读取反推原图比例失败: {exc}")
+
+        return {
+            "prompt": prompt,
+            "ratio": ratio,
         }
 
     async def _canvas_generate(

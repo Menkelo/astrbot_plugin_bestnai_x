@@ -25,6 +25,8 @@ const state = {
     artists: [],
     defaultRatio: "2:3",
     defaultArtist: "",
+    retagEnabled: false,
+    retagConfigured: false,
   },
   nodes: [],
   connections: [],
@@ -337,10 +339,34 @@ function renderPromptNode(node) {
   });
   rawLabel.append(raw, document.createTextNode("原始提示词"));
 
+  const commands = document.createElement("div");
+  commands.className = "node-commands";
+  const sourceImage = sourceImageForPrompt(node.id);
+
+  const retag = document.createElement("button");
+  retag.type = "button";
+  retag.className = "retag-btn";
+  retag.disabled = !!node.status || !sourceImage || !state.config.retagConfigured;
+  retag.textContent = node.status === "retagging" ? "反推中…" : "反推原图";
+  if (!state.config.retagEnabled) {
+    retag.title = "请先在插件配置中启用图片反推";
+  } else if (!state.config.retagConfigured) {
+    retag.title = "请选择支持视觉输入的反推提供商";
+  } else if (!sourceImage) {
+    retag.title = "先把图片节点右侧端口连接到此节点左侧";
+  } else {
+    retag.title = "从左侧连接的原图反推提示词";
+  }
+  retag.addEventListener("pointerdown", (event) => event.stopPropagation());
+  retag.addEventListener("click", (event) => {
+    event.stopPropagation();
+    retagFromNode(node.id);
+  });
+
   const generate = document.createElement("button");
   generate.type = "button";
   generate.className = "generate-btn";
-  generate.disabled = node.status === "generating" || !state.config.configured;
+  generate.disabled = !!node.status || !state.config.configured;
   generate.textContent = node.status === "generating" ? "生成中…" : "生成";
   generate.title = state.config.configured ? "生成图片 (Ctrl+Enter)" : "请先配置生图提供商";
   generate.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -348,16 +374,22 @@ function renderPromptNode(node) {
     event.stopPropagation();
     generateFromNode(node.id);
   });
-  footer.append(rawLabel, generate);
+  commands.append(retag, generate);
+  footer.append(rawLabel, commands);
 
   const status = document.createElement("div");
   status.className = `node-status${node.error ? " error" : ""}`;
-  status.textContent = node.error || node.statusText || "Ctrl + Enter 快速生成";
+  status.textContent = node.error
+    || node.statusText
+    || (sourceImage ? "已连接原图，可反推提示词" : "Ctrl + Enter 快速生成");
 
-  const port = document.createElement("span");
-  port.className = "node-port out";
-  attachConnectionPort(port, node.id, "out");
-  element.append(body, port);
+  const inputPort = document.createElement("span");
+  inputPort.className = "node-port in";
+  attachConnectionPort(inputPort, node.id, "in");
+  const outputPort = document.createElement("span");
+  outputPort.className = "node-port out";
+  attachConnectionPort(outputPort, node.id, "out");
+  element.append(body, inputPort, outputPort);
   body.append(prompt, options, footer, status);
   return element;
 }
@@ -414,10 +446,13 @@ function renderImageNode(node) {
   detail.textContent = `${size}${node.meta?.ratio ? ` · ${node.meta.ratio}` : ""}`;
   meta.append(title, detail);
 
-  const port = document.createElement("span");
-  port.className = "node-port in";
-  attachConnectionPort(port, node.id, "in");
-  element.append(frame, meta, port);
+  const inputPort = document.createElement("span");
+  inputPort.className = "node-port in";
+  attachConnectionPort(inputPort, node.id, "in");
+  const outputPort = document.createElement("span");
+  outputPort.className = "node-port out";
+  attachConnectionPort(outputPort, node.id, "out");
+  element.append(frame, meta, inputPort, outputPort);
   return element;
 }
 
@@ -500,9 +535,21 @@ function renderConnections() {
   appendConnectionPath(start.x, start.y, end.x, end.y, "connection-path preview");
 }
 
+function connectionAllowed(sourceId, targetId) {
+  const source = findNode(sourceId);
+  const target = findNode(targetId);
+  return !!source && !!target && (
+    (source.type === "image" && target.type === "prompt")
+    || (source.type === "prompt" && target.type === "image")
+  );
+}
+
 function compatibleConnectionPort(element, nodeId, role) {
   const port = element?.closest?.(".node-port");
   if (!port || port.dataset.role === role || port.dataset.nodeId === nodeId) return null;
+  const source = role === "out" ? nodeId : port.dataset.nodeId;
+  const target = role === "out" ? port.dataset.nodeId : nodeId;
+  if (!connectionAllowed(source, target)) return null;
   return port;
 }
 
@@ -567,8 +614,15 @@ function attachConnectionPort(port, nodeId, role) {
         );
         if (!exists) {
           pushHistory();
+          if (findNode(destination)?.type === "prompt") {
+            state.connections = state.connections.filter(
+              (edge) => edge.target !== destination || findNode(edge.source)?.type !== "image",
+            );
+          }
           state.connections.push({ source, target: destination });
           scheduleSave();
+          renderAll();
+          return;
         }
       }
       renderConnections();
@@ -686,7 +740,7 @@ function fitView() {
 
 async function generateFromNode(id) {
   const node = findNode(id);
-  if (!node || node.status === "generating") return;
+  if (!node || node.status) return;
   if (!node.prompt?.trim()) {
     node.error = "请输入提示词";
     renderAll();
@@ -737,6 +791,63 @@ async function generateFromNode(id) {
     node.error = error.message || "生成失败";
     toast(node.error, "error");
     renderAll();
+  } finally {
+    node.status = "";
+    renderAll();
+  }
+}
+
+function sourceImageForPrompt(promptId) {
+  const edge = state.connections.find((item) => {
+    if (item.target !== promptId) return false;
+    return findNode(item.source)?.type === "image";
+  });
+  return edge ? findNode(edge.source) : null;
+}
+
+async function retagFromNode(id) {
+  const node = findNode(id);
+  if (!node || node.status) return;
+
+  const sourceImage = sourceImageForPrompt(id);
+  if (!sourceImage?.assetId) {
+    node.error = "请先把原图连接到提示词节点左侧";
+    renderAll();
+    return;
+  }
+
+  if (!state.config.retagConfigured) {
+    node.error = "请先配置图片反推提供商";
+    renderAll();
+    return;
+  }
+
+  node.status = "retagging";
+  node.error = "";
+  node.statusText = "正在反推原图提示词…";
+  renderAll();
+
+  try {
+    const result = await bridge.apiPost("canvas/retag", {
+      assetId: sourceImage.assetId,
+      userHint: node.prompt?.trim() || "",
+    });
+    const prompt = String(result?.prompt || "").trim();
+    if (!prompt) throw new Error("反推服务未返回提示词");
+
+    pushHistory();
+    node.prompt = prompt;
+    if (result.ratio && state.config.ratios.some((item) => item.value === result.ratio)) {
+      node.ratio = result.ratio;
+    }
+    node.statusText = result.ratio
+      ? `反推完成 · 已采用原图比例 ${result.ratio}`
+      : "反推完成";
+    toast("原图反推完成");
+    scheduleSave();
+  } catch (error) {
+    node.error = error.message || "图片反推失败";
+    toast(node.error, "error");
   } finally {
     node.status = "";
     renderAll();
