@@ -18,7 +18,7 @@
             </span>
             <span class="plugin-meta">
               <span class="plugin-author">by <span id="pluginAuthor">Menkelo</span></span>
-              <span id="pluginVersion">v3.0.30</span>
+              <span id="pluginVersion">v3.0.31</span>
               <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
             </span>
           </div>
@@ -62,21 +62,8 @@
           </div>
         </nav>
         <div class="project-switcher toolbar-project-switcher">
-          <button id="projectMenuBtn" class="nav-project-btn" type="button" title="管理项目" aria-label="管理项目" aria-haspopup="true" aria-expanded="false"><i data-lucide="folder"></i></button>
-          <div id="projectMenu" class="project-menu" hidden>
-            <header class="project-menu-head">
-              <strong>项目</strong>
-              <button id="newProjectBtn" class="project-menu-icon" type="button" title="新建项目" aria-label="新建项目"><i data-lucide="plus"></i></button>
-            </header>
-            <div id="newProjectRow" class="project-create-row" hidden>
-              <input id="newProjectInput" type="text" maxlength="120" placeholder="项目名称" />
-              <button id="confirmNewProjectBtn" class="project-menu-icon primary" type="button" title="创建" aria-label="创建"><i data-lucide="check"></i></button>
-              <button id="cancelNewProjectBtn" class="project-menu-icon" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
-            </div>
-            <div id="projectList" class="project-list"></div>
-          </div>
+          <button id="projectMenuBtn" class="tool-btn icon-only project-menu-trigger" type="button" title="管理项目" aria-label="管理项目" aria-haspopup="true" aria-controls="projectMenu" aria-expanded="false"><i data-lucide="folder"></i></button>
         </div>
-        <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
       </div>
 
       <main id="board" class="board" aria-label="无限画布">
@@ -106,23 +93,33 @@
           </div>
         </div>
         <aside id="assetPanel" class="asset-panel" aria-label="素材库">
+          <div id="assetGrid" class="asset-grid"></div>
+          <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
           <div class="asset-delete-toolbar">
             <div id="assetDeleteActions" class="asset-delete-actions" hidden>
               <span id="assetDeleteCount">已选 0 项</span>
-              <button id="assetDeleteConfirm" type="button" disabled><i data-lucide="trash-2"></i><span>删除所选</span></button>
+              <button id="assetDeleteCancel" class="asset-delete-cancel" type="button"><i data-lucide="x"></i><span>取消</span></button>
+              <button id="assetDeleteConfirm" class="asset-delete-confirm" type="button" disabled><i data-lucide="trash-2"></i><span>删除</span></button>
             </div>
-            <label class="asset-delete-toggle" title="开启后选择要删除的素材">
-              <span>多选</span>
-              <input id="assetDeleteToggle" type="checkbox" role="switch" aria-label="批量删除模式" />
-              <span class="asset-delete-toggle-track" aria-hidden="true"></span>
-            </label>
+            <button id="assetSelectModeBtn" class="asset-select-mode-btn" type="button" aria-pressed="false" title="批量选择素材"><i data-lucide="list-checks"></i><span>多选</span></button>
           </div>
-          <div id="assetGrid" class="asset-grid"></div>
-          <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
         </aside>
       </main>
     </div>
 
+    <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <div id="projectMenu" class="project-menu" hidden>
+      <header class="project-menu-head">
+        <strong>项目</strong>
+        <button id="newProjectBtn" class="project-menu-icon" type="button" title="新建项目" aria-label="新建项目"><i data-lucide="plus"></i></button>
+      </header>
+      <div id="newProjectRow" class="project-create-row" hidden>
+        <input id="newProjectInput" type="text" maxlength="120" placeholder="项目名称" />
+        <button id="confirmNewProjectBtn" class="project-menu-icon primary" type="button" title="创建" aria-label="创建"><i data-lucide="check"></i></button>
+        <button id="cancelNewProjectBtn" class="project-menu-icon" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
+      </div>
+      <div id="projectList" class="project-list"></div>
+    </div>
     <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
     <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
 

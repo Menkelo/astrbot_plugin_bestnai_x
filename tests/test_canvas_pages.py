@@ -246,19 +246,20 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("grid-auto-rows: var(--asset-card-height", styles)
         self.assertIn("function updateAssetGridMetrics()", editor)
         self.assertIn("function alignAssetPanel()", editor)
-        self.assertIn("topbarRect.right - viewportRect.left", editor)
-        self.assertIn("buttonRect.left - viewportRect.left", editor)
-        self.assertIn('els.assetPanel.style.width = `${rightEdge - leftEdge}px`', editor)
+        self.assertIn("function alignedPanelEdges()", editor)
+        self.assertIn("buttonRect.left", editor)
+        self.assertIn('els.assetPanel.style.width = `${right - left}px`', editor)
         self.assertIn("topbarRect.bottom - viewportRect.top + gap", editor)
         self.assertIn("viewportRect.bottom - minimapRect.top + gap", editor)
-        self.assertIn('els.assetPanel.style.removeProperty("width")', editor)
         self.assertIn("max-width: calc(100vw - 24px);", styles)
         self.assertNotIn(".asset-image-remove {", styles)
-        self.assertIn('id="assetDeleteToggle"', html)
+        self.assertIn('id="assetSelectModeBtn"', html)
+        self.assertIn('id="assetDeleteCancel"', html)
         self.assertIn('id="assetDeleteConfirm"', html)
-        self.assertIn('<span>删除所选</span>', html)
         self.assertIn('<span>多选</span>', html)
-        self.assertNotIn('<i data-lucide="trash-2"></i><span>删除</span>\n              <input id="assetDeleteToggle"', html)
+        self.assertNotIn('id="assetDeleteToggle"', html)
+        self.assertNotIn(".asset-delete-toggle", styles)
+        self.assertLess(html.index('id="assetGrid"'), html.index('class="asset-delete-toolbar"'))
         self.assertIn("selectedAssetIds: new Set()", editor)
         self.assertIn("function deleteSelectedLibraryAssets()", editor)
         delete_mode_body = editor.split("function setAssetDeleteMode", 1)[1].split(
@@ -266,6 +267,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertNotIn("renderAssetLibrary()", delete_mode_body)
         self.assertIn('card.classList.remove("selected")', delete_mode_body)
+        self.assertIn('els.assetSelectModeBtn.setAttribute("aria-pressed"', delete_mode_body)
         self.assertIn('canvas/library/image/delete', editor)
         self.assertIn(".asset-select-indicator", styles)
         self.assertIn(".asset-panel.delete-mode .asset-image-card.selected", styles)
@@ -386,7 +388,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         toast_position = html.index('id="toastRegion"')
         board_start = html.index('id="board"')
         self.assertLess(topbar_start, toast_position)
-        self.assertLess(toast_position, board_start)
+        self.assertLess(board_start, toast_position)
         self.assertIn('id="connectionIndicator"', html)
         self.assertIn('class="plugin-title-row"', html)
         self.assertLess(html.index('id="pluginVersion"'), html.index('id="connectionIndicator"'))
@@ -400,7 +402,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("left: -22px;", styles)
         self.assertIn("right: -22px;", styles)
         toast_styles = styles.split(".toast-region {", 1)[1].split("}", 1)[0]
-        self.assertIn("position: absolute;", toast_styles)
+        self.assertIn("position: fixed;", toast_styles)
+        self.assertIn("z-index: 1100;", toast_styles)
         self.assertIn("top: 50%;", toast_styles)
         self.assertIn("left: 50%;", toast_styles)
         self.assertIn("transform: translate(-50%, -50%);", toast_styles)
@@ -408,6 +411,27 @@ class CanvasPageBridgeTest(unittest.TestCase):
         toast_body = editor.split("function toast(message", 1)[1].split("function setConnectionState", 1)[0]
         self.assertIn("els.toastRegion.replaceChildren(item)", toast_body)
         self.assertNotIn("els.toastRegion.appendChild(item)", toast_body)
+        self.assertIn("function alignToastRegion()", editor)
+        image_viewer_styles = styles.split(".image-viewer {", 1)[1].split("}", 1)[0]
+        self.assertIn("z-index: 1000;", image_viewer_styles)
+
+    def test_project_menu_matches_toolbar_and_asset_panel_geometry(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="tool-btn icon-only project-menu-trigger"', html)
+        self.assertIn('aria-controls="projectMenu"', html)
+        self.assertIn('event.target.closest(".project-switcher, .project-menu")', editor)
+        self.assertIn("if (next && els.assetPanel.classList.contains(\"open\")) setAssetPanel(false)", editor)
+        self.assertIn("if (open && !els.projectMenu.hidden) setProjectMenu(false)", editor)
+        self.assertIn("function alignProjectMenu()", editor)
+        self.assertIn("const { topbarRect, left, right } = alignedPanelEdges()", editor)
+        self.assertIn('els.projectMenu.style.top = `${topbarRect.bottom + 14}px`', editor)
+        self.assertIn('els.projectMenu.style.width = `${right - left}px`', editor)
+        project_menu_styles = styles.split(".project-menu {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: fixed;", project_menu_styles)
+        self.assertIn("border-radius: 16px;", project_menu_styles)
 
     def test_character_preservation_guides_visual_retagging(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")

@@ -45,9 +45,10 @@ const els = {
   assetPanel: document.getElementById("assetPanel"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
-  assetDeleteToggle: document.getElementById("assetDeleteToggle"),
+  assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
   assetDeleteCount: document.getElementById("assetDeleteCount"),
+  assetDeleteCancel: document.getElementById("assetDeleteCancel"),
   assetDeleteConfirm: document.getElementById("assetDeleteConfirm"),
   projectMenuBtn: document.getElementById("projectMenuBtn"),
   projectMenu: document.getElementById("projectMenu"),
@@ -117,6 +118,7 @@ function refreshIcons(root = document) {
 }
 
 function toast(message, type = "info") {
+  alignToastRegion();
   const item = document.createElement("div");
   item.className = `toast${type === "error" ? " error" : ""}`;
   item.textContent = String(message || "操作失败");
@@ -124,6 +126,11 @@ function toast(message, type = "info") {
   item.setAttribute("role", type === "error" ? "alert" : "status");
   els.toastRegion.replaceChildren(item);
   window.setTimeout(() => item.remove(), 3600);
+}
+
+function alignToastRegion() {
+  const rect = document.querySelector(".topbar").getBoundingClientRect();
+  els.toastRegion.style.top = `${(rect.top + rect.bottom) / 2}px`;
 }
 
 function setConnectionState(status) {
@@ -173,13 +180,33 @@ function startHealthMonitor() {
 
 function setProjectMenu(open) {
   const next = !!open;
+  if (next && els.assetPanel.classList.contains("open")) setAssetPanel(false);
   els.projectMenu.hidden = !next;
   els.projectMenuBtn.setAttribute("aria-expanded", String(next));
+  els.projectMenuBtn.classList.toggle("active", next);
+  if (next) alignProjectMenu();
   if (!next) {
     els.newProjectRow.hidden = true;
     els.newProjectInput.value = "";
     state.pendingDeleteCanvasId = "";
   }
+}
+
+function alignedPanelEdges() {
+  const topbarRect = document.querySelector(".topbar").getBoundingClientRect();
+  const buttonRect = document.getElementById("assetLibraryBtn").getBoundingClientRect();
+  const right = Math.min(topbarRect.right, window.innerWidth - 12);
+  const left = window.innerWidth <= 620
+    ? 12
+    : clamp(buttonRect.left, 12, right - 240);
+  return { topbarRect, left, right };
+}
+
+function alignProjectMenu() {
+  const { topbarRect, left, right } = alignedPanelEdges();
+  els.projectMenu.style.top = `${topbarRect.bottom + 14}px`;
+  els.projectMenu.style.left = `${left}px`;
+  els.projectMenu.style.width = `${right - left}px`;
 }
 
 function projectIconButton(iconName, title, className = "") {
@@ -1991,6 +2018,7 @@ async function loadLibrary(render = true) {
 }
 
 function setAssetPanel(open) {
+  if (open && !els.projectMenu.hidden) setProjectMenu(false);
   els.assetPanel.classList.toggle("open", open);
   document.getElementById("assetLibraryBtn").classList.toggle("active", open);
   if (!open) {
@@ -2011,7 +2039,8 @@ function setAssetDeleteMode(enabled) {
     });
   }
   els.assetPanel.classList.toggle("delete-mode", state.assetDeleteMode);
-  els.assetDeleteToggle.checked = state.assetDeleteMode;
+  els.assetSelectModeBtn.classList.toggle("active", state.assetDeleteMode);
+  els.assetSelectModeBtn.setAttribute("aria-pressed", String(state.assetDeleteMode));
   updateAssetDeleteControls();
 }
 
@@ -2020,8 +2049,9 @@ function updateAssetDeleteControls() {
   els.assetDeleteActions.hidden = !state.assetDeleteMode;
   els.assetDeleteCount.textContent = `已选 ${count} 项`;
   els.assetDeleteConfirm.disabled = count === 0 || state.deletingAssets;
-  els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除所选";
-  els.assetDeleteToggle.disabled = state.deletingAssets;
+  els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除";
+  els.assetDeleteCancel.disabled = state.deletingAssets;
+  els.assetSelectModeBtn.disabled = state.deletingAssets;
 }
 
 function toggleAssetSelection(card, assetId) {
@@ -2105,25 +2135,17 @@ function renderAssetBatch(items, start) {
 }
 
 function alignAssetPanel() {
-  if (window.innerWidth <= 620) {
-    els.assetPanel.style.removeProperty("left");
-    els.assetPanel.style.removeProperty("top");
-    els.assetPanel.style.removeProperty("bottom");
-    els.assetPanel.style.removeProperty("width");
-    return;
-  }
-  const topbarRect = document.querySelector(".topbar").getBoundingClientRect();
-  const buttonRect = document.getElementById("assetLibraryBtn").getBoundingClientRect();
+  const { topbarRect, left, right } = alignedPanelEdges();
   const viewportRect = els.viewport.getBoundingClientRect();
   const minimapRect = els.minimap.getBoundingClientRect();
   const gap = 14;
-  const rightEdge = Math.min(topbarRect.right - viewportRect.left, viewportRect.width - 12);
-  const leftEdge = clamp(buttonRect.left - viewportRect.left, 12, rightEdge - 240);
-  els.assetPanel.style.left = `${leftEdge}px`;
-  els.assetPanel.style.width = `${rightEdge - leftEdge}px`;
+  els.assetPanel.style.left = `${left - viewportRect.left}px`;
+  els.assetPanel.style.width = `${right - left}px`;
   els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
   if (minimapRect.height > 0) {
     els.assetPanel.style.bottom = `${viewportRect.bottom - minimapRect.top + gap}px`;
+  } else {
+    els.assetPanel.style.bottom = "12px";
   }
 }
 
@@ -2493,7 +2515,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.30"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.31"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2748,16 +2770,15 @@ els.newProjectInput.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("pointerdown", (event) => {
-  if (!els.projectMenu.hidden && !event.target.closest(".project-switcher")) {
+  if (!els.projectMenu.hidden && !event.target.closest(".project-switcher, .project-menu")) {
     setProjectMenu(false);
   }
 });
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
-els.assetDeleteToggle.addEventListener("change", () => {
-  setAssetDeleteMode(els.assetDeleteToggle.checked);
-});
+els.assetSelectModeBtn.addEventListener("click", () => setAssetDeleteMode(true));
+els.assetDeleteCancel.addEventListener("click", () => setAssetDeleteMode(false));
 els.assetDeleteConfirm.addEventListener("click", deleteSelectedLibraryAssets);
 
 els.imageInput.addEventListener("change", () => {
@@ -2907,6 +2928,8 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("resize", () => {
   drawMinimap();
+  alignToastRegion();
+  if (!els.projectMenu.hidden) alignProjectMenu();
   if (els.assetPanel.classList.contains("open")) {
     alignAssetPanel();
     updateAssetGridMetrics();

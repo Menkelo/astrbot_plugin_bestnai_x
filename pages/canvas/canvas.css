@@ -71,7 +71,7 @@ select:focus-visible,
 
 .topbar {
   position: absolute;
-  z-index: 30;
+  z-index: 50;
   top: 22px;
   left: 24px;
   right: 24px;
@@ -103,7 +103,6 @@ select:focus-visible,
   padding: 0 8px 0 2px;
 }
 
-.nav-project-btn,
 .asset-icon-btn {
   display: grid;
   width: 32px;
@@ -117,14 +116,12 @@ select:focus-visible,
   cursor: pointer;
 }
 
-.nav-project-btn:hover,
 .asset-icon-btn:hover {
   border-color: var(--line);
   background: var(--soft-2);
   color: var(--text);
 }
 
-.nav-project-btn svg,
 .asset-icon-btn svg {
   width: 15px;
   height: 15px;
@@ -132,27 +129,22 @@ select:focus-visible,
 
 .project-switcher {
   position: relative;
-  flex: 0 0 32px;
+  flex: 0 0 38px;
 }
 
 .toolbar-project-switcher {
-  margin: 0 2px 0 -4px;
-}
-
-.toolbar-project-switcher .project-menu {
-  right: -1px;
-  left: auto;
+  margin: 0 2px 0 0;
 }
 
 .project-menu {
-  position: absolute;
+  position: fixed;
   z-index: 70;
-  top: calc(100% + 15px);
-  left: -1px;
-  width: min(286px, calc(100vw - 48px));
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 110px);
   padding: 9px;
+  overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--card-solid);
   box-shadow: 0 22px 56px rgba(15, 23, 42, .16);
 }
@@ -1492,8 +1484,8 @@ select:focus-visible,
   max-width: calc(100vw - 24px);
   min-height: 0;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 6px;
+  padding: 10px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -1517,11 +1509,11 @@ select:focus-visible,
 
 .asset-delete-toolbar {
   display: flex;
-  min-height: 30px;
-  flex: 0 0 30px;
+  min-height: 28px;
+  flex: 0 0 28px;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 6px;
 }
 
 .asset-delete-actions {
@@ -1529,8 +1521,8 @@ select:focus-visible,
   min-width: 0;
   flex: 1;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .asset-delete-actions[hidden] {
@@ -1538,102 +1530,67 @@ select:focus-visible,
 }
 
 .asset-delete-actions > span {
+  margin-right: auto;
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
 }
 
-.asset-delete-actions button {
+.asset-delete-actions button,
+.asset-select-mode-btn {
   display: inline-flex;
-  min-width: 72px;
   height: 28px;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 0 9px;
-  border: 1px solid rgba(220, 38, 38, .2);
   border-radius: 8px;
-  background: #fef2f2;
-  color: #dc2626;
   cursor: pointer;
   font-size: 10px;
   font-weight: 850;
   white-space: nowrap;
 }
 
-.asset-delete-actions button:hover:not(:disabled) {
+.asset-select-mode-btn,
+.asset-delete-cancel {
+  border: 1px solid var(--line);
+  background: var(--soft-2);
+  color: var(--muted);
+}
+
+.asset-select-mode-btn:hover:not(:disabled),
+.asset-delete-cancel:hover:not(:disabled) {
+  border-color: var(--line-2);
+  background: var(--card-solid);
+  color: var(--text);
+}
+
+.asset-delete-confirm {
+  min-width: 58px;
+  border: 1px solid rgba(220, 38, 38, .2);
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.asset-delete-confirm:hover:not(:disabled) {
   border-color: rgba(220, 38, 38, .36);
   background: #fee2e2;
 }
 
-.asset-delete-actions button:disabled {
+.asset-delete-actions button:disabled,
+.asset-select-mode-btn:disabled {
   cursor: default;
   opacity: .45;
 }
 
-.asset-delete-actions button svg {
+.asset-delete-actions button svg,
+.asset-select-mode-btn svg {
   width: 12px;
   height: 12px;
 }
 
-.asset-delete-toggle {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 850;
-  white-space: nowrap;
-}
-
-.asset-delete-toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-}
-
-.asset-delete-toggle-track {
-  position: relative;
-  width: 30px;
-  height: 18px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08);
-  transition: background .14s var(--ease);
-}
-
-.asset-delete-toggle-track::after {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, .2);
-  content: "";
-  transition: transform .14s var(--ease);
-}
-
-.asset-delete-toggle input:checked + .asset-delete-toggle-track {
-  background: #dc2626;
-}
-
-.asset-delete-toggle input:checked + .asset-delete-toggle-track::after {
-  transform: translateX(12px);
-}
-
-.asset-delete-toggle input:focus-visible + .asset-delete-toggle-track {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
-}
-
-.asset-delete-toggle input:disabled + .asset-delete-toggle-track {
-  opacity: .5;
+.asset-panel.delete-mode .asset-select-mode-btn {
+  display: none;
 }
 
 .asset-grid {
@@ -1880,8 +1837,8 @@ select:focus-visible,
 }
 
 .toast-region {
-  position: absolute;
-  z-index: 100;
+  position: fixed;
+  z-index: 1100;
   top: 50%;
   left: 50%;
   display: flex;
