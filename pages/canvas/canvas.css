@@ -966,9 +966,9 @@ select:focus-visible,
 .retag-btn,
 .generate-btn {
   display: inline-flex;
-  width: 72px;
+  min-width: 64px;
   height: 32px;
-  flex: 0 0 72px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -980,6 +980,7 @@ select:focus-visible,
   cursor: pointer;
   font-size: 10.5px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .generate-btn {
@@ -1598,6 +1599,7 @@ select:focus-visible,
   gap: 8px;
   padding-right: 3px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
@@ -1635,7 +1637,6 @@ select:focus-visible,
 .asset-drag-ghost {
   position: fixed;
   z-index: 1400;
-  width: 180px;
   overflow: hidden;
   border: 1px solid var(--line-2);
   border-radius: 12px;
@@ -1643,8 +1644,6 @@ select:focus-visible,
   box-shadow: 0 18px 48px rgba(15, 23, 42, .2);
   opacity: .82;
   pointer-events: none;
-  transform: scale(.92);
-  transform-origin: top left;
 }
 
 .asset-drag-ghost.can-drop {

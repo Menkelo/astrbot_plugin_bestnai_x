@@ -830,7 +830,7 @@ function renderPromptNode(node) {
   retag.type = "button";
   retag.className = "retag-btn";
   retag.disabled = !!node.status || !sourceImage || !state.config.retagConfigured;
-  retag.append(icon("scan-search"), document.createTextNode(node.status === "retagging" ? "反推中…" : "反推"));
+  retag.append(icon("scan-search"), document.createTextNode("反推"));
   if (!state.config.retagEnabled) {
     retag.title = "请先在插件配置中启用图片反推";
   } else if (!state.config.retagConfigured) {
@@ -850,7 +850,7 @@ function renderPromptNode(node) {
   generate.type = "button";
   generate.className = "generate-btn";
   generate.disabled = !!node.status || !state.config.configured;
-  generate.append(icon("wand-sparkles"), document.createTextNode(node.status === "generating" ? "生成中…" : "生成"));
+  generate.append(icon("wand-sparkles"), document.createTextNode("生成"));
   generate.title = state.config.configured ? "生成图片 (Ctrl+Enter)" : "请先配置生图提供商";
   generate.addEventListener("pointerdown", (event) => event.stopPropagation());
   generate.addEventListener("click", (event) => {
@@ -1506,6 +1506,18 @@ function findOpenGeneratedPosition(sourceNode, width, height) {
   return { x: candidate.x, y: candidate.y };
 }
 
+function findNextGeneratedPosition(sourceNode, width, height) {
+  const latestEdge = [...state.connections].reverse().find((edge) => (
+    edge.source === sourceNode.id && findNode(edge.target)?.type === "image"
+  ));
+  const latestImage = latestEdge ? findNode(latestEdge.target) : null;
+  if (!latestImage) return findOpenGeneratedPosition(sourceNode, width, height);
+  return {
+    x: latestImage.x + 56,
+    y: latestImage.y - 36,
+  };
+}
+
 function finishBoxSelection(startWorld, endEvent) {
   const endWorld = clientToWorld(endEvent.clientX, endEvent.clientY);
   const minX = Math.min(startWorld.x, endWorld.x);
@@ -1616,7 +1628,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       const sourceWidth = asset.width || result.meta?.width;
       const sourceHeight = asset.height || result.meta?.height;
       const imageNodeWidth = fittedImageNodeWidth(sourceWidth, sourceHeight);
-      const position = findOpenGeneratedPosition(
+      const position = findNextGeneratedPosition(
         node,
         imageNodeWidth,
         estimatedImageNodeHeight(imageNodeWidth, sourceWidth, sourceHeight),
@@ -2012,13 +2024,20 @@ function attachLibraryImageDrag(card, item) {
   });
   card.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || event.target.closest("button")) return;
-    const start = { x: event.clientX, y: event.clientY };
+    const cardRect = card.getBoundingClientRect();
+    const start = {
+      x: event.clientX,
+      y: event.clientY,
+      grabOffsetX: event.clientX - cardRect.left,
+      grabOffsetY: event.clientY - cardRect.top,
+      cardWidth: cardRect.width,
+    };
     let dragging = false;
     let ghost = null;
     let canDrop = false;
     const moveGhost = (moveEvent) => {
-      ghost.style.left = `${moveEvent.clientX + 14}px`;
-      ghost.style.top = `${moveEvent.clientY + 14}px`;
+      ghost.style.left = `${moveEvent.clientX - start.grabOffsetX}px`;
+      ghost.style.top = `${moveEvent.clientY - start.grabOffsetY}px`;
     };
     const move = (moveEvent) => {
       if (!dragging && Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < 6) return;
@@ -2028,6 +2047,7 @@ function attachLibraryImageDrag(card, item) {
         card.classList.add("dragging");
         ghost = card.cloneNode(true);
         ghost.className = "asset-drag-ghost";
+        ghost.style.width = `${start.cardWidth}px`;
         ghost.querySelectorAll("button").forEach((button) => button.remove());
         document.body.appendChild(ghost);
       }
@@ -2286,7 +2306,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.15"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.16"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2386,10 +2406,15 @@ els.viewport.addEventListener("pointerdown", (event) => {
 });
 
 els.viewport.addEventListener("wheel", (event) => {
+  if (event.target.closest(".asset-panel")) return;
   event.preventDefault();
   const factor = Math.exp(-event.deltaY * 0.0015);
   setZoom(state.viewport.scale * factor, event.clientX, event.clientY);
 }, { passive: false });
+
+els.assetPanel.addEventListener("wheel", (event) => {
+  event.stopPropagation();
+}, { passive: true });
 
 els.viewport.addEventListener("dblclick", (event) => {
   if (event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")) return;

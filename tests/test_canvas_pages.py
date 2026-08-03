@@ -125,7 +125,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("retagFromNode(node.id, true)", editor)
         self.assertIn("function runPromptNode(id)", editor)
         self.assertIn("? retagFromNode(id, true)", editor)
-        self.assertIn('document.createTextNode(node.status === "retagging" ? "反推中…" : "反推")', editor)
+        self.assertIn('document.createTextNode("反推")', editor)
+        self.assertNotIn('document.createTextNode(node.status === "retagging"', editor)
         self.assertIn("promptOverride: mergedPrompt", editor)
         self.assertIn('retagged ? "反推图片" : "生成结果"', editor)
         self.assertIn("function mergeRetagPrompt", editor)
@@ -204,8 +205,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('artist: item.artist || ""', editor)
         self.assertIn('artistBadge.className = "image-artist-badge"', editor)
         self.assertIn('artistBadge.className = "node-artist-badge"', editor)
-        self.assertIn("width: 72px;", styles)
-        self.assertIn("flex: 0 0 72px;", styles)
+        self.assertIn("min-width: 64px;", styles)
+        self.assertIn("white-space: nowrap;", styles)
+        self.assertNotIn("flex: 0 0 72px;", styles)
         self.assertIn('"artist": _short_text(raw_meta.get("artist"), 120)', service)
 
     def test_clicked_nodes_move_to_front_and_image_labels_keep_source_prompt(self) -> None:
@@ -226,6 +228,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("function findOpenGeneratedPosition", editor)
+        self.assertIn("function findNextGeneratedPosition", editor)
+        self.assertIn("const latestEdge = [...state.connections].reverse().find", editor)
+        self.assertIn("x: latestImage.x + 56", editor)
+        self.assertIn("y: latestImage.y - 36", editor)
+        self.assertIn("const position = findNextGeneratedPosition(", editor)
         self.assertIn("function rectanglesOverlap", editor)
         self.assertIn("estimatedImageNodeHeight(imageNodeWidth, sourceWidth, sourceHeight)", editor)
         self.assertIn("x: position.x", editor)
@@ -235,6 +242,23 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('id="saveSelectedPromptBtn"', html)
         self.assertNotIn("saveSelectedPrompt", editor)
         self.assertNotIn(".asset-save-prompt", styles)
+
+    def test_asset_library_owns_wheel_and_drag_preview_tracks_grab_point(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('if (event.target.closest(".asset-panel")) return;', editor)
+        self.assertIn('els.assetPanel.addEventListener("wheel"', editor)
+        self.assertIn("event.stopPropagation();", editor)
+        self.assertIn("grabOffsetX: event.clientX - cardRect.left", editor)
+        self.assertIn("grabOffsetY: event.clientY - cardRect.top", editor)
+        self.assertIn("ghost.style.width = `${start.cardWidth}px`", editor)
+        self.assertIn("moveEvent.clientX - start.grabOffsetX", editor)
+        self.assertIn("moveEvent.clientY - start.grabOffsetY", editor)
+        self.assertIn("overscroll-behavior: contain;", styles)
+        ghost_styles = styles.split(".asset-drag-ghost {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("width: 180px", ghost_styles)
+        self.assertNotIn("transform: scale", ghost_styles)
 
     def test_plugin_metadata_and_astrbot_compatibility_are_exposed(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
