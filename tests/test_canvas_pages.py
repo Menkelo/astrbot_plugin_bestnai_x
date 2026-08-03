@@ -211,6 +211,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('data-copy-target="imageViewerPrompt"', html)
         self.assertIn('data-copy-target="imageViewerTags"', html)
         self.assertIn("function openImageViewer", editor)
+        download_body = editor.split("async function downloadImage", 1)[1].split(
+            "function openImageViewer", 1
+        )[0]
+        self.assertIn("const blob = await response.blob()", download_body)
+        self.assertIn("URL.createObjectURL(blob)", download_body)
+        self.assertIn('anchor.target = "_blank"', download_body)
+        self.assertIn('anchor.rel = "noopener"', download_body)
+        self.assertIn("URL.revokeObjectURL(objectUrl)", download_body)
+        self.assertNotIn("anchor.href = node.dataUrl", download_body)
         self.assertIn('frame.addEventListener("click", () => openImageViewer(node))', editor)
         self.assertIn('!event.target.closest("#imageViewerImage, .image-viewer-details")', editor)
         self.assertIn("function copyViewerText", editor)

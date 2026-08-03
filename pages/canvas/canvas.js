@@ -1977,17 +1977,35 @@ async function ensureAssetLoaded(node) {
   }
 }
 
-function downloadImage(node) {
+async function downloadImage(node) {
   if (!node.dataUrl) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
   }
-  const anchor = document.createElement("a");
-  anchor.href = node.dataUrl;
-  const mime = /^data:image\/([^;,]+)/i.exec(node.dataUrl)?.[1]?.toLowerCase() || "png";
-  const extension = mime === "jpeg" ? "jpg" : mime;
-  anchor.download = `bestnai-${node.assetId || Date.now()}.${extension}`;
-  anchor.click();
+  try {
+    const response = await fetch(node.dataUrl);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("图片数据为空");
+    const extension = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+    }[blob.type.toLowerCase()] || "png";
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `bestnai-${node.assetId || Date.now()}.${extension}`;
+    anchor.target = "_blank";
+    anchor.rel = "noopener";
+    anchor.hidden = true;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+  } catch (error) {
+    toast(error.message || "图片下载失败", "error");
+  }
 }
 
 function openImageViewer(node, { libraryAsset = null } = {}) {
@@ -2592,7 +2610,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.34"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.35"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
