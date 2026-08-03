@@ -2634,7 +2634,7 @@ async function loadInitialState() {
   loadPromptDefaults(preferences || {});
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.37"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.38"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
