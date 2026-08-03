@@ -18,7 +18,7 @@
             </span>
             <span class="plugin-meta">
               <span class="plugin-author">by <span id="pluginAuthor">Menkelo</span></span>
-              <span id="pluginVersion">v3.0.26</span>
+              <span id="pluginVersion">v3.0.27</span>
               <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
             </span>
           </div>
@@ -105,6 +105,17 @@
           </div>
         </div>
         <aside id="assetPanel" class="asset-panel" aria-label="素材库">
+          <div class="asset-delete-toolbar">
+            <div id="assetDeleteActions" class="asset-delete-actions" hidden>
+              <span id="assetDeleteCount">已选 0 项</span>
+              <button id="assetDeleteConfirm" type="button" disabled><i data-lucide="trash-2"></i><span>删除</span></button>
+            </div>
+            <label class="asset-delete-toggle" title="批量选择并删除素材">
+              <i data-lucide="trash-2"></i><span>删除</span>
+              <input id="assetDeleteToggle" type="checkbox" role="switch" aria-label="批量删除模式" />
+              <span class="asset-delete-toggle-track" aria-hidden="true"></span>
+            </label>
+          </div>
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
         </aside>
@@ -131,10 +142,6 @@
       <figure class="image-viewer-stage">
         <img id="imageViewerImage" alt="" />
         <figcaption class="image-viewer-details">
-          <div class="image-viewer-heading">
-            <strong id="imageViewerCaption">图片预览</strong>
-            <span class="image-viewer-facts"><span id="imageViewerArtist" hidden></span><span id="imageViewerDimensions">原始尺寸</span></span>
-          </div>
           <div id="imageViewerPromptSection" class="image-viewer-copy">
             <div class="image-viewer-copy-head"><span>提示词</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerPrompt" title="复制提示词" aria-label="复制提示词"><i data-lucide="copy"></i></button></div>
             <p id="imageViewerPrompt" class="image-viewer-copy-text">暂无提示词记录</p>

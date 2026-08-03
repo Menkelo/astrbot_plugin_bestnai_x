@@ -39,15 +39,16 @@ const els = {
   arrangeSelectionBtn: document.getElementById("canvasArrangeBtn"),
   imageViewer: document.getElementById("imageViewer"),
   imageViewerImage: document.getElementById("imageViewerImage"),
-  imageViewerCaption: document.getElementById("imageViewerCaption"),
-  imageViewerDimensions: document.getElementById("imageViewerDimensions"),
-  imageViewerArtist: document.getElementById("imageViewerArtist"),
   imageViewerPromptSection: document.getElementById("imageViewerPromptSection"),
   imageViewerPrompt: document.getElementById("imageViewerPrompt"),
   imageViewerTags: document.getElementById("imageViewerTags"),
   assetPanel: document.getElementById("assetPanel"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
+  assetDeleteToggle: document.getElementById("assetDeleteToggle"),
+  assetDeleteActions: document.getElementById("assetDeleteActions"),
+  assetDeleteCount: document.getElementById("assetDeleteCount"),
+  assetDeleteConfirm: document.getElementById("assetDeleteConfirm"),
   projectMenuBtn: document.getElementById("projectMenuBtn"),
   projectMenu: document.getElementById("projectMenu"),
   projectList: document.getElementById("projectList"),
@@ -86,6 +87,9 @@ const state = {
   libraryPreloadPromise: null,
   libraryRenderObserver: null,
   libraryRenderCleanup: null,
+  assetDeleteMode: false,
+  selectedAssetIds: new Set(),
+  deletingAssets: false,
   canvases: [],
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
@@ -1905,17 +1909,11 @@ function openImageViewer(node) {
   const meta = node.meta || {};
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.alt = node.title || "画布图片";
-  els.imageViewerCaption.textContent = node.title || "图片预览";
-  const size = meta.width && meta.height ? `${meta.width}×${meta.height}` : "原始尺寸";
-  els.imageViewerDimensions.textContent = `${size}${meta.ratio ? ` · ${meta.ratio}` : ""}`;
   const prompt = String(meta.prompt || "").trim();
   const tags = String(meta.tags || meta.finalPrompt || "").trim();
-  const artist = String(meta.artist || "").trim();
   els.imageViewerPromptSection.hidden = !!tags && isPureEnglishPrompt(prompt);
   els.imageViewerPrompt.textContent = prompt || "暂无提示词记录";
   els.imageViewerTags.textContent = tags || "暂无英文 tags 记录";
-  els.imageViewerArtist.textContent = artist;
-  els.imageViewerArtist.hidden = !artist;
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
 }
@@ -1928,10 +1926,6 @@ function isPureEnglishPrompt(value) {
 function closeImageViewer() {
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
-  els.imageViewerCaption.textContent = "图片预览";
-  els.imageViewerDimensions.textContent = "原始尺寸";
-  els.imageViewerArtist.textContent = "";
-  els.imageViewerArtist.hidden = true;
   els.imageViewerPromptSection.hidden = false;
   els.imageViewerPrompt.textContent = "暂无提示词记录";
   els.imageViewerTags.textContent = "暂无英文 tags 记录";
@@ -1997,9 +1991,57 @@ async function loadLibrary(render = true) {
 function setAssetPanel(open) {
   els.assetPanel.classList.toggle("open", open);
   document.getElementById("assetLibraryBtn").classList.toggle("active", open);
-  if (!open) return;
+  if (!open) {
+    setAssetDeleteMode(false, false);
+    return;
+  }
   alignAssetPanel();
   renderAssetLibrary();
+}
+
+function setAssetDeleteMode(enabled, render = true) {
+  state.assetDeleteMode = !!enabled;
+  if (!state.assetDeleteMode) state.selectedAssetIds.clear();
+  els.assetPanel.classList.toggle("delete-mode", state.assetDeleteMode);
+  els.assetDeleteToggle.checked = state.assetDeleteMode;
+  updateAssetDeleteControls();
+  if (render && els.assetPanel.classList.contains("open")) renderAssetLibrary();
+}
+
+function updateAssetDeleteControls() {
+  const count = state.selectedAssetIds.size;
+  els.assetDeleteActions.hidden = !state.assetDeleteMode;
+  els.assetDeleteCount.textContent = `已选 ${count} 项`;
+  els.assetDeleteConfirm.disabled = count === 0 || state.deletingAssets;
+  els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除";
+  els.assetDeleteToggle.disabled = state.deletingAssets;
+}
+
+function toggleAssetSelection(card, assetId) {
+  if (state.selectedAssetIds.has(assetId)) state.selectedAssetIds.delete(assetId);
+  else state.selectedAssetIds.add(assetId);
+  card.classList.toggle("selected", state.selectedAssetIds.has(assetId));
+  card.setAttribute("aria-selected", String(state.selectedAssetIds.has(assetId)));
+  updateAssetDeleteControls();
+}
+
+async function deleteSelectedLibraryAssets() {
+  const ids = [...state.selectedAssetIds];
+  if (!ids.length || state.deletingAssets) return;
+  state.deletingAssets = true;
+  updateAssetDeleteControls();
+  try {
+    await Promise.all(ids.map((id) => bridge.apiPost("canvas/library/image/delete", { id })));
+    state.library.images = state.library.images.filter((item) => !ids.includes(item.id));
+    setAssetDeleteMode(false, false);
+    renderAssetLibrary();
+    toast(`已删除 ${ids.length} 项素材`);
+  } catch (error) {
+    toast(error.message || "批量删除素材失败", "error");
+  } finally {
+    state.deletingAssets = false;
+    updateAssetDeleteControls();
+  }
 }
 
 function renderAssetLibrary() {
@@ -2058,13 +2100,22 @@ function renderAssetBatch(items, start) {
 function alignAssetPanel() {
   if (window.innerWidth <= 620) {
     els.assetPanel.style.removeProperty("left");
+    els.assetPanel.style.removeProperty("top");
+    els.assetPanel.style.removeProperty("bottom");
     return;
   }
-  const buttonRect = document.getElementById("assetLibraryBtn").getBoundingClientRect();
+  const topbarRect = document.querySelector(".topbar").getBoundingClientRect();
   const viewportRect = els.viewport.getBoundingClientRect();
+  const minimapRect = els.minimap.getBoundingClientRect();
   const panelWidth = Math.min(380, window.innerWidth - 48);
-  const left = clamp(buttonRect.left - viewportRect.left, 24, viewportRect.width - panelWidth - 24);
+  const gap = 14;
+  const rightEdge = clamp(topbarRect.right - viewportRect.left, panelWidth + 24, viewportRect.width - 12);
+  const left = rightEdge - panelWidth;
   els.assetPanel.style.left = `${left}px`;
+  els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
+  if (minimapRect.height > 0) {
+    els.assetPanel.style.bottom = `${viewportRect.bottom - minimapRect.top + gap}px`;
+  }
 }
 
 function updateAssetGridMetrics() {
@@ -2081,6 +2132,8 @@ function renderImageAssetCard(item, container = els.assetGrid) {
   card.className = "asset-card asset-image-card";
   card.title = "点击预览，拖到画布使用";
   card.dataset.assetId = item.id;
+  card.classList.toggle("selected", state.selectedAssetIds.has(item.id));
+  card.setAttribute("aria-selected", String(state.selectedAssetIds.has(item.id)));
   const thumb = document.createElement("div");
   thumb.className = "asset-thumb";
   if (item.width && item.height) thumb.style.aspectRatio = `${item.width} / ${item.height}`;
@@ -2108,6 +2161,11 @@ function renderImageAssetCard(item, container = els.assetGrid) {
     artist.title = `画师预设：${item.artist}`;
     thumb.appendChild(artist);
   }
+  const selected = document.createElement("span");
+  selected.className = "asset-select-indicator";
+  selected.setAttribute("aria-hidden", "true");
+  selected.appendChild(icon("check"));
+  thumb.appendChild(selected);
   if (item.dataUrl) image.src = item.dataUrl;
   else ensureLibraryImageData(item).then((dataUrl) => {
     if (image.isConnected) image.src = dataUrl;
@@ -2131,6 +2189,10 @@ function isCanvasDropPoint(clientX, clientY) {
 function attachLibraryImageDrag(card, item) {
   let suppressClick = false;
   card.addEventListener("click", () => {
+    if (state.assetDeleteMode) {
+      toggleAssetSelection(card, item.id);
+      return;
+    }
     if (suppressClick) {
       suppressClick = false;
       return;
@@ -2138,7 +2200,7 @@ function attachLibraryImageDrag(card, item) {
     openLibraryImageViewer(item);
   });
   card.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest("button")) return;
+    if (state.assetDeleteMode || event.button !== 0 || event.target.closest("button")) return;
     const cardRect = card.getBoundingClientRect();
     const start = {
       x: event.clientX,
@@ -2235,7 +2297,6 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
         ratio: item.ratio || "",
       },
     });
-    setAssetPanel(false);
   } catch (error) {
     toast(error.message || "添加图片素材失败", "error");
   }
@@ -2423,7 +2484,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.26"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.27"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2685,6 +2746,10 @@ document.addEventListener("pointerdown", (event) => {
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
+els.assetDeleteToggle.addEventListener("change", () => {
+  setAssetDeleteMode(els.assetDeleteToggle.checked);
+});
+els.assetDeleteConfirm.addEventListener("click", deleteSelectedLibraryAssets);
 
 els.imageInput.addEventListener("change", () => {
   uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());

@@ -169,7 +169,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("character_name if keep_character else", service)
         self.assertNotIn('label: "不使用画师预设"', editor)
         self.assertIn('if (node.artist === "__none__") node.artist = ""', editor)
-        self.assertNotIn('bridge.apiPost("canvas/library/image/delete"', editor)
+        self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
         delete_body = editor.split("function deleteNodes(ids)", 1)[1].split(
             "function deleteNode(id)", 1
         )[0]
@@ -192,6 +192,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="imageViewer"', html)
         self.assertIn('id="imageViewerPrompt"', html)
         self.assertIn('id="imageViewerTags"', html)
+        self.assertNotIn('id="imageViewerCaption"', html)
+        self.assertNotIn('id="imageViewerArtist"', html)
+        self.assertNotIn('id="imageViewerDimensions"', html)
         self.assertNotIn('id="imageViewerClose"', html)
         self.assertNotIn('makeAction("maximize-2", "放大查看"', editor)
         self.assertIn('data-copy-target="imageViewerPrompt"', html)
@@ -204,6 +207,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("els.imageViewerPromptSection.hidden", editor)
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer-copy[hidden]", styles)
+        self.assertNotIn(".image-viewer-heading", styles)
+        self.assertNotIn("#imageViewerArtist", styles)
+        self.assertIn("scrollbar-width: thin;", styles)
+        self.assertIn(".image-viewer-copy p::-webkit-scrollbar-thumb", styles)
+        self.assertIn(".image-viewer-copy p::-webkit-scrollbar-button", styles)
         self.assertIn("user-select: text;", styles)
 
     def test_library_preloads_and_uses_click_preview_with_drag_placement(self) -> None:
@@ -238,9 +246,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("grid-auto-rows: var(--asset-card-height", styles)
         self.assertIn("function updateAssetGridMetrics()", editor)
         self.assertIn("function alignAssetPanel()", editor)
-        self.assertIn('buttonRect.left - viewportRect.left', editor)
+        self.assertIn("topbarRect.right - viewportRect.left", editor)
+        self.assertIn("topbarRect.bottom - viewportRect.top + gap", editor)
+        self.assertIn("viewportRect.bottom - minimapRect.top + gap", editor)
         self.assertNotIn(".asset-image-remove {", styles)
-        self.assertNotIn('canvas/library/image/delete', editor)
+        self.assertIn('id="assetDeleteToggle"', html)
+        self.assertIn('id="assetDeleteConfirm"', html)
+        self.assertIn("selectedAssetIds: new Set()", editor)
+        self.assertIn("function deleteSelectedLibraryAssets()", editor)
+        self.assertIn('canvas/library/image/delete', editor)
+        self.assertIn(".asset-select-indicator", styles)
+        self.assertIn(".asset-panel.delete-mode .asset-image-card.selected", styles)
         self.assertNotIn('name.className = "asset-card-name"', editor)
         self.assertIn("align-self: start;", styles)
         self.assertIn(".asset-grid.empty", styles)
@@ -249,6 +265,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("new IntersectionObserver", editor)
         self.assertIn("rootMargin: \"240px 0px\"", editor)
         self.assertNotIn('id="assetPanelClose"', html)
+        place_body = editor.split("async function placeImageAssetOnCanvas", 1)[1].split(
+            "function renderPromptAssetCard", 1
+        )[0]
+        self.assertNotIn("setAssetPanel(false)", place_body)
 
     def test_artist_badges_and_generation_buttons_have_stable_layout(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
