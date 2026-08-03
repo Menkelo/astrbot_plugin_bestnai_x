@@ -55,6 +55,10 @@ class CanvasStoreTest(unittest.TestCase):
                         "characterKeep": True,
                         "characterName": "Hatsune Miku",
                         "retagPrompt": "hatsune_miku, vocaloid",
+                        "retagAssetId": "a" * 32,
+                        "retagRatio": "2:3",
+                        "retagCharacterKeep": True,
+                        "retagCharacterName": "Hatsune Miku",
                         "tags": "1girl, hatsune_miku, vocaloid",
                     },
                     "dataUrl": "data:image/png;base64,not-persisted",
@@ -104,6 +108,10 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertTrue(loaded["nodes"][0]["meta"]["characterKeep"])
         self.assertEqual(loaded["nodes"][0]["meta"]["characterName"], "Hatsune Miku")
         self.assertEqual(loaded["nodes"][0]["meta"]["retagPrompt"], "hatsune_miku, vocaloid")
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagAssetId"], "a" * 32)
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagRatio"], "2:3")
+        self.assertTrue(loaded["nodes"][0]["meta"]["retagCharacterKeep"])
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagCharacterName"], "Hatsune Miku")
         self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)
         self.assertEqual(loaded["nodes"][1]["meta"]["width"], 832)

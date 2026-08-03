@@ -694,7 +694,6 @@ function renderPromptNode(node) {
     if (node.meta?.translatedPrompt || node.meta?.retagPrompt) {
       const {
         retagBasePrompt: _retagBasePrompt,
-        retagPrompt: _retagPrompt,
         retagMergedPrompt: _retagMergedPrompt,
         translatedPrompt: _translatedPrompt,
         translationSource: _translationSource,
@@ -768,12 +767,14 @@ function renderPromptNode(node) {
   characterName.disabled = !characterKeep.checked;
   characterKeep.addEventListener("change", () => {
     node.meta = { ...(node.meta || {}), characterKeep: characterKeep.checked };
+    clearRetagCache(node);
     characterName.disabled = !characterKeep.checked;
     if (characterKeep.checked) characterName.focus();
     scheduleSave();
   });
   characterName.addEventListener("input", () => {
     node.meta = { ...(node.meta || {}), characterName: characterName.value };
+    clearRetagCache(node);
     scheduleSave();
   });
   characterRow.append(characterLabel, characterName);
@@ -811,18 +812,21 @@ function renderPromptNode(node) {
   const commands = document.createElement("div");
   commands.className = "node-commands";
   const sourceImage = sourceImageForPrompt(node.id);
+  const cachedRetag = cachedRetagResult(node, sourceImage);
 
   const retag = document.createElement("button");
   retag.type = "button";
   retag.className = "retag-btn";
-  retag.disabled = !!node.status || !sourceImage || !state.config.retagConfigured;
+  retag.disabled = !!node.status || !sourceImage || (!cachedRetag && !state.config.retagConfigured);
   retag.append(icon("scan-search"), document.createTextNode("反推"));
-  if (!state.config.retagEnabled) {
+  if (!sourceImage) {
+    retag.title = "先把图片节点右侧端口连接到此节点左侧";
+  } else if (cachedRetag) {
+    retag.title = "复用此原图已保存的反推结果并生成图片";
+  } else if (!state.config.retagEnabled) {
     retag.title = "请先在插件配置中启用图片反推";
   } else if (!state.config.retagConfigured) {
     retag.title = "请选择支持视觉输入的反推提供商";
-  } else if (!sourceImage) {
-    retag.title = "先把图片节点右侧端口连接到此节点左侧";
   } else {
     retag.title = "反推左侧原图提示词并生成右侧图片";
   }
@@ -1688,6 +1692,38 @@ function mergeRetagPrompt(userPrompt, retagPrompt) {
     .join(", ");
 }
 
+function clearRetagCache(node) {
+  const {
+    retagAssetId: _retagAssetId,
+    retagRatio: _retagRatio,
+    retagCharacterKeep: _retagCharacterKeep,
+    retagCharacterName: _retagCharacterName,
+    retagBasePrompt: _retagBasePrompt,
+    retagPrompt: _retagPrompt,
+    retagMergedPrompt: _retagMergedPrompt,
+    translatedPrompt: _translatedPrompt,
+    ...meta
+  } = node.meta || {};
+  node.meta = meta;
+}
+
+function cachedRetagResult(node, sourceImage) {
+  if (!node || !sourceImage?.assetId) return null;
+  const meta = node.meta || {};
+  const keepCharacter = !!meta.characterKeep;
+  const characterName = keepCharacter ? String(meta.characterName || "").trim() : "";
+  if (
+    !meta.retagPrompt
+    || meta.retagAssetId !== sourceImage.assetId
+    || !!meta.retagCharacterKeep !== keepCharacter
+    || String(meta.retagCharacterName || "") !== characterName
+  ) return null;
+  return {
+    prompt: String(meta.retagPrompt).trim(),
+    ratio: String(meta.retagRatio || "").trim(),
+  };
+}
+
 function runPromptNode(id) {
   return sourceImageForPrompt(id)
     ? retagFromNode(id, true)
@@ -1705,7 +1741,8 @@ async function retagFromNode(id, generateAfter = false) {
     return false;
   }
 
-  if (!state.config.retagConfigured) {
+  const cachedRetag = cachedRetagResult(node, sourceImage);
+  if (!cachedRetag && !state.config.retagConfigured) {
     node.error = "请先配置图片反推提供商";
     renderAll();
     return false;
@@ -1713,19 +1750,23 @@ async function retagFromNode(id, generateAfter = false) {
 
   node.status = "retagging";
   node.error = "";
-  node.statusText = node.meta?.characterKeep
-    ? "正在识别并保持角色身份…"
-    : "正在反推原图提示词…";
+  node.statusText = cachedRetag
+    ? "正在复用已保存的反推结果…"
+    : (node.meta?.characterKeep
+      ? "正在识别并保持角色身份…"
+      : "正在反推原图提示词…");
   renderAll();
 
   let succeeded = false;
   try {
     const basePrompt = node.prompt?.trim() || "";
-    const result = await bridge.apiPost("canvas/retag", {
+    const keepCharacter = !!node.meta?.characterKeep;
+    const characterName = keepCharacter ? String(node.meta?.characterName || "").trim() : "";
+    const result = cachedRetag || await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
       userHint: basePrompt,
-      keepCharacter: !!node.meta?.characterKeep,
-      characterName: node.meta?.characterKeep ? String(node.meta?.characterName || "").trim() : "",
+      keepCharacter,
+      characterName,
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
@@ -1737,6 +1778,10 @@ async function retagFromNode(id, generateAfter = false) {
       retagBasePrompt: basePrompt,
       retagPrompt,
       retagMergedPrompt: mergedPrompt,
+      retagAssetId: sourceImage.assetId,
+      retagRatio: result.ratio || "",
+      retagCharacterKeep: keepCharacter,
+      retagCharacterName: characterName,
       translatedPrompt: retagPrompt,
     };
     if (result.ratio && state.config.ratios.some((item) => item.value === result.ratio)) {
@@ -1745,7 +1790,7 @@ async function retagFromNode(id, generateAfter = false) {
     node.statusText = result.ratio
       ? `已合并新提示词与原图 tags · 原图比例 ${result.ratio}`
       : "已合并新提示词与原图 tags";
-    toast("反推提示词已合并");
+    toast(cachedRetag ? "已复用反推结果" : "反推提示词已合并");
     scheduleSave();
     succeeded = true;
   } catch (error) {
@@ -2305,7 +2350,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.18"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.19"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

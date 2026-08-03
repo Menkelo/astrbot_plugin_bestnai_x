@@ -132,6 +132,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function mergeRetagPrompt", editor)
         self.assertIn("const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt)", editor)
         self.assertIn("retagMergedPrompt: mergedPrompt", editor)
+        self.assertIn("function cachedRetagResult", editor)
+        self.assertIn("const result = cachedRetag || await bridge.apiPost", editor)
+        self.assertIn("retagAssetId: sourceImage.assetId", editor)
+        self.assertIn('"正在复用已保存的反推结果…"', editor)
+        prompt_input = editor.split('prompt.addEventListener("input"', 1)[1].split(
+            'prompt.addEventListener("keydown"', 1
+        )[0]
+        self.assertNotIn("retagPrompt: _retagPrompt", prompt_input)
+        self.assertIn("translationSource: _translationSource", prompt_input)
         self.assertIn('translatedSummary.textContent = "英文 tags"', editor)
         self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
         self.assertIn("cachedTranslationSource: node.meta?.translationSource", editor)
@@ -141,7 +150,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('"正在复用英文 tags 并生成图片…"', editor)
         self.assertIn('document.createTextNode("角色保持")', editor)
         self.assertIn('characterName.placeholder = "角色名（可选）"', editor)
-        self.assertIn("keepCharacter: !!node.meta?.characterKeep", editor)
+        self.assertIn("const keepCharacter = !!node.meta?.characterKeep", editor)
+        self.assertIn("keepCharacter,", editor)
         self.assertIn("character_name if keep_character else", service)
         self.assertNotIn('label: "不使用画师预设"', editor)
         self.assertIn('if (node.artist === "__none__") node.artist = ""', editor)
