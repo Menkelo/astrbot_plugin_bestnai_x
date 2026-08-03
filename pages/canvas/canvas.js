@@ -641,12 +641,6 @@ function makeNodeShell(node, label) {
 
   const actions = document.createElement("span");
   actions.className = "node-actions";
-  if (node.type === "prompt") {
-    const artistBadge = document.createElement("span");
-    artistBadge.className = "node-artist-badge";
-    updateArtistBadge(artistBadge, node);
-    actions.appendChild(artistBadge);
-  }
   actions.append(
     makeAction("copy", "复制节点", () => duplicateNode(node.id)),
     makeAction("x", "删除节点", () => deleteNode(node.id), "delete"),
@@ -671,14 +665,6 @@ function artistDisplayName(node) {
     return String(option?.label || node.artist).trim();
   }
   return String(state.config.defaultArtist || "").trim();
-}
-
-function updateArtistBadge(badge, node) {
-  if (!badge) return;
-  const artist = artistDisplayName(node);
-  badge.textContent = artist;
-  badge.title = artist ? `画师预设：${artist}` : "未使用画师预设";
-  badge.hidden = !artist;
 }
 
 function bringNodeToFront(id, element = null) {
@@ -802,7 +788,6 @@ function renderPromptNode(node) {
   ];
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
     node.artist = value;
-    updateArtistBadge(element.querySelector(".node-artist-badge"), node);
     scheduleSave();
   });
   options.append(ratioField, artistField);
@@ -817,7 +802,6 @@ function renderPromptNode(node) {
   raw.checked = !!node.raw;
   raw.addEventListener("change", () => {
     node.raw = raw.checked;
-    updateArtistBadge(element.querySelector(".node-artist-badge"), node);
     scheduleSave();
   });
   rawLabel.append(raw, document.createTextNode("原始提示词"));
@@ -2306,7 +2290,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.16"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.17"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

@@ -8,7 +8,7 @@
 # 插件基本信息
 PLUGIN_NAME = "astrbot_plugin_bestnai_x"
 PLUGIN_DISPLAY_NAME = "NAI Diffusion X"
-PLUGIN_VERSION = "3.0.16"
+PLUGIN_VERSION = "3.0.17"
 PLUGIN_AUTHOR = "Menkelo"
 PLUGIN_REPO = "https://github.com/Menkelo/astrbot_plugin_bestnai_x"
 

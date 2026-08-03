@@ -702,7 +702,6 @@ select:focus-visible,
   gap: 2px;
 }
 
-.node-artist-badge,
 .image-artist-badge,
 .asset-thumb-artist {
   overflow: hidden;
@@ -715,11 +714,6 @@ select:focus-visible,
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.node-artist-badge {
-  max-width: 72px;
-  padding: 5px 7px;
 }
 
 .node-action {
