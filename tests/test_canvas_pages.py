@@ -117,18 +117,20 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_prompt_nodes_retag_then_generate_and_leave_library_explicit(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
         self.assertNotIn("function retagAndGenerateFromImage", editor)
         self.assertNotIn('makeAction("scan-search", "反推并生成"', editor)
-        self.assertIn("if (!state.config.retagConfigured)", editor)
-        self.assertIn("retagFromNode(node.id, true)", editor)
+        self.assertIn("if (!cachedRetag && !state.config.retagConfigured)", editor)
+        self.assertNotIn("retagFromNode(node.id, true)", editor)
         self.assertIn("function runPromptNode(id)", editor)
         self.assertIn("? retagFromNode(id, true)", editor)
-        self.assertIn('document.createTextNode("反推")', editor)
+        self.assertNotIn('document.createTextNode("反推")', editor)
+        self.assertNotIn(".retag-btn", styles)
+        self.assertIn("commands.append(generate)", editor)
         self.assertNotIn('document.createTextNode(node.status === "retagging"', editor)
         self.assertIn("promptOverride: mergedPrompt", editor)
-        self.assertIn('retagged ? "反推图片" : "生成结果"', editor)
         self.assertIn("function mergeRetagPrompt", editor)
         self.assertIn("const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt)", editor)
         self.assertIn("retagMergedPrompt: mergedPrompt", editor)
@@ -156,6 +158,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('label: "不使用画师预设"', editor)
         self.assertIn('if (node.artist === "__none__") node.artist = ""', editor)
         self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
+        delete_body = editor.split("function deleteNodes(ids)", 1)[1].split(
+            "function deleteNode(id)", 1
+        )[0]
+        self.assertNotIn("canvas/library/image/delete", delete_body)
+        self.assertNotIn("state.library.images", delete_body)
         generate_body = service.split("    async def generate(self)", 1)[1].split(
             "    async def retag(self)", 1
         )[0]
@@ -204,6 +211,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("clientToWorld(endEvent.clientX, endEvent.clientY)", editor)
         self.assertNotIn('card.addEventListener("click", () => addImageAssetToCanvas(item))', editor)
         self.assertIn('thumb.style.aspectRatio = `${item.width} / ${item.height}`', editor)
+        self.assertIn("item.prompt?.trim() || item.name", editor)
         self.assertIn("object-fit: contain;", styles)
         self.assertIn("align-self: start;", styles)
         self.assertIn(".asset-grid.empty", styles)
@@ -232,11 +240,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function bringNodeToFront", editor)
         self.assertIn("state.nodes.splice(index, 1)", editor)
         self.assertIn("els.nodeLayer.appendChild(current)", editor)
-        self.assertIn(
-            'prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果")',
-            editor,
-        )
+        self.assertIn("const imagePrompt = node.prompt?.trim()", editor)
+        self.assertIn("title: imagePrompt", editor)
+        self.assertIn("prompt: imagePrompt", editor)
+        self.assertIn("node.meta?.prompt || node.title || \"生成结果\"", editor)
         self.assertIn("tags: result.meta?.translatedPrompt || workingPrompt", editor)
+
+    def test_new_prompt_nodes_inherit_last_ratio_and_artist(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        self.assertIn('const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults"', editor)
+        self.assertIn("function loadPromptDefaults()", editor)
+        self.assertIn("function rememberPromptDefaults(updates)", editor)
+        self.assertIn("ratio: state.promptDefaults.ratio", editor)
+        self.assertIn("artist: state.promptDefaults.artist", editor)
+        self.assertIn("rememberPromptDefaults({ ratio: value })", editor)
+        self.assertIn("rememberPromptDefaults({ artist: value })", editor)
+        self.assertIn("const artistOptions = canvasArtistOptions()", editor)
+        self.assertNotIn("`默认 · ${state.config.defaultArtist", editor)
 
     def test_generation_avoids_existing_nodes_and_text_inputs_keep_native_undo(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")

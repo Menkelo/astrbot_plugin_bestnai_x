@@ -957,7 +957,6 @@ select:focus-visible,
   gap: 6px;
 }
 
-.retag-btn,
 .generate-btn {
   display: inline-flex;
   min-width: 64px;
@@ -983,22 +982,15 @@ select:focus-visible,
   color: var(--strong-text);
 }
 
-.retag-btn:hover {
-  border-color: var(--line-2);
-  color: var(--text);
-}
-
 .generate-btn:hover {
   opacity: .88;
 }
 
-.retag-btn:disabled,
 .generate-btn:disabled {
   cursor: not-allowed;
   opacity: .45;
 }
 
-.retag-btn svg,
 .generate-btn svg {
   width: 13px;
   height: 13px;
@@ -1986,7 +1978,6 @@ select:focus-visible,
     width: 100%;
   }
 
-  .retag-btn,
   .generate-btn {
     flex: 1;
   }

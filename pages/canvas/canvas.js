@@ -90,10 +90,12 @@ const state = {
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
   assetCache: new Map(),
+  promptDefaults: { ratio: "", artist: "" },
 };
 
 const MAX_HISTORY = 40;
 const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
+const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults";
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 function icon(name, className = "") {
@@ -455,11 +457,70 @@ function createPromptNode(point = null) {
     height: 360,
     title: "提示词节点",
     prompt: "",
-    ratio: state.config.defaultRatio || "2:3",
-    artist: "",
+    ratio: state.promptDefaults.ratio || state.config.defaultRatio || "2:3",
+    artist: state.promptDefaults.artist,
     raw: false,
     createdAt: new Date().toISOString(),
   };
+}
+
+function optionValue(item) {
+  return typeof item === "string" ? item : String(item?.value || "");
+}
+
+function hasOptionValue(items, value) {
+  return (items || []).some((item) => optionValue(item) === value);
+}
+
+function canvasArtistOptions() {
+  const artists = [...(state.config.artists || [])];
+  const configuredArtist = String(state.config.defaultArtist || "").trim();
+  const configuredOption = artists.find(
+    (item) => item.value === configuredArtist || item.label === configuredArtist,
+  );
+  if (configuredArtist && !configuredOption) {
+    artists.unshift({ value: "", label: configuredArtist });
+  }
+  if (!artists.length) artists.push({ value: "", label: "配置画师预设" });
+  return artists;
+}
+
+function normalizedArtistSelection(value) {
+  const options = canvasArtistOptions();
+  const selected = String(value || "");
+  if (selected && hasOptionValue(options, selected)) return selected;
+  const configuredArtist = String(state.config.defaultArtist || "").trim();
+  const configuredOption = options.find(
+    (item) => item.value === configuredArtist || item.label === configuredArtist,
+  );
+  if (!selected && configuredOption) return configuredOption.value;
+  if (hasOptionValue(options, selected)) return selected;
+  return optionValue(options[0]);
+}
+
+function loadPromptDefaults() {
+  let stored = {};
+  try {
+    stored = JSON.parse(localStorage.getItem(PROMPT_DEFAULTS_KEY) || "{}");
+  } catch (_) {
+    stored = {};
+  }
+  const fallbackRatio = state.config.defaultRatio
+    || optionValue(state.config.ratios?.[0])
+    || "2:3";
+  state.promptDefaults = {
+    ratio: hasOptionValue(state.config.ratios, stored.ratio) ? stored.ratio : fallbackRatio,
+    artist: normalizedArtistSelection(stored.artist),
+  };
+}
+
+function rememberPromptDefaults(updates) {
+  state.promptDefaults = { ...state.promptDefaults, ...updates };
+  try {
+    localStorage.setItem(PROMPT_DEFAULTS_KEY, JSON.stringify(state.promptDefaults));
+  } catch (_) {
+    // The current browser may disable local storage.
+  }
 }
 
 function createNoteNode(point = null) {
@@ -517,31 +578,10 @@ function deleteNodes(ids) {
   const deleteIds = new Set(ids.filter((id) => !!findNode(id)));
   if (!deleteIds.size) return;
   pushHistory();
-  const removedAssetIds = state.nodes
-    .filter((node) => deleteIds.has(node.id) && node.type === "image" && node.assetId)
-    .map((node) => node.assetId);
   state.nodes = state.nodes.filter((node) => !deleteIds.has(node.id));
   state.connections = state.connections.filter(
     (edge) => !deleteIds.has(edge.source) && !deleteIds.has(edge.target),
   );
-  const orphanedAssetIds = [...new Set(removedAssetIds)].filter(
-    (assetId) => !state.nodes.some((node) => node.type === "image" && node.assetId === assetId),
-  );
-  if (orphanedAssetIds.length) {
-    state.library.images = state.library.images.filter(
-      (item) => !orphanedAssetIds.includes(item.id),
-    );
-    if (els.assetPanel.classList.contains("open")) renderAssetLibrary();
-    Promise.allSettled(
-      orphanedAssetIds.map((assetId) => (
-        bridge.apiPost("canvas/library/image/delete", { id: assetId })
-      )),
-    ).then((results) => {
-      if (results.some((result) => result.status === "rejected")) {
-        toast("部分图片未能从素材库移除", "error");
-      }
-    });
-  }
   clearSelection();
   renderAll();
   scheduleSave();
@@ -783,14 +823,13 @@ function renderPromptNode(node) {
   options.className = "prompt-options";
   const ratioField = makeSelectField("画幅", state.config.ratios, node.ratio, (value) => {
     node.ratio = value;
+    rememberPromptDefaults({ ratio: value });
     scheduleSave();
   });
-  const artistOptions = [
-    { value: "", label: `默认 · ${state.config.defaultArtist || "配置预设"}` },
-    ...(state.config.artists || []),
-  ];
+  const artistOptions = canvasArtistOptions();
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
     node.artist = value;
+    rememberPromptDefaults({ artist: value });
     scheduleSave();
   });
   options.append(ratioField, artistField);
@@ -812,49 +851,28 @@ function renderPromptNode(node) {
   const commands = document.createElement("div");
   commands.className = "node-commands";
   const sourceImage = sourceImageForPrompt(node.id);
-  const cachedRetag = cachedRetagResult(node, sourceImage);
-
-  const retag = document.createElement("button");
-  retag.type = "button";
-  retag.className = "retag-btn";
-  retag.disabled = !!node.status || !sourceImage || (!cachedRetag && !state.config.retagConfigured);
-  retag.append(icon("scan-search"), document.createTextNode("反推"));
-  if (!sourceImage) {
-    retag.title = "先把图片节点右侧端口连接到此节点左侧";
-  } else if (cachedRetag) {
-    retag.title = "复用此原图已保存的反推结果并生成图片";
-  } else if (!state.config.retagEnabled) {
-    retag.title = "请先在插件配置中启用图片反推";
-  } else if (!state.config.retagConfigured) {
-    retag.title = "请选择支持视觉输入的反推提供商";
-  } else {
-    retag.title = "反推左侧原图提示词并生成右侧图片";
-  }
-  retag.addEventListener("pointerdown", (event) => event.stopPropagation());
-  retag.addEventListener("click", (event) => {
-    event.stopPropagation();
-    retagFromNode(node.id, true);
-  });
 
   const generate = document.createElement("button");
   generate.type = "button";
   generate.className = "generate-btn";
   generate.disabled = !!node.status || !state.config.configured;
   generate.append(icon("wand-sparkles"), document.createTextNode("生成"));
-  generate.title = state.config.configured ? "生成图片 (Ctrl+Enter)" : "请先配置生图提供商";
+  generate.title = state.config.configured
+    ? (sourceImage ? "反推原图并生成图片 (Ctrl+Enter)" : "生成图片 (Ctrl+Enter)")
+    : "请先配置生图提供商";
   generate.addEventListener("pointerdown", (event) => event.stopPropagation());
   generate.addEventListener("click", (event) => {
     event.stopPropagation();
     runPromptNode(node.id);
   });
-  commands.append(retag, generate);
+  commands.append(generate);
   footer.append(rawLabel, commands);
 
   const status = document.createElement("div");
   status.className = `node-status${node.error ? " error" : ""}`;
   status.textContent = node.error
     || node.statusText
-    || (sourceImage ? "已连接原图，可反推提示词" : "Ctrl + Enter 快速生成");
+    || (sourceImage ? "已连接原图，生成时自动反推" : "Ctrl + Enter 快速生成");
 
   const inputPort = document.createElement("span");
   inputPort.className = "port in";
@@ -893,7 +911,7 @@ function makeSelectField(label, items, value, onChange) {
 
 function renderImageNode(node) {
   hydrateImageAsset(node);
-  const element = makeNodeShell(node, node.title || "生成结果");
+  const element = makeNodeShell(node, node.meta?.prompt || node.title || "生成结果");
   const actions = element.querySelector(".node-actions");
   actions.insertBefore(
     makeAction("download", "下载图片", () => downloadImage(node)),
@@ -1057,6 +1075,7 @@ function normalizeLoadedNodeDimensions(node) {
     node.width = clamp(Number(node.width) || 320, 280, 640);
     node.height = clamp(Number(node.height) || 360, 300, 800);
     if (node.artist === "__none__") node.artist = "";
+    node.artist = normalizedArtistSelection(node.artist);
   }
   if (node.type === "note") {
     node.width = clamp(Number(node.width) || 260, 220, 640);
@@ -1626,6 +1645,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       translationSource: result.meta?.translationSource || "",
       translationResult: result.meta?.translationResult || "",
     };
+    const imagePrompt = node.prompt?.trim() || result.meta?.translatedPrompt || workingPrompt;
     const createdIds = [];
     assets.forEach((asset) => {
       const sourceWidth = asset.width || result.meta?.width;
@@ -1642,12 +1662,12 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
         x: position.x,
         y: position.y,
         width: imageNodeWidth,
-        title: `${retagged ? "反推图片" : "生成结果"} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+        title: imagePrompt,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
         createdAt: new Date().toISOString(),
         meta: {
-          prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
+          prompt: imagePrompt,
           tags: result.meta?.translatedPrompt || workingPrompt,
           artist: result.meta?.artist || "",
           ratio: result.meta?.ratio || node.ratio,
@@ -2029,7 +2049,7 @@ function renderImageAssetCard(item) {
   meta.className = "asset-card-meta";
   const name = document.createElement("span");
   name.className = "asset-card-name";
-  name.textContent = item.name || `图片 ${item.id.slice(0, 8)}`;
+  name.textContent = item.prompt?.trim() || item.name || `图片 ${item.id.slice(0, 8)}`;
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "asset-card-remove";
@@ -2208,8 +2228,9 @@ function applyPromptAsset(item) {
   }
   node.prompt = item.prompt || "";
   node.ratio = item.ratio || node.ratio;
-  node.artist = item.artist || "";
+  node.artist = normalizedArtistSelection(item.artist);
   node.raw = !!item.raw;
+  rememberPromptDefaults({ ratio: node.ratio, artist: node.artist });
   setSelection([node.id], node.id);
   renderAll();
   scheduleSave();
@@ -2222,7 +2243,7 @@ async function saveImageToLibrary(node) {
   try {
     const result = await bridge.apiPost("canvas/library/image/add", {
       assetId: node.assetId,
-      name: node.title || node.meta?.prompt || "画布图片",
+      name: node.meta?.prompt || node.title || "画布图片",
       source: "canvas",
       prompt: node.meta?.prompt || "",
       tags: node.meta?.tags || node.meta?.finalPrompt || "",
@@ -2348,9 +2369,10 @@ async function loadInitialState() {
   ]);
   state.canvases = Array.isArray(canvasList?.canvases) ? canvasList.canvases : [];
   state.config = { ...state.config, ...(config || {}) };
+  loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.19"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.20"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
