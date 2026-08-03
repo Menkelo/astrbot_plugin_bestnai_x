@@ -358,7 +358,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
-        self.assertIn('if (event.target.closest(".asset-panel")) return;', editor)
+        self.assertIn("function nodeEditorOwnsWheel(target)", editor)
         self.assertIn('els.assetPanel.addEventListener("wheel"', editor)
         self.assertIn("event.stopPropagation();", editor)
         self.assertIn("grabOffsetX: event.clientX - cardRect.left", editor)
@@ -435,6 +435,68 @@ class CanvasPageBridgeTest(unittest.TestCase):
         project_menu_styles = styles.split(".project-menu {", 1)[1].split("}", 1)[0]
         self.assertIn("position: fixed;", project_menu_styles)
         self.assertIn("border-radius: 16px;", project_menu_styles)
+
+    def test_mobile_toolbar_keeps_actions_and_canvas_supports_pinch_zoom(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
+            "@media (prefers-reduced-motion", 1
+        )[0]
+        self.assertIn('"identity project"', mobile_styles)
+        self.assertIn('"tools tools"', mobile_styles)
+        self.assertIn("overflow-x: auto;", mobile_styles)
+        self.assertIn("-webkit-overflow-scrolling: touch;", mobile_styles)
+        self.assertNotIn(".toolbar-fixed .tool-btn:not(#fitBtn)", mobile_styles)
+        self.assertIn("const canvasTouchPointers = new Map()", editor)
+        self.assertIn("function beginCanvasPinch()", editor)
+        self.assertIn('mode: "pinch"', editor)
+        self.assertIn("canvasTouchGesture.startScale * distance / canvasTouchGesture.startDistance", editor)
+        self.assertIn('event.pointerType === "touch"', editor)
+        self.assertIn('els.viewport.addEventListener("pointermove", handleCanvasTouchMove)', editor)
+        self.assertIn('els.viewport.addEventListener("pointercancel", handleCanvasTouchEnd)', editor)
+
+    def test_prompt_editors_own_wheel_scrolling_and_logo_is_round(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        wheel_owner = editor.split("function nodeEditorOwnsWheel", 1)[1].split(
+            'els.viewport.addEventListener("wheel"', 1
+        )[0]
+        self.assertIn(".prompt-text", wheel_owner)
+        self.assertIn(".translated-prompt-text", wheel_owner)
+        self.assertIn(".note-text", wheel_owner)
+        self.assertIn('.closest(".node.selected")', wheel_owner)
+        wheel_body = editor.split('els.viewport.addEventListener("wheel"', 1)[1].split(
+            'els.assetPanel.addEventListener("wheel"', 1
+        )[0]
+        self.assertIn("nodeEditorOwnsWheel(event.target)", wheel_body)
+        prompt_styles = styles.split(".prompt-text {\n  min-height:", 1)[1].split("}", 1)[0]
+        translated_styles = styles.split(".translated-prompt-text {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-y: auto;", prompt_styles)
+        self.assertIn("overscroll-behavior: contain;", prompt_styles)
+        self.assertIn("overflow-y: auto;", translated_styles)
+        logo_styles = styles.split(".canvas-mark {", 1)[1].split("}", 1)[0]
+        self.assertIn("border-radius: 999px;", logo_styles)
+
+    def test_middle_mouse_pans_and_context_menu_adds_nodes(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="canvasContextMenu"', html)
+        self.assertIn('id="contextAddImageBtn"', html)
+        self.assertIn('<span>图片</span>', html)
+        self.assertNotIn('<span>上传节点</span>', html)
+        self.assertIn('event.pointerType === "mouse" && event.button === 1', editor)
+        self.assertIn("if (middlePan) event.preventDefault()", editor)
+        self.assertIn('state.contextMenuPoint = clientToWorld(event.clientX, event.clientY)', editor)
+        self.assertIn('document.getElementById("contextAddPromptBtn")', editor)
+        self.assertIn('addNode(createPromptNode(point))', editor)
+        self.assertIn('addNode(createNoteNode(point))', editor)
+        menu_styles = styles.split(".canvas-context-menu {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: fixed;", menu_styles)
+        self.assertIn("border-radius: 18px;", menu_styles)
 
     def test_character_preservation_guides_visual_retagging(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")

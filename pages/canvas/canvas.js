@@ -56,6 +56,7 @@ const els = {
   projectList: document.getElementById("projectList"),
   newProjectRow: document.getElementById("newProjectRow"),
   newProjectInput: document.getElementById("newProjectInput"),
+  canvasContextMenu: document.getElementById("canvasContextMenu"),
 };
 
 const state = {
@@ -97,6 +98,7 @@ const state = {
   currentCanvasTitle: "未命名项目",
   assetCache: new Map(),
   promptDefaults: { ratio: "", artist: "" },
+  contextMenuPoint: null,
 };
 
 const MAX_HISTORY = 40;
@@ -181,6 +183,7 @@ function startHealthMonitor() {
 
 function setProjectMenu(open) {
   const next = !!open;
+  if (next) setCanvasContextMenu(false);
   if (next && els.assetPanel.classList.contains("open")) setAssetPanel(false);
   els.projectMenu.hidden = !next;
   els.projectMenuBtn.setAttribute("aria-expanded", String(next));
@@ -191,6 +194,20 @@ function setProjectMenu(open) {
     els.newProjectInput.value = "";
     state.pendingDeleteCanvasId = "";
   }
+}
+
+function setCanvasContextMenu(open, clientX = 0, clientY = 0) {
+  const next = !!open;
+  els.canvasContextMenu.hidden = !next;
+  if (!next) {
+    state.contextMenuPoint = null;
+    return;
+  }
+  const margin = 12;
+  const width = els.canvasContextMenu.offsetWidth;
+  const height = els.canvasContextMenu.offsetHeight;
+  els.canvasContextMenu.style.left = `${clamp(clientX, margin, window.innerWidth - width - margin)}px`;
+  els.canvasContextMenu.style.top = `${clamp(clientY, margin, window.innerHeight - height - margin)}px`;
 }
 
 function alignedPanelEdges() {
@@ -2019,6 +2036,7 @@ async function loadLibrary(render = true) {
 }
 
 function setAssetPanel(open) {
+  if (open) setCanvasContextMenu(false);
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
   els.assetPanel.classList.toggle("open", open);
   document.getElementById("assetLibraryBtn").classList.toggle("active", open);
@@ -2517,7 +2535,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.32"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.33"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2548,13 +2566,143 @@ async function loadInitialState() {
   startHealthMonitor();
 }
 
+const canvasTouchPointers = new Map();
+let canvasTouchGesture = null;
+
+function canvasTouchPair() {
+  const entries = [...canvasTouchPointers.entries()];
+  return entries.length >= 2 ? entries.slice(0, 2) : null;
+}
+
+function beginCanvasPinch() {
+  const pair = canvasTouchPair();
+  if (!pair) return;
+  const [[firstId, first], [secondId, second]] = pair;
+  const midpoint = {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
+  canvasTouchGesture = {
+    mode: "pinch",
+    pointerIds: [firstId, secondId],
+    startDistance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
+    startScale: state.viewport.scale,
+    world: clientToWorld(midpoint.x, midpoint.y),
+  };
+}
+
+function handleCanvasTouchStart(event) {
+  event.preventDefault();
+  canvasTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  try {
+    els.viewport.setPointerCapture(event.pointerId);
+  } catch (_) {
+    // Some embedded mobile browsers do not expose pointer capture.
+  }
+  els.viewport.classList.add("panning");
+  if (canvasTouchPointers.size === 1) {
+    clearSelection();
+    renderNodes();
+    requestAnimationFrame(renderConnections);
+    canvasTouchGesture = {
+      mode: "pan",
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      viewportX: state.viewport.x,
+      viewportY: state.viewport.y,
+    };
+  } else if (canvasTouchPointers.size === 2) {
+    beginCanvasPinch();
+  }
+}
+
+function handleCanvasTouchMove(event) {
+  if (!canvasTouchPointers.has(event.pointerId)) return;
+  event.preventDefault();
+  canvasTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (canvasTouchPointers.size >= 2) {
+    if (canvasTouchGesture?.mode !== "pinch") beginCanvasPinch();
+    const [firstId, secondId] = canvasTouchGesture.pointerIds;
+    const first = canvasTouchPointers.get(firstId);
+    const second = canvasTouchPointers.get(secondId);
+    if (!first || !second) {
+      beginCanvasPinch();
+      return;
+    }
+    const midpoint = {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    };
+    const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+    const rect = els.viewport.getBoundingClientRect();
+    const scale = clamp(
+      canvasTouchGesture.startScale * distance / canvasTouchGesture.startDistance,
+      0.1,
+      4,
+    );
+    state.viewport.scale = scale;
+    state.viewport.x = midpoint.x - rect.left - canvasTouchGesture.world.x * scale;
+    state.viewport.y = midpoint.y - rect.top - canvasTouchGesture.world.y * scale;
+    renderViewport();
+    drawMinimap();
+    return;
+  }
+  if (canvasTouchGesture?.mode !== "pan" || canvasTouchGesture.pointerId !== event.pointerId) return;
+  state.viewport.x = canvasTouchGesture.viewportX + event.clientX - canvasTouchGesture.startX;
+  state.viewport.y = canvasTouchGesture.viewportY + event.clientY - canvasTouchGesture.startY;
+  renderViewport();
+  drawMinimap();
+}
+
+function handleCanvasTouchEnd(event) {
+  if (!canvasTouchPointers.has(event.pointerId)) return;
+  event.preventDefault();
+  canvasTouchPointers.delete(event.pointerId);
+  try {
+    if (els.viewport.hasPointerCapture(event.pointerId)) {
+      els.viewport.releasePointerCapture(event.pointerId);
+    }
+  } catch (_) {
+    // Pointer capture may already have been released by the browser.
+  }
+  if (canvasTouchPointers.size >= 2) {
+    beginCanvasPinch();
+    return;
+  }
+  if (canvasTouchPointers.size === 1) {
+    const [[pointerId, point]] = canvasTouchPointers.entries();
+    canvasTouchGesture = {
+      mode: "pan",
+      pointerId,
+      startX: point.x,
+      startY: point.y,
+      viewportX: state.viewport.x,
+      viewportY: state.viewport.y,
+    };
+    return;
+  }
+  canvasTouchGesture = null;
+  els.viewport.classList.remove("panning");
+  scheduleSave(800);
+}
+
 els.viewport.addEventListener("pointerdown", (event) => {
+  const middlePan = event.pointerType === "mouse" && event.button === 1;
   if (
-    event.button !== 0
-    || event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")
+    (event.button !== 0 && !middlePan)
+    || (!middlePan && event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel"))
   ) return;
 
-  if (event.ctrlKey || event.metaKey) {
+  if (middlePan) event.preventDefault();
+  setCanvasContextMenu(false);
+
+  if (event.pointerType === "touch") {
+    handleCanvasTouchStart(event);
+    return;
+  }
+
+  if (!middlePan && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     event.stopPropagation();
     const viewportRect = els.viewport.getBoundingClientRect();
@@ -2592,9 +2740,11 @@ els.viewport.addEventListener("pointerdown", (event) => {
     return;
   }
 
-  clearSelection();
-  renderNodes();
-  requestAnimationFrame(renderConnections);
+  if (!middlePan) {
+    clearSelection();
+    renderNodes();
+    requestAnimationFrame(renderConnections);
+  }
   const start = { x: event.clientX, y: event.clientY, vx: state.viewport.x, vy: state.viewport.y };
   els.viewport.classList.add("panning");
   els.viewport.setPointerCapture(event.pointerId);
@@ -2616,8 +2766,20 @@ els.viewport.addEventListener("pointerdown", (event) => {
   els.viewport.addEventListener("pointercancel", end);
 });
 
+els.viewport.addEventListener("pointermove", handleCanvasTouchMove);
+els.viewport.addEventListener("pointerup", handleCanvasTouchEnd);
+els.viewport.addEventListener("pointercancel", handleCanvasTouchEnd);
+
+function nodeEditorOwnsWheel(target) {
+  const targetElement = target instanceof Element ? target : target?.parentElement;
+  if (!targetElement) return false;
+  if (targetElement.closest(".asset-panel, .image-viewer-details")) return true;
+  const editor = targetElement.closest(".prompt-text, .translated-prompt-text, .note-text");
+  return !!editor?.closest(".node.selected");
+}
+
 els.viewport.addEventListener("wheel", (event) => {
-  if (event.target.closest(".asset-panel")) return;
+  if (nodeEditorOwnsWheel(event.target)) return;
   event.preventDefault();
   const factor = Math.exp(-event.deltaY * 0.0015);
   setZoom(state.viewport.scale * factor, event.clientX, event.clientY);
@@ -2634,7 +2796,13 @@ els.viewport.addEventListener("dblclick", (event) => {
 });
 
 els.viewport.addEventListener("contextmenu", (event) => {
-  if (!event.target.closest(".prompt-text, .translated-prompt-text, .character-name-input")) event.preventDefault();
+  if (event.target.closest("textarea, input, select, [contenteditable='true']")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  setProjectMenu(false);
+  if (els.assetPanel.classList.contains("open")) setAssetPanel(false);
+  state.contextMenuPoint = clientToWorld(event.clientX, event.clientY);
+  setCanvasContextMenu(true, event.clientX, event.clientY);
 });
 
 function dataTransferHasFiles(dataTransfer) {
@@ -2743,6 +2911,22 @@ document.getElementById("addImageBtn").addEventListener("click", () => {
   state.pendingUploadPoint = null;
   els.imageInput.click();
 });
+document.getElementById("contextAddImageBtn").addEventListener("click", () => {
+  const point = state.contextMenuPoint || worldCenter();
+  setCanvasContextMenu(false);
+  state.pendingUploadPoint = point;
+  els.imageInput.click();
+});
+document.getElementById("contextAddPromptBtn").addEventListener("click", () => {
+  const point = state.contextMenuPoint || worldCenter();
+  setCanvasContextMenu(false);
+  addNode(createPromptNode(point));
+});
+document.getElementById("contextAddNoteBtn").addEventListener("click", () => {
+  const point = state.contextMenuPoint || worldCenter();
+  setCanvasContextMenu(false);
+  addNode(createNoteNode(point));
+});
 document.getElementById("fitBtn").addEventListener("click", fitView);
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
@@ -2774,6 +2958,9 @@ els.newProjectInput.addEventListener("keydown", (event) => {
 document.addEventListener("pointerdown", (event) => {
   if (!els.projectMenu.hidden && !event.target.closest(".project-switcher, .project-menu")) {
     setProjectMenu(false);
+  }
+  if (!els.canvasContextMenu.hidden && !event.target.closest(".canvas-context-menu")) {
+    setCanvasContextMenu(false);
   }
 });
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
@@ -2885,6 +3072,10 @@ document.addEventListener("keydown", (event) => {
       closeImageViewer();
       return;
     }
+    if (!els.canvasContextMenu.hidden) {
+      setCanvasContextMenu(false);
+      return;
+    }
     if (!els.projectMenu.hidden) {
       setProjectMenu(false);
       return;
@@ -2929,6 +3120,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", () => {
+  setCanvasContextMenu(false);
   drawMinimap();
   alignToastRegion();
   if (!els.projectMenu.hidden) alignProjectMenu();

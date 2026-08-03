@@ -154,6 +154,51 @@ select:focus-visible,
   display: none;
 }
 
+.canvas-context-menu {
+  position: fixed;
+  z-index: 95;
+  display: grid;
+  width: 188px;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card-solid);
+  box-shadow: 0 22px 56px rgba(15, 23, 42, .16);
+}
+
+.canvas-context-menu[hidden] {
+  display: none;
+}
+
+.canvas-context-menu button {
+  display: flex;
+  width: 100%;
+  height: 42px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: left;
+}
+
+.canvas-context-menu button:hover,
+.canvas-context-menu button:focus-visible {
+  background: var(--soft-2);
+  color: var(--text);
+}
+
+.canvas-context-menu svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+}
+
 .project-menu-head,
 .project-create-row,
 .project-row,
@@ -298,7 +343,7 @@ select:focus-visible,
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--card-solid);
   box-shadow: 0 5px 14px rgba(15, 23, 42, .13);
 }
@@ -779,7 +824,9 @@ select:focus-visible,
 .prompt-text {
   min-height: 88px;
   flex: 1 1 auto;
+  overflow-y: auto;
   resize: none;
+  overscroll-behavior: contain;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -947,6 +994,8 @@ select:focus-visible,
   color: var(--muted);
   font-size: 11px;
   line-height: 1.55;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -1992,17 +2041,29 @@ select:focus-visible,
 }
 
 @media (max-width: 620px) {
+  .topbar {
+    display: grid;
+    grid-template-areas:
+      "identity project"
+      "tools tools";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    border-radius: 20px;
+  }
+
   .canvas-nav {
-    max-width: 180px;
-    min-height: 44px;
-    padding: 5px 9px 5px 5px;
+    grid-area: identity;
+    width: 100%;
+    max-width: none;
+    min-height: 40px;
+    padding: 3px 7px 3px 3px;
   }
 
   .canvas-mark {
     width: 32px;
     height: 32px;
     flex-basis: 32px;
-    border-radius: 13px;
+    border-radius: 999px;
   }
 
   .current-canvas-title {
@@ -2010,25 +2071,51 @@ select:focus-visible,
   }
 
   .plugin-meta {
-    max-width: 112px;
+    max-width: min(180px, calc(100vw - 112px));
   }
 
   .toolbar {
-    max-width: calc(100vw - 238px);
-    padding: 4px;
+    grid-area: tools;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 5px 0 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid var(--line);
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
-  .toolbar-divider,
-  .toolbar-fixed .tool-btn:not(#fitBtn) {
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar-items,
+  .toolbar-fixed {
+    flex: 0 0 auto;
+    gap: 2px;
+    overflow: visible;
+  }
+
+  .toolbar-project-switcher {
+    grid-area: project;
+    width: 32px;
+    margin: 4px 1px 0 0;
+    align-self: start;
+  }
+
+  .toolbar-divider {
     display: none;
   }
 
   .tool-btn,
   .tool-btn.icon-only,
   .toolbar-items .tool-btn {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
   }
 
   .minimap,
@@ -2037,7 +2124,7 @@ select:focus-visible,
   }
 
   .asset-panel {
-    top: 68px;
+    top: 116px;
     left: 12px;
     bottom: 12px;
     width: calc(100vw - 24px);

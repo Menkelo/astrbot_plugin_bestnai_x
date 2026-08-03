@@ -18,7 +18,7 @@
             </span>
             <span class="plugin-meta">
               <span class="plugin-author">by <span id="pluginAuthor">Menkelo</span></span>
-              <span id="pluginVersion">v3.0.32</span>
+              <span id="pluginVersion">v3.0.33</span>
               <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
             </span>
           </div>
@@ -120,6 +120,11 @@
         <button id="cancelNewProjectBtn" class="project-menu-icon" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
       </div>
       <div id="projectList" class="project-list"></div>
+    </div>
+    <div id="canvasContextMenu" class="canvas-context-menu" role="menu" aria-label="添加节点" hidden>
+      <button id="contextAddImageBtn" type="button" role="menuitem"><i data-lucide="image-plus"></i><span>图片</span></button>
+      <button id="contextAddPromptBtn" type="button" role="menuitem"><i data-lucide="text-cursor-input"></i><span>提示词</span></button>
+      <button id="contextAddNoteBtn" type="button" role="menuitem"><i data-lucide="notebook-pen"></i><span>备注</span></button>
     </div>
     <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
     <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
