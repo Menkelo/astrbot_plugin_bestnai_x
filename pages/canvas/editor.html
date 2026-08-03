@@ -18,7 +18,7 @@
             </span>
             <span class="plugin-meta">
               <span class="plugin-author">by <span id="pluginAuthor">Menkelo</span></span>
-              <span id="pluginVersion">v3.0.25</span>
+              <span id="pluginVersion">v3.0.26</span>
               <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
             </span>
           </div>
@@ -105,46 +105,6 @@
           </div>
         </div>
         <aside id="assetPanel" class="asset-panel" aria-label="素材库">
-          <header class="asset-panel-head">
-            <div>
-              <strong>素材库</strong>
-              <span id="assetPanelCount">0 项</span>
-            </div>
-            <div class="asset-layout-switch" id="assetLayoutSwitch" aria-label="图片排列方式">
-              <button type="button" data-asset-layout="compact" title="紧凑网格" aria-label="紧凑网格"><i data-lucide="grid-3x3"></i></button>
-              <button type="button" data-asset-layout="masonry" title="原比例瀑布流" aria-label="原比例瀑布流"><i data-lucide="columns-2"></i></button>
-            </div>
-          </header>
-          <div class="asset-tabs" role="tablist" aria-label="素材类型">
-            <button class="asset-tab active" type="button" role="tab" aria-selected="true" data-asset-tab="image"><i data-lucide="images"></i><span>图片</span></button>
-            <button class="asset-tab" type="button" role="tab" aria-selected="false" data-asset-tab="prompt"><i data-lucide="text-cursor-input"></i><span>提示词</span></button>
-          </div>
-          <div class="asset-panel-tools">
-            <label class="asset-search"><i data-lucide="search"></i><input id="assetSearch" type="search" placeholder="搜索名称、提示词、tags 或画师" /></label>
-          </div>
-          <div class="asset-filter-row">
-            <select id="assetArtistFilter" aria-label="按画师筛选" title="按画师筛选"><option value="">全部画师</option></select>
-            <select id="assetRatioFilter" aria-label="按比例筛选" title="按比例筛选"><option value="">全部比例</option></select>
-            <select id="assetSourceFilter" aria-label="按来源筛选" title="按来源筛选">
-              <option value="">全部来源</option>
-              <option value="generated">生成</option>
-              <option value="retagged">反推</option>
-            </select>
-            <select id="assetSort" aria-label="素材排序" title="素材排序">
-              <option value="newest">最新</option>
-              <option value="oldest">最早</option>
-              <option value="name">名称</option>
-            </select>
-          </div>
-          <label id="assetSizeControl" class="asset-size-control">
-            <i data-lucide="image"></i>
-            <input id="assetThumbSize" type="range" min="88" max="168" step="8" value="112" aria-label="缩略图大小" title="调整缩略图大小" />
-            <i data-lucide="image" class="large"></i>
-          </label>
-          <div class="asset-results-meta">
-            <span id="assetResultSummary">图片</span>
-            <button id="assetResetFilters" type="button">重置筛选</button>
-          </div>
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
         </aside>

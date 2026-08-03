@@ -48,16 +48,6 @@ const els = {
   assetPanel: document.getElementById("assetPanel"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
-  assetSearch: document.getElementById("assetSearch"),
-  assetPanelCount: document.getElementById("assetPanelCount"),
-  assetResultSummary: document.getElementById("assetResultSummary"),
-  assetArtistFilter: document.getElementById("assetArtistFilter"),
-  assetRatioFilter: document.getElementById("assetRatioFilter"),
-  assetSourceFilter: document.getElementById("assetSourceFilter"),
-  assetSort: document.getElementById("assetSort"),
-  assetThumbSize: document.getElementById("assetThumbSize"),
-  assetSizeControl: document.getElementById("assetSizeControl"),
-  assetResetFilters: document.getElementById("assetResetFilters"),
   projectMenuBtn: document.getElementById("projectMenuBtn"),
   projectMenu: document.getElementById("projectMenu"),
   projectList: document.getElementById("projectList"),
@@ -96,15 +86,6 @@ const state = {
   libraryPreloadPromise: null,
   libraryRenderObserver: null,
   libraryRenderCleanup: null,
-  assetUi: {
-    type: "image",
-    layout: "compact",
-    sort: "newest",
-    artist: "",
-    ratio: "",
-    source: "",
-    thumbSize: 112,
-  },
   canvases: [],
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
@@ -115,7 +96,6 @@ const state = {
 const MAX_HISTORY = 40;
 const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
 const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults";
-const ASSET_UI_KEY = "bestnaiInfiniteCanvasAssetUi";
 const ASSET_RENDER_BATCH = 48;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
@@ -2017,106 +1997,9 @@ async function loadLibrary(render = true) {
 function setAssetPanel(open) {
   els.assetPanel.classList.toggle("open", open);
   document.getElementById("assetLibraryBtn").classList.toggle("active", open);
-  if (open) renderAssetLibrary();
-}
-
-function loadAssetPreferences() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(ASSET_UI_KEY) || "{}");
-    if (["image", "prompt"].includes(saved.type)) state.assetUi.type = saved.type;
-    if (["compact", "masonry"].includes(saved.layout)) state.assetUi.layout = saved.layout;
-    if (["newest", "oldest", "name"].includes(saved.sort)) state.assetUi.sort = saved.sort;
-    state.assetUi.artist = String(saved.artist || "");
-    state.assetUi.ratio = String(saved.ratio || "");
-    state.assetUi.source = ["generated", "retagged"].includes(saved.source) ? saved.source : "";
-    state.assetUi.thumbSize = clamp(Number(saved.thumbSize) || 112, 88, 168);
-  } catch (_) {
-    // Keep defaults when storage is unavailable or contains stale data.
-  }
-}
-
-function saveAssetPreferences() {
-  try {
-    localStorage.setItem(ASSET_UI_KEY, JSON.stringify(state.assetUi));
-  } catch (_) {
-    // The current browser may disable local storage.
-  }
-}
-
-function assetTimestamp(item) {
-  const timestamp = Date.parse(item.updatedAt || item.createdAt || "");
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function assetSourceKind(item) {
-  const source = String(item.source || "").toLowerCase();
-  return source.includes("retag") || source.includes("reverse") || source.includes("反推")
-    ? "retagged"
-    : "generated";
-}
-
-function replaceAssetFilterOptions(select, label, values, selected) {
-  const options = [new Option(label, "")];
-  values.forEach((value) => options.push(new Option(value, value)));
-  select.replaceChildren(...options);
-  select.value = values.includes(selected) ? selected : "";
-  return select.value;
-}
-
-function syncAssetControls() {
-  const items = state.assetUi.type === "image" ? state.library.images : state.library.prompts;
-  const artists = [...new Set(items.map((item) => String(item.artist || "").trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "zh-CN"));
-  const ratios = [...new Set(items.map((item) => String(item.ratio || "").trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "zh-CN"));
-  state.assetUi.artist = replaceAssetFilterOptions(
-    els.assetArtistFilter, "全部画师", artists, state.assetUi.artist,
-  );
-  state.assetUi.ratio = replaceAssetFilterOptions(
-    els.assetRatioFilter, "全部比例", ratios, state.assetUi.ratio,
-  );
-  els.assetSourceFilter.value = state.assetUi.source;
-  els.assetSort.value = state.assetUi.sort;
-  els.assetThumbSize.value = String(state.assetUi.thumbSize);
-  document.querySelectorAll("[data-asset-tab]").forEach((button) => {
-    const active = button.dataset.assetTab === state.assetUi.type;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  document.querySelectorAll("[data-asset-layout]").forEach((button) => {
-    const active = button.dataset.assetLayout === state.assetUi.layout;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", String(active));
-  });
-  const promptMode = state.assetUi.type === "prompt";
-  els.assetPanel.classList.toggle("prompt-mode", promptMode);
-  els.assetSourceFilter.disabled = promptMode;
-  els.assetSizeControl.hidden = promptMode || state.assetUi.layout !== "compact";
-  els.assetGrid.style.setProperty("--asset-thumb-size", `${state.assetUi.thumbSize}px`);
-  els.assetGrid.style.setProperty("--asset-card-height", `${state.assetUi.thumbSize}px`);
-}
-
-function activeAssetItems() {
-  const query = els.assetSearch.value.trim().toLowerCase();
-  const kind = state.assetUi.type;
-  const sourceItems = kind === "image" ? state.library.images : state.library.prompts;
-  const items = sourceItems.filter((item) => {
-    const searchable = `${item.name || ""} ${item.prompt || ""} ${item.tags || ""} ${item.artist || ""}`
-      .toLowerCase();
-    return (!query || searchable.includes(query))
-      && (!state.assetUi.artist || item.artist === state.assetUi.artist)
-      && (!state.assetUi.ratio || item.ratio === state.assetUi.ratio)
-      && (kind !== "image" || !state.assetUi.source || assetSourceKind(item) === state.assetUi.source);
-  }).map((item) => ({ kind, item }));
-  items.sort((left, right) => {
-    if (state.assetUi.sort === "name") {
-      return String(left.item.name || left.item.prompt || "")
-        .localeCompare(String(right.item.name || right.item.prompt || ""), "zh-CN");
-    }
-    const delta = assetTimestamp(left.item) - assetTimestamp(right.item);
-    return state.assetUi.sort === "oldest" ? delta : -delta;
-  });
-  return items;
+  if (!open) return;
+  alignAssetPanel();
+  renderAssetLibrary();
 }
 
 function renderAssetLibrary() {
@@ -2124,46 +2007,23 @@ function renderAssetLibrary() {
   state.libraryRenderCleanup = null;
   state.libraryRenderObserver?.disconnect();
   state.libraryRenderObserver = null;
-  syncAssetControls();
-  const items = activeAssetItems();
-  const total = state.assetUi.type === "image" ? state.library.images.length : state.library.prompts.length;
+  const items = state.library.images;
   els.assetGrid.replaceChildren();
   els.assetGrid.scrollTop = 0;
-  els.assetGrid.className = `asset-grid ${state.assetUi.type}-mode ${state.assetUi.layout}-layout`;
+  els.assetGrid.className = "asset-grid compact-layout";
   els.assetGrid.classList.toggle("empty", items.length === 0);
-  els.assetPanelCount.textContent = items.length === total ? `${total} 项` : `${items.length} / ${total} 项`;
-  els.assetResultSummary.textContent = state.assetUi.type === "image" ? "图片" : "提示词";
   els.assetEmpty.classList.toggle("visible", items.length === 0);
-  els.assetEmpty.querySelector("span").textContent = items.length
-    ? ""
-    : total
-      ? "没有符合筛选条件的素材"
-      : `暂无${state.assetUi.type === "image" ? "图片" : "提示词"}素材`;
+  els.assetEmpty.querySelector("span").textContent = "暂无图片素材";
 
   if (items.length) renderAssetBatch(items, 0);
+  updateAssetGridMetrics();
+  window.requestAnimationFrame(updateAssetGridMetrics);
   refreshIcons(els.assetPanel);
 }
 
 function renderAssetBatch(items, start) {
   const end = Math.min(items.length, start + ASSET_RENDER_BATCH);
-  if (state.assetUi.type === "image" && state.assetUi.layout === "masonry") {
-    let columns = null;
-    items.slice(start, end).forEach(({ item }) => {
-      if (isLandscapeAsset(item)) {
-        renderImageAssetCard(item, els.assetGrid, true);
-        columns = null;
-        return;
-      }
-      if (!columns) columns = appendAssetColumns();
-      const target = columns[0].offsetHeight <= columns[1].offsetHeight ? columns[0] : columns[1];
-      renderImageAssetCard(item, target);
-    });
-  } else {
-    items.slice(start, end).forEach(({ kind, item }) => {
-      if (kind === "image") renderImageAssetCard(item, els.assetGrid);
-      else renderPromptAssetCard(item, els.assetGrid);
-    });
-  }
+  items.slice(start, end).forEach((item) => renderImageAssetCard(item, els.assetGrid));
   if (end >= items.length) {
     refreshIcons(els.assetGrid);
     return;
@@ -2195,33 +2055,32 @@ function renderAssetBatch(items, start) {
   refreshIcons(els.assetGrid);
 }
 
-function appendAssetColumns() {
-  const group = document.createElement("div");
-  group.className = "asset-columns";
-  const columns = [document.createElement("div"), document.createElement("div")];
-  columns.forEach((column) => { column.className = "asset-column"; });
-  group.append(...columns);
-  els.assetGrid.appendChild(group);
-  return columns;
+function alignAssetPanel() {
+  if (window.innerWidth <= 620) {
+    els.assetPanel.style.removeProperty("left");
+    return;
+  }
+  const buttonRect = document.getElementById("assetLibraryBtn").getBoundingClientRect();
+  const viewportRect = els.viewport.getBoundingClientRect();
+  const panelWidth = Math.min(380, window.innerWidth - 48);
+  const left = clamp(buttonRect.left - viewportRect.left, 24, viewportRect.width - panelWidth - 24);
+  els.assetPanel.style.left = `${left}px`;
 }
 
-function isLandscapeAsset(item) {
-  const width = Number(item?.width || 0);
-  const height = Number(item?.height || 0);
-  if (width > 0 && height > 0) return width > height;
-  const [ratioWidth, ratioHeight] = String(item?.ratio || "")
-    .split(":")
-    .map((value) => Number(value));
-  return ratioWidth > 0 && ratioHeight > 0 && ratioWidth > ratioHeight;
+function updateAssetGridMetrics() {
+  if (!els.assetPanel.classList.contains("open")) return;
+  const styles = window.getComputedStyle(els.assetGrid);
+  const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+  const columnGap = parseFloat(styles.columnGap) || 0;
+  const tileSize = Math.max(64, Math.floor((els.assetGrid.clientWidth - horizontalPadding - columnGap * 2) / 3));
+  els.assetGrid.style.setProperty("--asset-card-height", `${tileSize}px`);
 }
 
-function renderImageAssetCard(item, container = els.assetGrid, wide = false) {
+function renderImageAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
-  card.classList.toggle("wide", wide);
   card.title = "点击预览，拖到画布使用";
   card.dataset.assetId = item.id;
-  card.dataset.assetSource = assetSourceKind(item);
   const thumb = document.createElement("div");
   thumb.className = "asset-thumb";
   if (item.width && item.height) thumb.style.aspectRatio = `${item.width} / ${item.height}`;
@@ -2255,20 +2114,6 @@ function renderImageAssetCard(item, container = els.assetGrid, wide = false) {
   }).catch(() => {
     if (loading.isConnected) loading.textContent = "图片读取失败";
   });
-  const displayName = item.name || `图片 ${item.id.slice(0, 8)}`;
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "asset-card-remove asset-image-remove";
-  remove.title = "从素材库移除";
-  remove.setAttribute("aria-label", `移除图片素材 ${displayName}`);
-  remove.appendChild(icon("x"));
-  remove.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    await bridge.apiPost("canvas/library/image/delete", { id: item.id });
-    state.library.images = state.library.images.filter((entry) => entry.id !== item.id);
-    renderAssetLibrary();
-  });
-  thumb.appendChild(remove);
   card.appendChild(thumb);
   attachLibraryImageDrag(card, item);
   container.appendChild(card);
@@ -2568,7 +2413,6 @@ function centerViewportOnWorldPoint(point) {
 
 async function loadInitialState() {
   bridge = await getBridge();
-  loadAssetPreferences();
   const [config, canvasList, library] = await Promise.all([
     bridge.apiGet("canvas/config"),
     bridge.apiGet("canvas/canvases"),
@@ -2579,7 +2423,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.25"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.26"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2841,47 +2685,6 @@ document.addEventListener("pointerdown", (event) => {
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
-els.assetSearch.addEventListener("input", renderAssetLibrary);
-document.querySelectorAll("[data-asset-tab]").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.assetUi.type = button.dataset.assetTab;
-    saveAssetPreferences();
-    renderAssetLibrary();
-  });
-});
-document.querySelectorAll("[data-asset-layout]").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.assetUi.layout = button.dataset.assetLayout;
-    saveAssetPreferences();
-    renderAssetLibrary();
-  });
-});
-[
-  [els.assetArtistFilter, "artist"],
-  [els.assetRatioFilter, "ratio"],
-  [els.assetSourceFilter, "source"],
-  [els.assetSort, "sort"],
-].forEach(([select, key]) => {
-  select.addEventListener("change", () => {
-    state.assetUi[key] = select.value;
-    saveAssetPreferences();
-    renderAssetLibrary();
-  });
-});
-els.assetThumbSize.addEventListener("input", () => {
-  state.assetUi.thumbSize = clamp(Number(els.assetThumbSize.value) || 112, 88, 168);
-  els.assetGrid.style.setProperty("--asset-thumb-size", `${state.assetUi.thumbSize}px`);
-  els.assetGrid.style.setProperty("--asset-card-height", `${state.assetUi.thumbSize}px`);
-  saveAssetPreferences();
-});
-els.assetResetFilters.addEventListener("click", () => {
-  els.assetSearch.value = "";
-  state.assetUi.artist = "";
-  state.assetUi.ratio = "";
-  state.assetUi.source = "";
-  saveAssetPreferences();
-  renderAssetLibrary();
-});
 
 els.imageInput.addEventListener("change", () => {
   uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());
@@ -3028,7 +2831,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-window.addEventListener("resize", drawMinimap);
+window.addEventListener("resize", () => {
+  drawMinimap();
+  if (els.assetPanel.classList.contains("open")) {
+    alignAssetPanel();
+    updateAssetGridMetrics();
+  }
+});
 window.addEventListener("online", checkConnection);
 window.addEventListener("offline", () => setConnectionState("offline"));
 window.addEventListener("beforeunload", () => {
