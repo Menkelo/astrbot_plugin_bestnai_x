@@ -2064,14 +2064,63 @@ select:focus-visible,
   }
 }
 
+@media (max-width: 900px) and (orientation: landscape) {
+  .topbar {
+    --compact-tool-size: clamp(32px, 4vw, 38px);
+    gap: 4px;
+  }
+
+  .canvas-nav {
+    width: auto;
+    max-width: clamp(170px, 24vw, 220px);
+    flex: 0 1 clamp(170px, 24vw, 220px);
+    padding-right: 4px;
+  }
+
+  .toolbar {
+    flex: 1 1 auto;
+    gap: clamp(2px, .5vw, 6px);
+    max-width: none;
+    overflow: visible;
+  }
+
+  .toolbar-items,
+  .toolbar-fixed {
+    flex: 0 0 auto;
+    gap: clamp(2px, .5vw, 6px);
+  }
+
+  .toolbar-items {
+    overflow: visible;
+  }
+
+  .tool-btn,
+  .tool-btn.icon-only,
+  .toolbar-items .tool-btn {
+    width: var(--compact-tool-size);
+    height: var(--compact-tool-size);
+    min-width: var(--compact-tool-size);
+    padding: 0;
+  }
+
+  .project-switcher {
+    flex-basis: var(--compact-tool-size);
+  }
+
+  .toolbar-divider {
+    margin: 0;
+  }
+}
+
 @media (max-width: 620px) {
   .topbar {
     display: grid;
     grid-template-areas:
-      "identity asset project"
-      "tools tools tools";
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 6px;
+      "identity identity identity identity identity identity identity asset project"
+      "tools tools tools tools tools tools tools tools tools";
+    grid-template-columns: repeat(9, minmax(28px, 1fr));
+    column-gap: 0;
+    row-gap: 6px;
     border-radius: 20px;
     background: rgba(255, 255, 255, .98);
     backdrop-filter: none;
@@ -2129,17 +2178,20 @@ select:focus-visible,
 
   .toolbar-project-switcher {
     grid-area: project;
-    width: 32px;
-    margin: 4px 1px 0 0;
+    display: grid;
+    width: 100%;
+    margin: 4px 0 0;
     align-self: start;
+    place-items: center;
   }
 
   .mobile-asset-library-switcher {
-    display: block;
+    display: grid;
     grid-area: asset;
-    width: 32px;
+    width: 100%;
     margin-top: 4px;
     align-self: start;
+    place-items: center;
   }
 
   #assetLibraryBtn {

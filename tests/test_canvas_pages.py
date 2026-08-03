@@ -484,8 +484,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "@media (prefers-reduced-motion", 1
         )[0]
         self.assertIn('id="mobileAssetLibraryBtn"', html)
-        self.assertIn('"identity asset project"', mobile_styles)
-        self.assertIn('"tools tools tools"', mobile_styles)
+        self.assertIn(
+            '"identity identity identity identity identity identity identity asset project"',
+            mobile_styles,
+        )
+        self.assertIn('"tools tools tools tools tools tools tools tools tools"', mobile_styles)
         self.assertIn("#assetLibraryBtn", mobile_styles)
         self.assertIn("display: none;", mobile_styles)
         self.assertIn('document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn")', editor)
@@ -494,6 +497,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(9, minmax(28px, 1fr));", mobile_styles)
         self.assertIn("display: contents;", mobile_styles)
         self.assertIn("justify-self: center;", mobile_styles)
+        self.assertIn("place-items: center;", mobile_styles)
+        landscape_styles = styles.split(
+            "@media (max-width: 900px) and (orientation: landscape) {", 1
+        )[1].split("@media (max-width: 620px) {", 1)[0]
+        self.assertIn("overflow: visible;", landscape_styles)
+        self.assertIn("--compact-tool-size: clamp(32px, 4vw, 38px);", landscape_styles)
+        self.assertIn("min-width: var(--compact-tool-size);", landscape_styles)
         self.assertNotIn(".toolbar-fixed .tool-btn:not(#fitBtn)", mobile_styles)
         self.assertIn("const canvasTouchPointers = new Map()", editor)
         self.assertIn("function beginCanvasPinch()", editor)
