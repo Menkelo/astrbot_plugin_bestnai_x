@@ -149,6 +149,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("cachedTranslation: node.meta?.translationResult", editor)
         self.assertIn("translationSource: result.meta?.translationSource", editor)
         self.assertIn("translationResult: result.meta?.translationResult", editor)
+        retag_body = editor.split("async function retagFromNode", 1)[1].split(
+            "async function ensureAssetLoaded", 1
+        )[0]
+        self.assertNotIn("node.ratio = result.ratio", retag_body)
         self.assertIn('"正在复用英文 tags 并生成图片…"', editor)
         self.assertIn('document.createTextNode("角色保持")', editor)
         self.assertIn('characterName.placeholder = "角色名（可选）"', editor)
@@ -211,7 +215,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("clientToWorld(endEvent.clientX, endEvent.clientY)", editor)
         self.assertNotIn('card.addEventListener("click", () => addImageAssetToCanvas(item))', editor)
         self.assertIn('thumb.style.aspectRatio = `${item.width} / ${item.height}`', editor)
-        self.assertIn("item.prompt?.trim() || item.name", editor)
+        self.assertIn('column.className = "asset-column"', editor)
+        self.assertIn("columns[0].offsetHeight <= columns[1].offsetHeight", editor)
+        self.assertIn("renderImageAssetCard(item, target)", editor)
+        self.assertIn(".asset-column {", styles)
         self.assertIn("object-fit: contain;", styles)
         self.assertIn("align-self: start;", styles)
         self.assertIn(".asset-grid.empty", styles)
@@ -240,10 +247,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function bringNodeToFront", editor)
         self.assertIn("state.nodes.splice(index, 1)", editor)
         self.assertIn("els.nodeLayer.appendChild(current)", editor)
-        self.assertIn("const imagePrompt = node.prompt?.trim()", editor)
-        self.assertIn("title: imagePrompt", editor)
-        self.assertIn("prompt: imagePrompt", editor)
-        self.assertIn("node.meta?.prompt || node.title || \"生成结果\"", editor)
+        self.assertIn('makeNodeShell(node, node.title || "生成结果")', editor)
+        self.assertIn('title: `${retagged ? "反推图片" : "生成结果"}', editor)
+        self.assertIn(
+            'prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果")',
+            editor,
+        )
+        self.assertIn("name.textContent = item.name", editor)
         self.assertIn("tags: result.meta?.translatedPrompt || workingPrompt", editor)
 
     def test_new_prompt_nodes_inherit_last_ratio_and_artist(self) -> None:

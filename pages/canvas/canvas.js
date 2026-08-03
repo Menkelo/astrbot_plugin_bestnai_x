@@ -911,7 +911,7 @@ function makeSelectField(label, items, value, onChange) {
 
 function renderImageNode(node) {
   hydrateImageAsset(node);
-  const element = makeNodeShell(node, node.meta?.prompt || node.title || "生成结果");
+  const element = makeNodeShell(node, node.title || "生成结果");
   const actions = element.querySelector(".node-actions");
   actions.insertBefore(
     makeAction("download", "下载图片", () => downloadImage(node)),
@@ -1645,7 +1645,6 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       translationSource: result.meta?.translationSource || "",
       translationResult: result.meta?.translationResult || "",
     };
-    const imagePrompt = node.prompt?.trim() || result.meta?.translatedPrompt || workingPrompt;
     const createdIds = [];
     assets.forEach((asset) => {
       const sourceWidth = asset.width || result.meta?.width;
@@ -1662,12 +1661,12 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
         x: position.x,
         y: position.y,
         width: imageNodeWidth,
-        title: imagePrompt,
+        title: `${retagged ? "反推图片" : "生成结果"} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
         createdAt: new Date().toISOString(),
         meta: {
-          prompt: imagePrompt,
+          prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
           tags: result.meta?.translatedPrompt || workingPrompt,
           artist: result.meta?.artist || "",
           ratio: result.meta?.ratio || node.ratio,
@@ -1804,12 +1803,7 @@ async function retagFromNode(id, generateAfter = false) {
       retagCharacterName: characterName,
       translatedPrompt: retagPrompt,
     };
-    if (result.ratio && state.config.ratios.some((item) => item.value === result.ratio)) {
-      node.ratio = result.ratio;
-    }
-    node.statusText = result.ratio
-      ? `已合并新提示词与原图 tags · 原图比例 ${result.ratio}`
-      : "已合并新提示词与原图 tags";
+    node.statusText = "已合并新提示词与原图 tags";
     toast(cachedRetag ? "已复用反推结果" : "反推提示词已合并");
     scheduleSave();
     succeeded = true;
@@ -2000,14 +1994,20 @@ function renderAssetLibrary() {
   els.assetPanelCount.textContent = `${items.length} 项`;
   els.assetEmpty.classList.toggle("visible", items.length === 0);
 
-  items.forEach(({ kind, item }) => {
-    if (kind === "image") renderImageAssetCard(item);
-    else renderPromptAssetCard(item);
-  });
+  if (items.length) {
+    const columns = [document.createElement("div"), document.createElement("div")];
+    columns.forEach((column) => { column.className = "asset-column"; });
+    els.assetGrid.append(...columns);
+    items.forEach(({ kind, item }) => {
+      const target = columns[0].offsetHeight <= columns[1].offsetHeight ? columns[0] : columns[1];
+      if (kind === "image") renderImageAssetCard(item, target);
+      else renderPromptAssetCard(item, target);
+    });
+  }
   refreshIcons(els.assetPanel);
 }
 
-function renderImageAssetCard(item) {
+function renderImageAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
   card.title = "点击预览，拖到画布使用";
@@ -2049,7 +2049,7 @@ function renderImageAssetCard(item) {
   meta.className = "asset-card-meta";
   const name = document.createElement("span");
   name.className = "asset-card-name";
-  name.textContent = item.prompt?.trim() || item.name || `图片 ${item.id.slice(0, 8)}`;
+  name.textContent = item.name || `图片 ${item.id.slice(0, 8)}`;
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "asset-card-remove";
@@ -2065,7 +2065,7 @@ function renderImageAssetCard(item) {
   meta.append(name, remove);
   card.append(thumb, meta);
   attachLibraryImageDrag(card, item);
-  els.assetGrid.appendChild(card);
+  container.appendChild(card);
 }
 
 function isCanvasDropPoint(clientX, clientY) {
@@ -2190,7 +2190,7 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   }
 }
 
-function renderPromptAssetCard(item) {
+function renderPromptAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-prompt-card";
   card.title = "点击应用到当前提示词节点";
@@ -2216,7 +2216,7 @@ function renderPromptAssetCard(item) {
   footer.append(detail, remove);
   card.append(title, prompt, footer);
   card.addEventListener("click", () => applyPromptAsset(item));
-  els.assetGrid.appendChild(card);
+  container.appendChild(card);
 }
 
 function applyPromptAsset(item) {
@@ -2243,7 +2243,7 @@ async function saveImageToLibrary(node) {
   try {
     const result = await bridge.apiPost("canvas/library/image/add", {
       assetId: node.assetId,
-      name: node.meta?.prompt || node.title || "画布图片",
+      name: node.title || node.meta?.prompt || "画布图片",
       source: "canvas",
       prompt: node.meta?.prompt || "",
       tags: node.meta?.tags || node.meta?.finalPrompt || "",
@@ -2372,7 +2372,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.20"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.21"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

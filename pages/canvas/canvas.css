@@ -1580,13 +1580,20 @@ select:focus-visible,
   min-height: 0;
   flex: 1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: max-content;
   align-content: start;
   gap: 8px;
   padding-right: 3px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+}
+
+.asset-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-self: start;
+  gap: 8px;
 }
 
 .asset-card {
@@ -1702,7 +1709,6 @@ select:focus-visible,
 }
 
 .asset-prompt-card {
-  grid-column: 1 / -1;
   padding: 11px;
 }
 
