@@ -789,13 +789,13 @@ select:focus-visible,
   flex-direction: column;
 }
 
-.prompt-node.translated-expanded {
-  min-height: 490px;
-}
-
 .prompt-node.translated-expanded .prompt-text {
   height: var(--prompt-editor-height, 132px);
   flex: 0 0 var(--prompt-editor-height, 132px);
+}
+
+.prompt-node.translated-expanded .node-body {
+  flex: 0 0 auto;
 }
 
 .prompt-node .node-body {
@@ -1311,6 +1311,14 @@ select:focus-visible,
   height: 0;
 }
 
+.image-viewer-place-btn {
+  display: none;
+}
+
+.image-viewer-place-btn[hidden] {
+  display: none;
+}
+
 .port {
   position: absolute;
   z-index: 5;
@@ -1424,6 +1432,10 @@ select:focus-visible,
 
 .empty-state span {
   font-size: 10px;
+}
+
+.empty-state-mobile {
+  display: none;
 }
 
 .minimap {
@@ -2049,6 +2061,8 @@ select:focus-visible,
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px;
     border-radius: 20px;
+    background: rgba(255, 255, 255, .98);
+    backdrop-filter: none;
   }
 
   .canvas-nav {
@@ -2129,6 +2143,21 @@ select:focus-visible,
     bottom: 12px;
     width: calc(100vw - 24px);
     max-width: none;
+    background: rgba(255, 255, 255, .98);
+    backdrop-filter: none;
+  }
+
+  .asset-image-card {
+    cursor: pointer;
+    touch-action: pan-y;
+  }
+
+  .empty-state-desktop {
+    display: none;
+  }
+
+  .empty-state-mobile {
+    display: block;
   }
 
   .node {
@@ -2137,10 +2166,6 @@ select:focus-visible,
 
   .prompt-node {
     min-height: 450px;
-  }
-
-  .prompt-node.translated-expanded {
-    min-height: 590px;
   }
 
   .prompt-options {
@@ -2171,6 +2196,27 @@ select:focus-visible,
 
   .image-viewer-details {
     width: calc(100vw - 32px);
+  }
+
+  .image-viewer-place-btn {
+    display: inline-flex;
+    width: 100%;
+    height: 38px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #111827;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 850;
+  }
+
+  .image-viewer-place-btn svg {
+    width: 14px;
+    height: 14px;
   }
 
 }

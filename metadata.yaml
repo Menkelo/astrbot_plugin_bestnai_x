@@ -1,7 +1,7 @@
 name: astrbot_plugin_bestnai_x
 display_name: NAI Diffusion X
 desc: BestNAI 特异版，仅支持 nai-diffusion-4-5-full
-version: 3.0.33
+version: 3.0.34
 author: Menkelo
 support_platforms:
   - aiocqhttp

@@ -42,6 +42,7 @@ const els = {
   imageViewerPromptSection: document.getElementById("imageViewerPromptSection"),
   imageViewerPrompt: document.getElementById("imageViewerPrompt"),
   imageViewerTags: document.getElementById("imageViewerTags"),
+  imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetPanel: document.getElementById("assetPanel"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
@@ -99,6 +100,7 @@ const state = {
   assetCache: new Map(),
   promptDefaults: { ratio: "", artist: "" },
   contextMenuPoint: null,
+  viewerLibraryAsset: null,
 };
 
 const MAX_HISTORY = 40;
@@ -769,6 +771,20 @@ function bringNodeToFront(id, element = null) {
   scheduleSave(800);
 }
 
+function fitExpandedPromptNode(element, node) {
+  element.style.height = "auto";
+  window.requestAnimationFrame(() => {
+    if (!element.isConnected || !element.classList.contains("translated-expanded")) return;
+    const naturalHeight = Math.ceil(element.scrollHeight);
+    const nextHeight = clamp(naturalHeight, 300, 800);
+    const changed = node.height !== nextHeight;
+    node.height = nextHeight;
+    element.style.height = `${nextHeight}px`;
+    scheduleCanvasProjection();
+    if (changed) scheduleSave(800);
+  });
+}
+
 function renderPromptNode(node) {
   const element = makeNodeShell(node, node.title || "提示词节点");
   element.style.height = `${node.height || 360}px`;
@@ -845,12 +861,9 @@ function renderPromptNode(node) {
     const previousMeta = node.meta || {};
     node.meta = { ...previousMeta, translatedPromptExpanded: expanded };
     if (expanded) {
-      node.meta.promptCollapsedHeight = node.height || 360;
-      const minimumHeight = window.matchMedia("(max-width: 620px)").matches ? 590 : 490;
-      if ((node.height || 360) < minimumHeight) {
-        node.height = minimumHeight;
-        element.style.height = `${minimumHeight}px`;
-      }
+      const collapsedHeight = node.height || element.offsetHeight || 360;
+      node.meta.promptCollapsedHeight = collapsedHeight;
+      fitExpandedPromptNode(element, node);
     } else {
       const collapsedHeight = Number(previousMeta.promptCollapsedHeight || 360);
       node.height = clamp(collapsedHeight, 300, 800);
@@ -962,6 +975,9 @@ function renderPromptNode(node) {
   resizeHandle.setAttribute("aria-hidden", "true");
   attachNodeResize(resizeHandle, element, node);
   element.appendChild(resizeHandle);
+  if (translatedPanel.open) {
+    fitExpandedPromptNode(element, node);
+  }
   return element;
 }
 
@@ -1101,9 +1117,10 @@ function connectionPath(x1, y1, x2, y2) {
 
 function nodePortPoint(node, role) {
   const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
-  const height = node.height || element?.offsetHeight || 260;
+  const width = element?.offsetWidth || node.width || 320;
+  const height = element?.offsetHeight || node.height || 260;
   return {
-    x: role === "out" ? node.x + (node.width || 320) : node.x,
+    x: role === "out" ? node.x + width : node.x,
     y: node.y + height / 2,
   };
 }
@@ -1311,7 +1328,7 @@ function attachConnectionPort(port, nodeId, role) {
         role,
       );
       target?.classList.add("connection-target");
-      renderConnections();
+      scheduleConnectionRender();
     };
 
     const finish = (endEvent, cancelled = false) => {
@@ -1364,6 +1381,36 @@ function renderViewport() {
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   els.viewport.style.backgroundPosition = `${x}px ${y}px`;
   els.viewport.style.backgroundSize = `${24 * scale}px ${24 * scale}px`;
+}
+
+let viewportProjectionFrame = 0;
+let canvasProjectionFrame = 0;
+let connectionRenderFrame = 0;
+
+function scheduleViewportProjection() {
+  if (viewportProjectionFrame) return;
+  viewportProjectionFrame = window.requestAnimationFrame(() => {
+    viewportProjectionFrame = 0;
+    renderViewport();
+    drawMinimap();
+  });
+}
+
+function scheduleCanvasProjection() {
+  if (canvasProjectionFrame) return;
+  canvasProjectionFrame = window.requestAnimationFrame(() => {
+    canvasProjectionFrame = 0;
+    renderConnections();
+    drawMinimap();
+  });
+}
+
+function scheduleConnectionRender() {
+  if (connectionRenderFrame) return;
+  connectionRenderFrame = window.requestAnimationFrame(() => {
+    connectionRenderFrame = 0;
+    renderConnections();
+  });
 }
 
 function renderAll() {
@@ -1421,8 +1468,7 @@ function attachNodeDrag(handle, element, node) {
           item.element.style.top = `${item.node.y}px`;
         }
       });
-      renderConnections();
-      drawMinimap();
+      scheduleCanvasProjection();
     };
     const end = () => {
       window.removeEventListener("pointermove", move);
@@ -1460,9 +1506,7 @@ function attachNodeResize(handle, element, node) {
         moved = true;
         pushHistory();
       }
-      const promptMinimumHeight = node.meta?.translatedPromptExpanded
-        ? (window.matchMedia("(max-width: 620px)").matches ? 590 : 490)
-        : (window.matchMedia("(max-width: 620px)").matches ? 450 : 300);
+      const promptMinimumHeight = window.matchMedia("(max-width: 620px)").matches ? 450 : 300;
       node.width = clamp(Math.round(start.width + dx), node.type === "prompt" ? 280 : 220, 640);
       node.height = clamp(
         Math.round(start.height + dy),
@@ -1471,8 +1515,7 @@ function attachNodeResize(handle, element, node) {
       );
       element.style.width = `${node.width}px`;
       element.style.height = `${node.height}px`;
-      renderConnections();
-      drawMinimap();
+      scheduleCanvasProjection();
     };
     const end = () => {
       window.removeEventListener("pointermove", move);
@@ -1514,8 +1557,7 @@ function attachImageNodeResize(handle, element, node) {
       node.width = clamp(Math.round(start.width + diagonalDelta), 180, 640);
       node.meta = { ...(node.meta || {}), userResized: true };
       element.style.width = `${node.width}px`;
-      renderConnections();
-      drawMinimap();
+      scheduleCanvasProjection();
     };
     const end = () => {
       window.removeEventListener("pointermove", move);
@@ -1948,7 +1990,7 @@ function downloadImage(node) {
   anchor.click();
 }
 
-function openImageViewer(node) {
+function openImageViewer(node, { libraryAsset = null } = {}) {
   if (!node?.dataUrl) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
@@ -1961,6 +2003,8 @@ function openImageViewer(node) {
   els.imageViewerPromptSection.hidden = !!tags && isPureEnglishPrompt(prompt);
   els.imageViewerPrompt.textContent = prompt || "暂无提示词记录";
   els.imageViewerTags.textContent = tags || "暂无英文 tags 记录";
+  state.viewerLibraryAsset = libraryAsset;
+  els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
 }
@@ -1976,6 +2020,8 @@ function closeImageViewer() {
   els.imageViewerPromptSection.hidden = false;
   els.imageViewerPrompt.textContent = "暂无提示词记录";
   els.imageViewerTags.textContent = "暂无英文 tags 记录";
+  state.viewerLibraryAsset = null;
+  els.imageViewerPlaceBtn.hidden = true;
 }
 
 async function ensureLibraryImageData(item) {
@@ -2251,7 +2297,12 @@ function attachLibraryImageDrag(card, item) {
     openLibraryImageViewer(item);
   });
   card.addEventListener("pointerdown", (event) => {
-    if (state.assetDeleteMode || event.button !== 0 || event.target.closest("button")) return;
+    if (
+      state.assetDeleteMode
+      || event.pointerType === "touch"
+      || event.button !== 0
+      || event.target.closest("button")
+    ) return;
     const cardRect = card.getBoundingClientRect();
     const start = {
       x: event.clientX,
@@ -2319,7 +2370,7 @@ async function openLibraryImageViewer(item) {
         height: item.height,
         ratio: item.ratio || "",
       },
-    });
+    }, { libraryAsset: item });
   } catch (error) {
     toast(error.message || "图片素材读取失败", "error");
   }
@@ -2348,8 +2399,10 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
         ratio: item.ratio || "",
       },
     });
+    return true;
   } catch (error) {
     toast(error.message || "添加图片素材失败", "error");
+    return false;
   }
 }
 
@@ -2453,6 +2506,10 @@ async function uploadFiles(files, point = worldCenter()) {
 
 // DOM projection and drag navigation follow hero8152/Infinite-Canvas.
 function drawMinimap() {
+  if (window.matchMedia("(max-width: 620px)").matches) {
+    state.minimapTransform = null;
+    return;
+  }
   const viewportWidth = els.viewport.clientWidth / state.viewport.scale;
   const viewportHeight = els.viewport.clientHeight / state.viewport.scale;
   const viewportX = -state.viewport.x / state.viewport.scale;
@@ -2535,7 +2592,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.33"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.34"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2602,7 +2659,7 @@ function handleCanvasTouchStart(event) {
   els.viewport.classList.add("panning");
   if (canvasTouchPointers.size === 1) {
     clearSelection();
-    renderNodes();
+    document.querySelectorAll(".node.selected").forEach((node) => node.classList.remove("selected"));
     requestAnimationFrame(renderConnections);
     canvasTouchGesture = {
       mode: "pan",
@@ -2644,15 +2701,13 @@ function handleCanvasTouchMove(event) {
     state.viewport.scale = scale;
     state.viewport.x = midpoint.x - rect.left - canvasTouchGesture.world.x * scale;
     state.viewport.y = midpoint.y - rect.top - canvasTouchGesture.world.y * scale;
-    renderViewport();
-    drawMinimap();
+    scheduleViewportProjection();
     return;
   }
   if (canvasTouchGesture?.mode !== "pan" || canvasTouchGesture.pointerId !== event.pointerId) return;
   state.viewport.x = canvasTouchGesture.viewportX + event.clientX - canvasTouchGesture.startX;
   state.viewport.y = canvasTouchGesture.viewportY + event.clientY - canvasTouchGesture.startY;
-  renderViewport();
-  drawMinimap();
+  scheduleViewportProjection();
 }
 
 function handleCanvasTouchEnd(event) {
@@ -2751,8 +2806,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
   const move = (moveEvent) => {
     state.viewport.x = start.vx + moveEvent.clientX - start.x;
     state.viewport.y = start.vy + moveEvent.clientY - start.y;
-    renderViewport();
-    drawMinimap();
+    scheduleViewportProjection();
   };
   const end = () => {
     els.viewport.classList.remove("panning");
@@ -3025,6 +3079,17 @@ clearModal.addEventListener("pointerdown", (event) => {
   if (event.target === clearModal) clearModal.hidden = true;
 });
 
+els.imageViewerPlaceBtn.addEventListener("click", async () => {
+  const item = state.viewerLibraryAsset;
+  if (!item) return;
+  els.imageViewerPlaceBtn.disabled = true;
+  const placed = await placeImageAssetOnCanvas(item, worldCenter());
+  els.imageViewerPlaceBtn.disabled = false;
+  if (!placed) return;
+  closeImageViewer();
+  setAssetPanel(false);
+  toast("已放入画布");
+});
 els.imageViewer.addEventListener("pointerdown", (event) => {
   if (!event.target.closest("#imageViewerImage, .image-viewer-details")) closeImageViewer();
 });

@@ -18,7 +18,7 @@
             </span>
             <span class="plugin-meta">
               <span class="plugin-author">by <span id="pluginAuthor">Menkelo</span></span>
-              <span id="pluginVersion">v3.0.33</span>
+              <span id="pluginVersion">v3.0.34</span>
               <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
             </span>
           </div>
@@ -80,8 +80,10 @@
 
         <div id="emptyState" class="empty-state">
           <i data-lucide="mouse-pointer-2"></i>
-          <strong>双击创建提示词节点</strong>
-          <span>其他节点请使用顶部工具栏</span>
+          <strong class="empty-state-desktop">右键添加节点</strong>
+          <span class="empty-state-desktop">双击空白处可快速创建提示词</span>
+          <strong class="empty-state-mobile">从顶部工具栏添加节点</strong>
+          <span class="empty-state-mobile">素材图片可预览后放入画布</span>
         </div>
 
         <button id="canvasArrangeBtn" class="minimap-arrange-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
@@ -153,6 +155,7 @@
             <div class="image-viewer-copy-head"><span>英文 tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 tags" aria-label="复制英文 tags"><i data-lucide="copy"></i></button></div>
             <p id="imageViewerTags" class="image-viewer-copy-text">暂无英文 tags 记录</p>
           </div>
+          <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </figcaption>
       </figure>
     </div>

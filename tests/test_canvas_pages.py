@@ -83,6 +83,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const promptEditorHeight = prompt.offsetHeight", editor)
         self.assertIn('--prompt-editor-height', editor)
         self.assertIn(".prompt-node.translated-expanded .prompt-text", styles)
+        self.assertIn(".prompt-node.translated-expanded .node-body", styles)
+        expanded_body = styles.split(
+            ".prompt-node.translated-expanded .node-body {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("flex: 0 0 auto;", expanded_body)
+        self.assertIn("function fitExpandedPromptNode", editor)
+        self.assertIn("const naturalHeight = Math.ceil(element.scrollHeight)", editor)
+        self.assertIn("const nextHeight = clamp(naturalHeight, 300, 800)", editor)
+        self.assertNotIn("Math.max(Number(collapsedHeight)", editor)
+        self.assertNotIn("const minimumHeight =", editor)
+        self.assertNotIn("590 : 490", editor)
         self.assertIn("previousMeta.promptCollapsedHeight || 360", editor)
         self.assertIn('element.classList.toggle("translated-expanded", expanded)', editor)
         self.assertIn('? 450 : 300', editor)
@@ -282,6 +293,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("new IntersectionObserver", editor)
         self.assertIn("rootMargin: \"240px 0px\"", editor)
         self.assertNotIn('id="assetPanelClose"', html)
+        self.assertIn('id="imageViewerPlaceBtn"', html)
+        self.assertIn("viewerLibraryAsset: null", editor)
+        self.assertIn('event.pointerType === "touch"', editor)
+        self.assertIn("{ libraryAsset: item }", editor)
+        self.assertIn("els.imageViewerPlaceBtn.addEventListener", editor)
+        self.assertIn("const placed = await placeImageAssetOnCanvas(item, worldCenter())", editor)
+        self.assertIn("if (!placed) return", editor)
         place_body = editor.split("async function placeImageAssetOnCanvas", 1)[1].split(
             "function renderPromptAssetCard", 1
         )[0]
@@ -437,6 +455,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("border-radius: 16px;", project_menu_styles)
 
     def test_mobile_toolbar_keeps_actions_and_canvas_supports_pinch_zoom(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
@@ -455,6 +474,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('event.pointerType === "touch"', editor)
         self.assertIn('els.viewport.addEventListener("pointermove", handleCanvasTouchMove)', editor)
         self.assertIn('els.viewport.addEventListener("pointercancel", handleCanvasTouchEnd)', editor)
+        self.assertIn('class="empty-state-desktop"', html)
+        self.assertIn('class="empty-state-mobile"', html)
+        self.assertIn(".asset-image-card {", mobile_styles)
+        self.assertIn("touch-action: pan-y;", mobile_styles)
+        self.assertIn("backdrop-filter: none;", mobile_styles)
+        self.assertIn("function scheduleViewportProjection()", editor)
+        self.assertIn("function scheduleCanvasProjection()", editor)
+        self.assertIn("function scheduleConnectionRender()", editor)
+        self.assertIn('window.matchMedia("(max-width: 620px)").matches', editor)
+        self.assertIn("const width = element?.offsetWidth || node.width || 320", editor)
+        self.assertIn("const height = element?.offsetHeight || node.height || 260", editor)
 
     def test_prompt_editors_own_wheel_scrolling_and_logo_is_round(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
