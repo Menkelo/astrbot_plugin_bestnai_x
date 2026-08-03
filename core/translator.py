@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
@@ -46,6 +46,42 @@ def has_chinese(text: str) -> bool:
     """检测文本是否包含中文字符。"""
 
     return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def resolve_translation_cache(
+    prompt: str,
+    requested_source: str,
+    cached_source: str,
+    cached_translation: str,
+) -> Tuple[str, str, str]:
+    """Resolve the Chinese segment, untranslated suffix, and reusable translation."""
+
+    clean_prompt = str(prompt or "").strip()
+    source = str(requested_source or "").strip()
+    suffix = ""
+
+    if not source or not has_chinese(source):
+        source = clean_prompt
+    elif clean_prompt == source:
+        pass
+    elif clean_prompt.startswith(f"{source},"):
+        candidate_suffix = clean_prompt[len(source) :].strip(" ,")
+        if has_chinese(candidate_suffix):
+            source = clean_prompt
+        else:
+            suffix = candidate_suffix
+    else:
+        source = clean_prompt
+
+    reusable = str(cached_translation or "").strip()
+    if (
+        str(cached_source or "").strip() != source
+        or not reusable
+        or has_chinese(reusable)
+    ):
+        reusable = ""
+
+    return source, suffix, reusable
 
 
 class TranslatorError(Exception):

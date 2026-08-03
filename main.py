@@ -28,7 +28,7 @@ from .core.generator import (
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger
 from .core.safety import SafetyModerator
-from .core.translator import PromptTranslator, has_chinese
+from .core.translator import PromptTranslator, has_chinese, resolve_translation_cache
 from .image_store import send_image_best_effort
 from .models.config import GenerationConfig, PluginConfig
 from .services.artist_gallery import ArtistGalleryService
@@ -269,19 +269,33 @@ class BestNAIPlugin(Star):
         working_prompt = clean_prompt
 
         if has_chinese(clean_prompt):
-            tr_cfg = self.plugin_config.translator
-            if not tr_cfg.enabled:
-                raise ValueError("检测到中文提示词，请先在插件配置中启用翻译器")
-            if not tr_cfg.is_configured():
-                raise ValueError("翻译器未配置，请选择翻译提供商")
-
-            translated_prompt = await self._translate_prompt(
-                clean_prompt,
-                apply_safety_filter=False,
-            ) or ""
-            if not translated_prompt:
+            translation_source, untranslated_suffix, translated_source = (
+                resolve_translation_cache(
+                    clean_prompt,
+                    str(payload.get("translationSource") or ""),
+                    str(payload.get("cachedTranslationSource") or ""),
+                    str(payload.get("cachedTranslation") or ""),
+                )
+            )
+            if not translated_source:
+                tr_cfg = self.plugin_config.translator
+                if not tr_cfg.enabled:
+                    raise ValueError("检测到中文提示词，请先在插件配置中启用翻译器")
+                if not tr_cfg.is_configured():
+                    raise ValueError("翻译器未配置，请选择翻译提供商")
+                translated_source = await self._translate_prompt(
+                    translation_source,
+                    apply_safety_filter=False,
+                ) or ""
+            if not translated_source:
                 raise ValueError("提示词翻译失败，请检查翻译提供商")
+            translated_prompt = ", ".join(
+                part for part in (translated_source, untranslated_suffix) if part
+            )
             working_prompt = translated_prompt
+        else:
+            translation_source = ""
+            translated_source = ""
 
         try:
             gen_config = self.prompt_builder.build_generation_config(
@@ -324,6 +338,8 @@ class BestNAIPlugin(Star):
             "sourcePrompt": prompt,
             "cleanPrompt": clean_prompt,
             "translatedPrompt": translated_prompt,
+            "translationSource": translation_source,
+            "translationResult": translated_source,
             "finalPrompt": final_prompt,
             "ratio": self._display_ratio_label(
                 ratio,

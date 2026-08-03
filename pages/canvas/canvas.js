@@ -697,6 +697,8 @@ function renderPromptNode(node) {
         retagPrompt: _retagPrompt,
         retagMergedPrompt: _retagMergedPrompt,
         translatedPrompt: _translatedPrompt,
+        translationSource: _translationSource,
+        translationResult: _translationResult,
         ...meta
       } = node.meta;
       node.meta = meta;
@@ -1589,9 +1591,17 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
     renderAll();
     return;
   }
+  const translationSource = retagged ? node.prompt?.trim() || workingPrompt : workingPrompt;
+  const canReuseTranslation = /[\u4e00-\u9fff]/.test(translationSource)
+    && node.meta?.translationSource === translationSource
+    && !!node.meta?.translationResult;
   node.status = "generating";
   node.error = "";
-  node.statusText = "正在翻译并生成图片…";
+  node.statusText = canReuseTranslation
+    ? "正在复用英文 tags 并生成图片…"
+    : /[\u4e00-\u9fff]/.test(workingPrompt)
+      ? "正在翻译并生成图片…"
+      : "正在生成图片…";
   renderAll();
   try {
     const result = await bridge.apiPost("canvas/generate", {
@@ -1599,6 +1609,9 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       ratio: node.ratio,
       artist: node.artist,
       raw: !!node.raw,
+      translationSource,
+      cachedTranslationSource: node.meta?.translationSource || "",
+      cachedTranslation: node.meta?.translationResult || "",
     });
     const assets = Array.isArray(result?.assets) ? result.assets : [];
     if (!assets.length) throw new Error("服务未返回图片");
@@ -1606,6 +1619,8 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
     node.meta = {
       ...(node.meta || {}),
       translatedPrompt: result.meta?.translatedPrompt || node.meta?.retagPrompt || "",
+      translationSource: result.meta?.translationSource || "",
+      translationResult: result.meta?.translationResult || "",
     };
     const createdIds = [];
     assets.forEach((asset) => {
@@ -2290,7 +2305,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.17"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.18"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

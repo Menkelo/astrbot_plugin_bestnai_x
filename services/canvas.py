@@ -377,6 +377,8 @@ class CanvasStore:
                     "tags": _short_text(raw_meta.get("tags"), 6000),
                     "artist": _short_text(raw_meta.get("artist"), 120),
                     "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
+                    "translationSource": _short_text(raw_meta.get("translationSource"), 6000),
+                    "translationResult": _short_text(raw_meta.get("translationResult"), 6000),
                     "translatedPromptExpanded": bool(
                         raw_meta.get("translatedPromptExpanded", False)
                     ),

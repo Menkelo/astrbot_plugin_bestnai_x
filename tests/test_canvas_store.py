@@ -48,6 +48,8 @@ class CanvasStoreTest(unittest.TestCase):
                     "height": 490,
                     "meta": {
                         "translatedPrompt": "1girl, blue hair",
+                        "translationSource": "蓝发少女",
+                        "translationResult": "1girl, blue hair",
                         "translatedPromptExpanded": True,
                         "promptCollapsedHeight": 360,
                         "characterKeep": True,
@@ -95,6 +97,8 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertNotIn("dataUrl", saved["nodes"][0])
         self.assertNotIn("status", saved["nodes"][0])
         self.assertEqual(loaded["nodes"][0]["meta"]["translatedPrompt"], "1girl, blue hair")
+        self.assertEqual(loaded["nodes"][0]["meta"]["translationSource"], "蓝发少女")
+        self.assertEqual(loaded["nodes"][0]["meta"]["translationResult"], "1girl, blue hair")
         self.assertTrue(loaded["nodes"][0]["meta"]["translatedPromptExpanded"])
         self.assertEqual(loaded["nodes"][0]["meta"]["promptCollapsedHeight"], 360)
         self.assertTrue(loaded["nodes"][0]["meta"]["characterKeep"])
