@@ -720,6 +720,7 @@ function bringNodeToFront(id, element = null) {
 function renderPromptNode(node) {
   const element = makeNodeShell(node, node.title || "提示词节点");
   element.style.height = `${node.height || 360}px`;
+  const sourceImage = sourceImageForPrompt(node.id);
   const body = document.createElement("div");
   body.className = "node-body";
 
@@ -755,6 +756,10 @@ function renderPromptNode(node) {
   translatedPanel.className = "translated-prompt-panel";
   translatedPanel.open = !!node.meta?.translatedPromptExpanded;
   element.classList.toggle("translated-expanded", translatedPanel.open);
+  const savedPromptEditorHeight = Number(node.meta?.promptEditorHeight || 0);
+  if (translatedPanel.open && savedPromptEditorHeight > 0) {
+    element.style.setProperty("--prompt-editor-height", `${savedPromptEditorHeight}px`);
+  }
   const translatedSummary = document.createElement("summary");
   translatedSummary.textContent = "英文 tags";
   const translatedPrompt = document.createElement("textarea");
@@ -763,6 +768,13 @@ function renderPromptNode(node) {
   translatedPrompt.placeholder = "生成或反推后会在这里保存英文 tags";
   translatedPrompt.value = node.meta?.translatedPrompt || node.meta?.retagPrompt || "";
   translatedPanel.append(translatedSummary, translatedPrompt);
+  translatedSummary.addEventListener("click", () => {
+    if (translatedPanel.open) return;
+    const promptEditorHeight = Math.round(prompt.getBoundingClientRect().height);
+    if (promptEditorHeight <= 0) return;
+    element.style.setProperty("--prompt-editor-height", `${promptEditorHeight}px`);
+    node.meta = { ...(node.meta || {}), promptEditorHeight };
+  });
   translatedPanel.addEventListener("toggle", () => {
     const expanded = translatedPanel.open;
     if (!!node.meta?.translatedPromptExpanded === expanded) return;
@@ -781,6 +793,7 @@ function renderPromptNode(node) {
       const collapsedHeight = Number(previousMeta.promptCollapsedHeight || 360);
       node.height = clamp(collapsedHeight, 300, 800);
       element.style.height = `${node.height}px`;
+      element.style.removeProperty("--prompt-editor-height");
     }
     requestAnimationFrame(() => {
       renderConnections();
@@ -791,6 +804,7 @@ function renderPromptNode(node) {
 
   const characterRow = document.createElement("div");
   characterRow.className = "character-keep-row";
+  characterRow.hidden = !sourceImage;
   const characterLabel = document.createElement("label");
   characterLabel.className = "raw-toggle character-toggle";
   characterLabel.dataset.tooltip = "连接原图反推时保持角色身份。填写名字会优先使用该角色的标准 tags；留空则由识图模型判断角色，无法确认时保留显著外观特征。";
@@ -850,7 +864,6 @@ function renderPromptNode(node) {
 
   const commands = document.createElement("div");
   commands.className = "node-commands";
-  const sourceImage = sourceImageForPrompt(node.id);
 
   const generate = document.createElement("button");
   generate.type = "button";
@@ -1995,10 +2008,14 @@ function renderAssetLibrary() {
   els.assetEmpty.classList.toggle("visible", items.length === 0);
 
   if (items.length) {
-    const columns = [document.createElement("div"), document.createElement("div")];
-    columns.forEach((column) => { column.className = "asset-column"; });
-    els.assetGrid.append(...columns);
+    let columns = null;
     items.forEach(({ kind, item }) => {
+      if (kind === "image" && isLandscapeAsset(item)) {
+        renderImageAssetCard(item, els.assetGrid, true);
+        columns = null;
+        return;
+      }
+      if (!columns) columns = appendAssetColumns();
       const target = columns[0].offsetHeight <= columns[1].offsetHeight ? columns[0] : columns[1];
       if (kind === "image") renderImageAssetCard(item, target);
       else renderPromptAssetCard(item, target);
@@ -2007,9 +2024,30 @@ function renderAssetLibrary() {
   refreshIcons(els.assetPanel);
 }
 
-function renderImageAssetCard(item, container = els.assetGrid) {
+function appendAssetColumns() {
+  const group = document.createElement("div");
+  group.className = "asset-columns";
+  const columns = [document.createElement("div"), document.createElement("div")];
+  columns.forEach((column) => { column.className = "asset-column"; });
+  group.append(...columns);
+  els.assetGrid.appendChild(group);
+  return columns;
+}
+
+function isLandscapeAsset(item) {
+  const width = Number(item?.width || 0);
+  const height = Number(item?.height || 0);
+  if (width > 0 && height > 0) return width > height;
+  const [ratioWidth, ratioHeight] = String(item?.ratio || "")
+    .split(":")
+    .map((value) => Number(value));
+  return ratioWidth > 0 && ratioHeight > 0 && ratioWidth > ratioHeight;
+}
+
+function renderImageAssetCard(item, container = els.assetGrid, wide = false) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
+  card.classList.toggle("wide", wide);
   card.title = "点击预览，拖到画布使用";
   card.dataset.assetId = item.id;
   const thumb = document.createElement("div");
@@ -2372,7 +2410,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.21"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.22"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
