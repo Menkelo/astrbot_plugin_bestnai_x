@@ -99,6 +99,7 @@ const state = {
   currentCanvasTitle: "未命名项目",
   assetCache: new Map(),
   promptDefaults: { ratio: "", artist: "" },
+  preferencesSaveChain: Promise.resolve(),
   contextMenuPoint: null,
   viewerLibraryAsset: null,
 };
@@ -290,6 +291,7 @@ function rememberCurrentCanvas() {
   } catch (_) {
     // The current browser may disable local storage.
   }
+  persistCanvasPreferences();
 }
 
 function updateCanvasUrl() {
@@ -552,20 +554,37 @@ function normalizedArtistSelection(value) {
   return optionValue(options[0]);
 }
 
-function loadPromptDefaults() {
+function loadPromptDefaults(preferences = {}) {
   let stored = {};
   try {
     stored = JSON.parse(localStorage.getItem(PROMPT_DEFAULTS_KEY) || "{}");
   } catch (_) {
     stored = {};
   }
+  const persisted = {
+    ratio: String(preferences.ratio || stored.ratio || ""),
+    artist: String(preferences.artist || stored.artist || ""),
+  };
   const fallbackRatio = state.config.defaultRatio
     || optionValue(state.config.ratios?.[0])
     || "2:3";
   state.promptDefaults = {
-    ratio: hasOptionValue(state.config.ratios, stored.ratio) ? stored.ratio : fallbackRatio,
-    artist: normalizedArtistSelection(stored.artist),
+    ratio: hasOptionValue(state.config.ratios, persisted.ratio) ? persisted.ratio : fallbackRatio,
+    artist: normalizedArtistSelection(persisted.artist),
   };
+}
+
+function persistCanvasPreferences() {
+  if (!bridge || !canvasId) return;
+  const payload = {
+    lastCanvasId: canvasId,
+    ratio: state.promptDefaults.ratio || "",
+    artist: state.promptDefaults.artist || "",
+  };
+  state.preferencesSaveChain = state.preferencesSaveChain
+    .catch(() => undefined)
+    .then(() => bridge.apiPost("canvas/preferences", payload))
+    .catch((error) => console.warn("Canvas preferences save failed", error));
 }
 
 function rememberPromptDefaults(updates) {
@@ -575,6 +594,7 @@ function rememberPromptDefaults(updates) {
   } catch (_) {
     // The current browser may disable local storage.
   }
+  persistCanvasPreferences();
 }
 
 function createNoteNode(point = null) {
@@ -1004,10 +1024,15 @@ function renderImageNode(node) {
   hydrateImageAsset(node);
   const element = makeNodeShell(node, node.title || "生成结果");
   const actions = element.querySelector(".node-actions");
-  actions.insertBefore(
-    makeAction("download", "下载图片", () => downloadImage(node)),
-    actions.firstChild,
+  const downloadLocked = canvasGenerationActive();
+  const downloadAction = makeAction(
+    "download",
+    downloadLocked ? "生图期间暂不可下载" : "下载图片",
+    () => downloadImage(node),
+    downloadLocked ? "locked" : "",
   );
+  downloadAction.setAttribute("aria-disabled", String(downloadLocked));
+  actions.insertBefore(downloadAction, actions.firstChild);
   actions.insertBefore(
     makeAction("bookmark-plus", "保存到素材库", () => saveImageToLibrary(node)),
     actions.firstChild,
@@ -1977,7 +2002,15 @@ async function ensureAssetLoaded(node) {
   }
 }
 
+function canvasGenerationActive() {
+  return state.nodes.some((item) => item.status === "generating" || item.status === "retagging");
+}
+
 async function downloadImage(node) {
+  if (canvasGenerationActive()) {
+    toast("生图或反推期间暂不可下载", "error");
+    return;
+  }
   if (!node.dataUrl) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
@@ -2103,7 +2136,10 @@ function setAssetPanel(open) {
   if (open) setCanvasContextMenu(false);
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
   els.assetPanel.classList.toggle("open", open);
-  document.getElementById("assetLibraryBtn").classList.toggle("active", open);
+  document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
+    button.classList.toggle("active", open);
+    button.setAttribute("aria-expanded", String(open));
+  });
   if (!open) {
     setAssetDeleteMode(false);
     return;
@@ -2600,23 +2636,24 @@ function centerViewportOnWorldPoint(point) {
 
 async function loadInitialState() {
   bridge = await getBridge();
-  const [config, canvasList, library] = await Promise.all([
+  const [config, canvasList, library, preferences] = await Promise.all([
     bridge.apiGet("canvas/config"),
     bridge.apiGet("canvas/canvases"),
     bridge.apiGet("canvas/library"),
+    bridge.apiGet("canvas/preferences"),
   ]);
   state.canvases = Array.isArray(canvasList?.canvases) ? canvasList.canvases : [];
   state.config = { ...state.config, ...(config || {}) };
-  loadPromptDefaults();
+  loadPromptDefaults(preferences || {});
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.35"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.36"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
-    let rememberedId = "";
+    let rememberedId = String(preferences?.lastCanvasId || "");
     try {
-      rememberedId = localStorage.getItem(LAST_CANVAS_KEY) || "";
+      rememberedId ||= localStorage.getItem(LAST_CANVAS_KEY) || "";
     } catch (_) {
       // The current browser may disable local storage.
     }
@@ -3035,8 +3072,10 @@ document.addEventListener("pointerdown", (event) => {
     setCanvasContextMenu(false);
   }
 });
-document.getElementById("assetLibraryBtn").addEventListener("click", () => {
-  setAssetPanel(!els.assetPanel.classList.contains("open"));
+document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
+  button.addEventListener("click", () => {
+    setAssetPanel(!els.assetPanel.classList.contains("open"));
+  });
 });
 els.assetSelectModeBtn.addEventListener("click", () => setAssetDeleteMode(true));
 els.assetDeleteCancel.addEventListener("click", () => setAssetDeleteMode(false));

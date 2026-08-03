@@ -220,6 +220,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('anchor.rel = "noopener"', download_body)
         self.assertIn("URL.revokeObjectURL(objectUrl)", download_body)
         self.assertNotIn("anchor.href = node.dataUrl", download_body)
+        self.assertIn("if (canvasGenerationActive())", download_body)
+        self.assertIn("生图或反推期间暂不可下载", download_body)
+        self.assertIn("function canvasGenerationActive()", editor)
+        self.assertIn('downloadLocked ? "locked" : ""', editor)
+        self.assertIn('downloadAction.setAttribute("aria-disabled"', editor)
+        self.assertIn(".node-action.locked", styles)
         self.assertIn('frame.addEventListener("click", () => openImageViewer(node))', editor)
         self.assertIn('!event.target.closest("#imageViewerImage, .image-viewer-details")', editor)
         self.assertIn("function copyViewerText", editor)
@@ -349,14 +355,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_new_prompt_nodes_inherit_last_ratio_and_artist(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
         self.assertIn('const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults"', editor)
-        self.assertIn("function loadPromptDefaults()", editor)
+        self.assertIn("function loadPromptDefaults(preferences = {})", editor)
         self.assertIn("function rememberPromptDefaults(updates)", editor)
         self.assertIn("ratio: state.promptDefaults.ratio", editor)
         self.assertIn("artist: state.promptDefaults.artist", editor)
         self.assertIn("rememberPromptDefaults({ ratio: value })", editor)
         self.assertIn("rememberPromptDefaults({ artist: value })", editor)
+        self.assertIn('bridge.apiGet("canvas/preferences")', editor)
+        self.assertIn('bridge.apiPost("canvas/preferences", payload)', editor)
+        self.assertIn("preferences?.lastCanvasId", editor)
+        self.assertIn("function persistCanvasPreferences()", editor)
+        self.assertIn("def load_preferences(self)", service)
+        self.assertIn("def save_preferences(self, payload", service)
         self.assertIn("const artistOptions = canvasArtistOptions()", editor)
         self.assertNotIn("`默认 · ${state.config.defaultArtist", editor)
 
@@ -471,8 +484,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
             "@media (prefers-reduced-motion", 1
         )[0]
-        self.assertIn('"identity project"', mobile_styles)
-        self.assertIn('"tools tools"', mobile_styles)
+        self.assertIn('id="mobileAssetLibraryBtn"', html)
+        self.assertIn('"identity asset project"', mobile_styles)
+        self.assertIn('"tools tools tools"', mobile_styles)
+        self.assertIn("#assetLibraryBtn", mobile_styles)
+        self.assertIn("display: none;", mobile_styles)
+        self.assertIn('document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn")', editor)
         self.assertIn("overflow-x: auto;", mobile_styles)
         self.assertIn("-webkit-overflow-scrolling: touch;", mobile_styles)
         self.assertNotIn(".toolbar-fixed .tool-btn:not(#fitBtn)", mobile_styles)

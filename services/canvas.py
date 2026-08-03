@@ -81,6 +81,7 @@ class CanvasStore:
         self.projects_path = self.data_dir / "projects.json"
         self.canvases_path = self.data_dir / "canvases.json"
         self.library_path = self.data_dir / "library.json"
+        self.preferences_path = self.data_dir / "preferences.json"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +142,11 @@ class CanvasStore:
             self._write_json(self.canvases_path, {"canvases": canvases})
         if not self.library_path.exists():
             self._write_json(self.library_path, {"images": [], "prompts": []})
+        if not self.preferences_path.exists():
+            self._write_json(
+                self.preferences_path,
+                {"lastCanvasId": "", "ratio": "", "artist": ""},
+            )
 
     def _projects(self) -> List[Dict[str, Any]]:
         payload = self._read_json(self.projects_path, {"projects": []})
@@ -158,6 +164,35 @@ class CanvasStore:
             "images": payload.get("images", []) if isinstance(payload.get("images"), list) else [],
             "prompts": payload.get("prompts", []) if isinstance(payload.get("prompts"), list) else [],
         }
+
+    def load_preferences(self) -> Dict[str, str]:
+        payload = self._read_json(self.preferences_path, {})
+        if not isinstance(payload, dict):
+            payload = {}
+        last_canvas_id = _short_text(payload.get("lastCanvasId"), 32)
+        active_canvas_ids = {item.get("id") for item in self.list_canvases()}
+        if last_canvas_id not in active_canvas_ids:
+            last_canvas_id = ""
+        return {
+            "lastCanvasId": last_canvas_id,
+            "ratio": _short_text(payload.get("ratio"), 32),
+            "artist": _short_text(payload.get("artist"), 120),
+        }
+
+    def save_preferences(self, payload: Any) -> Dict[str, str]:
+        if not isinstance(payload, dict):
+            raise CanvasValidationError("画布偏好必须是 JSON 对象")
+        current = self.load_preferences()
+        if "lastCanvasId" in payload:
+            last_canvas_id = _short_text(payload.get("lastCanvasId"), 32)
+            active_canvas_ids = {item.get("id") for item in self.list_canvases()}
+            current["lastCanvasId"] = last_canvas_id if last_canvas_id in active_canvas_ids else ""
+        if "ratio" in payload:
+            current["ratio"] = _short_text(payload.get("ratio"), 32)
+        if "artist" in payload:
+            current["artist"] = _short_text(payload.get("artist"), 120)
+        self._write_json(self.preferences_path, current)
+        return current
 
     @staticmethod
     def _validate_entity_id(value: Any, label: str) -> str:
@@ -660,6 +695,8 @@ class CanvasService:
         routes = [
             ("health", self.health, ["GET"], "Infinite Canvas：连接状态检测"),
             ("config", self.get_config, ["GET"], "Infinite Canvas：获取配置"),
+            ("preferences", self.get_preferences, ["GET"], "Infinite Canvas：获取用户偏好"),
+            ("preferences", self.save_preferences, ["POST"], "Infinite Canvas：保存用户偏好"),
             ("generate", self.generate, ["POST"], "Infinite Canvas：生成图片"),
             ("retag", self.retag, ["POST"], "Infinite Canvas：反推图片提示词"),
             ("workspace", self.load_workspace, ["GET"], "Infinite Canvas：加载工作区"),
@@ -695,6 +732,19 @@ class CanvasService:
 
     async def get_config(self) -> Any:
         return json_response(self.config_callback())
+
+    async def get_preferences(self) -> Any:
+        try:
+            return json_response(self.store.load_preferences())
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=500)
+
+    async def save_preferences(self) -> Any:
+        payload = await request.json(default={})
+        try:
+            return json_response(self.store.save_preferences(payload))
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
 
     async def health(self) -> Any:
         return json_response({"status": "ok"})
