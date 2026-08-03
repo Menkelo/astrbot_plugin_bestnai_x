@@ -45,6 +45,7 @@ const els = {
   assetPanel: document.getElementById("assetPanel"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
+  assetLibraryCount: document.getElementById("assetLibraryCount"),
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
   assetDeleteCount: document.getElementById("assetDeleteCount"),
@@ -2087,6 +2088,7 @@ function renderAssetLibrary() {
   state.libraryRenderObserver?.disconnect();
   state.libraryRenderObserver = null;
   const items = state.library.images;
+  els.assetLibraryCount.textContent = `已收录 ${items.length} 张`;
   els.assetGrid.replaceChildren();
   els.assetGrid.scrollTop = 0;
   els.assetGrid.className = "asset-grid compact-layout";
@@ -2515,7 +2517,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.31"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.32"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

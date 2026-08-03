@@ -1516,6 +1516,15 @@ select:focus-visible,
   gap: 6px;
 }
 
+.asset-library-count {
+  margin-right: auto;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .asset-delete-actions {
   display: flex;
   min-width: 0;
@@ -1530,7 +1539,6 @@ select:focus-visible,
 }
 
 .asset-delete-actions > span {
-  margin-right: auto;
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;

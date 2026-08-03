@@ -254,14 +254,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("max-width: calc(100vw - 24px);", styles)
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetSelectModeBtn"', html)
+        self.assertIn('id="assetLibraryCount"', html)
         self.assertIn('id="assetDeleteCancel"', html)
         self.assertIn('id="assetDeleteConfirm"', html)
+        self.assertLess(html.index('id="assetDeleteConfirm"'), html.index('id="assetDeleteCancel"'))
         self.assertIn('<span>多选</span>', html)
         self.assertNotIn('id="assetDeleteToggle"', html)
         self.assertNotIn(".asset-delete-toggle", styles)
         self.assertLess(html.index('id="assetGrid"'), html.index('class="asset-delete-toolbar"'))
         self.assertIn("selectedAssetIds: new Set()", editor)
         self.assertIn("function deleteSelectedLibraryAssets()", editor)
+        self.assertIn('els.assetLibraryCount.textContent = `已收录 ${items.length} 张`', editor)
         delete_mode_body = editor.split("function setAssetDeleteMode", 1)[1].split(
             "function updateAssetDeleteControls", 1
         )[0]
