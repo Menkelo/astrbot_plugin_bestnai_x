@@ -702,6 +702,26 @@ select:focus-visible,
   gap: 2px;
 }
 
+.node-artist-badge,
+.image-artist-badge,
+.asset-thumb-artist {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .9);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-artist-badge {
+  max-width: 72px;
+  padding: 5px 7px;
+}
+
 .node-action {
   display: grid;
   width: 28px;
@@ -946,7 +966,9 @@ select:focus-visible,
 .retag-btn,
 .generate-btn {
   display: inline-flex;
+  width: 72px;
   height: 32px;
+  flex: 0 0 72px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -1024,6 +1046,18 @@ select:focus-visible,
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-size: 16px 16px;
   cursor: zoom-in;
+}
+
+.image-artist-badge,
+.asset-thumb-artist {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  max-width: calc(100% - 16px);
+  padding: 6px 8px;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, .12);
+  pointer-events: none;
 }
 
 .image-preview-wrap:focus-visible {
@@ -1174,19 +1208,64 @@ select:focus-visible,
 }
 
 .image-viewer-heading span,
-.image-viewer-copy > span {
+.image-viewer-copy-head > span {
   color: #94a3b8;
   font-size: 9.5px;
   font-weight: 800;
 }
 
-.image-viewer-heading span {
+.image-viewer-facts {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+}
+
+#imageViewerArtist {
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 999px;
+  color: #dbeafe;
 }
 
 .image-viewer-copy {
   display: grid;
   gap: 4px;
+}
+
+.image-viewer-copy[hidden] {
+  display: none;
+}
+
+.image-viewer-copy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.image-viewer-copy-btn {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .06);
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.image-viewer-copy-btn:hover {
+  border-color: rgba(255, 255, 255, .28);
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+}
+
+.image-viewer-copy-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .image-viewer-copy p {
@@ -1198,31 +1277,9 @@ select:focus-visible,
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.image-viewer-close {
-  position: fixed;
-  z-index: 2;
-  top: 24px;
-  right: 24px;
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, .22);
-  border-radius: 50%;
-  background: rgba(15, 23, 42, .72);
-  color: #fff;
-  cursor: pointer;
-}
-
-.image-viewer-close:hover {
-  background: rgba(30, 41, 59, .96);
-}
-
-.image-viewer-close svg {
-  width: 20px;
-  height: 20px;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .port {
@@ -1546,6 +1603,7 @@ select:focus-visible,
 
 .asset-card {
   min-width: 0;
+  align-self: start;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1595,6 +1653,7 @@ select:focus-visible,
 }
 
 .asset-thumb {
+  position: relative;
   display: grid;
   width: 100%;
   place-items: center;
@@ -1698,8 +1757,6 @@ select:focus-visible,
   justify-content: center;
   flex-direction: column;
   gap: 8px;
-  border: 1px dashed var(--line-2);
-  border-radius: 12px;
   color: var(--faint);
   font-size: 11px;
   font-weight: 800;
@@ -1707,6 +1764,10 @@ select:focus-visible,
 
 .asset-empty.visible {
   display: flex;
+}
+
+.asset-grid.empty {
+  display: none;
 }
 
 .asset-empty svg {

@@ -41,6 +41,8 @@ const els = {
   imageViewerImage: document.getElementById("imageViewerImage"),
   imageViewerCaption: document.getElementById("imageViewerCaption"),
   imageViewerDimensions: document.getElementById("imageViewerDimensions"),
+  imageViewerArtist: document.getElementById("imageViewerArtist"),
+  imageViewerPromptSection: document.getElementById("imageViewerPromptSection"),
   imageViewerPrompt: document.getElementById("imageViewerPrompt"),
   imageViewerTags: document.getElementById("imageViewerTags"),
   assetPanel: document.getElementById("assetPanel"),
@@ -639,6 +641,12 @@ function makeNodeShell(node, label) {
 
   const actions = document.createElement("span");
   actions.className = "node-actions";
+  if (node.type === "prompt") {
+    const artistBadge = document.createElement("span");
+    artistBadge.className = "node-artist-badge";
+    updateArtistBadge(artistBadge, node);
+    actions.appendChild(artistBadge);
+  }
   actions.append(
     makeAction("copy", "复制节点", () => duplicateNode(node.id)),
     makeAction("x", "删除节点", () => deleteNode(node.id), "delete"),
@@ -653,6 +661,24 @@ function makeNodeShell(node, label) {
   });
   attachNodeDrag(handle, element, node);
   return element;
+}
+
+function artistDisplayName(node) {
+  if (!node || node.raw) return "";
+  if (node.type === "image") return String(node.meta?.artist || "").trim();
+  if (node.artist) {
+    const option = (state.config.artists || []).find((item) => item.value === node.artist);
+    return String(option?.label || node.artist).trim();
+  }
+  return String(state.config.defaultArtist || "").trim();
+}
+
+function updateArtistBadge(badge, node) {
+  if (!badge) return;
+  const artist = artistDisplayName(node);
+  badge.textContent = artist;
+  badge.title = artist ? `画师预设：${artist}` : "未使用画师预设";
+  badge.hidden = !artist;
 }
 
 function bringNodeToFront(id, element = null) {
@@ -776,6 +802,7 @@ function renderPromptNode(node) {
   ];
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
     node.artist = value;
+    updateArtistBadge(element.querySelector(".node-artist-badge"), node);
     scheduleSave();
   });
   options.append(ratioField, artistField);
@@ -790,6 +817,7 @@ function renderPromptNode(node) {
   raw.checked = !!node.raw;
   raw.addEventListener("change", () => {
     node.raw = raw.checked;
+    updateArtistBadge(element.querySelector(".node-artist-badge"), node);
     scheduleSave();
   });
   rawLabel.append(raw, document.createTextNode("原始提示词"));
@@ -885,10 +913,6 @@ function renderImageNode(node) {
     makeAction("bookmark-plus", "保存到素材库", () => saveImageToLibrary(node)),
     actions.firstChild,
   );
-  actions.insertBefore(
-    makeAction("maximize-2", "放大查看", () => openImageViewer(node)),
-    actions.firstChild,
-  );
 
   const frame = document.createElement("div");
   frame.className = "image-preview-wrap";
@@ -896,6 +920,14 @@ function renderImageNode(node) {
   frame.setAttribute("role", "button");
   frame.setAttribute("aria-label", "放大图片并查看提示词");
   frame.title = "点击放大图片并查看提示词";
+  const imageArtist = artistDisplayName(node);
+  if (imageArtist) {
+    const artistBadge = document.createElement("span");
+    artistBadge.className = "image-artist-badge";
+    artistBadge.textContent = imageArtist;
+    artistBadge.title = `画师预设：${imageArtist}`;
+    frame.appendChild(artistBadge);
+  }
   frame.addEventListener("click", () => openImageViewer(node));
   frame.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -1602,6 +1634,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
         meta: {
           prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
           tags: result.meta?.translatedPrompt || workingPrompt,
+          artist: result.meta?.artist || "",
           ratio: result.meta?.ratio || node.ratio,
           width: sourceWidth,
           height: sourceHeight,
@@ -1780,10 +1813,21 @@ function openImageViewer(node) {
   els.imageViewerCaption.textContent = node.title || "图片预览";
   const size = meta.width && meta.height ? `${meta.width}×${meta.height}` : "原始尺寸";
   els.imageViewerDimensions.textContent = `${size}${meta.ratio ? ` · ${meta.ratio}` : ""}`;
-  els.imageViewerPrompt.textContent = meta.prompt || "暂无提示词记录";
-  els.imageViewerTags.textContent = meta.tags || meta.finalPrompt || "暂无英文 tags 记录";
+  const prompt = String(meta.prompt || "").trim();
+  const tags = String(meta.tags || meta.finalPrompt || "").trim();
+  const artist = String(meta.artist || "").trim();
+  els.imageViewerPromptSection.hidden = !!tags && isPureEnglishPrompt(prompt);
+  els.imageViewerPrompt.textContent = prompt || "暂无提示词记录";
+  els.imageViewerTags.textContent = tags || "暂无英文 tags 记录";
+  els.imageViewerArtist.textContent = artist;
+  els.imageViewerArtist.hidden = !artist;
   els.imageViewer.hidden = false;
-  document.getElementById("imageViewerClose").focus();
+  els.imageViewer.focus({ preventScroll: true });
+}
+
+function isPureEnglishPrompt(value) {
+  const text = String(value || "").trim();
+  return !!text && /^[\x00-\x7F]+$/.test(text) && /[A-Za-z]/.test(text);
 }
 
 function closeImageViewer() {
@@ -1791,6 +1835,9 @@ function closeImageViewer() {
   els.imageViewerImage.removeAttribute("src");
   els.imageViewerCaption.textContent = "图片预览";
   els.imageViewerDimensions.textContent = "原始尺寸";
+  els.imageViewerArtist.textContent = "";
+  els.imageViewerArtist.hidden = true;
+  els.imageViewerPromptSection.hidden = false;
   els.imageViewerPrompt.textContent = "暂无提示词记录";
   els.imageViewerTags.textContent = "暂无英文 tags 记录";
 }
@@ -1873,6 +1920,7 @@ function activeAssetItems() {
 function renderAssetLibrary() {
   const items = activeAssetItems();
   els.assetGrid.replaceChildren();
+  els.assetGrid.classList.toggle("empty", items.length === 0);
   els.assetPanelCount.textContent = `${items.length} 项`;
   els.assetEmpty.classList.toggle("visible", items.length === 0);
 
@@ -1908,6 +1956,13 @@ function renderImageAssetCard(item) {
     loading.textContent = "图片读取失败";
   });
   thumb.append(loading, image);
+  if (item.artist) {
+    const artist = document.createElement("span");
+    artist.className = "asset-thumb-artist";
+    artist.textContent = item.artist;
+    artist.title = `画师预设：${item.artist}`;
+    thumb.appendChild(artist);
+  }
   if (item.dataUrl) image.src = item.dataUrl;
   else ensureLibraryImageData(item).then((dataUrl) => {
     if (image.isConnected) image.src = dataUrl;
@@ -2011,6 +2066,7 @@ async function openLibraryImageViewer(item) {
       meta: {
         prompt: item.prompt || "",
         tags: item.tags || "",
+        artist: item.artist || "",
         width: item.width,
         height: item.height,
         ratio: item.ratio || "",
@@ -2038,6 +2094,7 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
       meta: {
         prompt: item.prompt || item.name || "素材图片",
         tags: item.tags || "",
+        artist: item.artist || "",
         width: item.width,
         height: item.height,
         ratio: item.ratio || "",
@@ -2105,6 +2162,7 @@ async function saveImageToLibrary(node) {
       source: "canvas",
       prompt: node.meta?.prompt || "",
       tags: node.meta?.tags || node.meta?.finalPrompt || "",
+      artist: node.meta?.artist || "",
       ratio: node.meta?.ratio || "",
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
@@ -2228,7 +2286,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.14"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.15"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2351,11 +2409,11 @@ function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
 
-function isPromptTextTarget(target) {
+function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   return !!(
-    targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input")
-    || document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input")
+    targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")
+    || document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")
   );
 }
 
@@ -2364,13 +2422,13 @@ document.addEventListener("dragstart", (event) => {
   clearDropOverlay();
 });
 document.addEventListener("selectstart", (event) => {
-  if (!isPromptTextTarget(event.target)) event.preventDefault();
+  if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 document.addEventListener("copy", (event) => {
-  if (!isPromptTextTarget(event.target)) event.preventDefault();
+  if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 document.addEventListener("cut", (event) => {
-  if (!isPromptTextTarget(event.target)) event.preventDefault();
+  if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 
 els.viewport.addEventListener("dragover", (event) => {
@@ -2485,7 +2543,6 @@ document.addEventListener("pointerdown", (event) => {
 document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
-document.getElementById("assetPanelClose").addEventListener("click", () => setAssetPanel(false));
 els.assetSearch.addEventListener("input", renderAssetLibrary);
 
 els.imageInput.addEventListener("change", () => {
@@ -2543,10 +2600,44 @@ clearModal.addEventListener("pointerdown", (event) => {
   if (event.target === clearModal) clearModal.hidden = true;
 });
 
-document.getElementById("imageViewerClose").addEventListener("click", closeImageViewer);
 els.imageViewer.addEventListener("pointerdown", (event) => {
-  if (event.target === els.imageViewer) closeImageViewer();
+  if (!event.target.closest("#imageViewerImage, .image-viewer-details")) closeImageViewer();
 });
+document.querySelectorAll("[data-copy-target]").forEach((button) => {
+  button.addEventListener("click", () => copyViewerText(button.dataset.copyTarget, button.title));
+});
+
+async function copyViewerText(targetId, label) {
+  const text = document.getElementById(targetId)?.textContent?.trim() || "";
+  if (!text || text.startsWith("暂无")) {
+    toast("没有可复制的内容", "error");
+    return;
+  }
+  try {
+    const buffer = document.createElement("textarea");
+    buffer.className = "clipboard-copy-buffer";
+    buffer.value = text;
+    buffer.style.position = "fixed";
+    buffer.style.opacity = "0";
+    document.body.appendChild(buffer);
+    buffer.focus();
+    buffer.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } finally {
+      buffer.remove();
+      els.imageViewer.focus({ preventScroll: true });
+    }
+    if (!copied) {
+      if (!navigator.clipboard?.writeText) throw new Error("浏览器拒绝复制");
+      await navigator.clipboard.writeText(text);
+    }
+    toast(`${label || "内容"}成功`);
+  } catch (_) {
+    toast("复制失败，请拖动选择文字后复制", "error");
+  }
+}
 
 document.addEventListener("keydown", (event) => {
   const target = event.target instanceof Element ? event.target : null;

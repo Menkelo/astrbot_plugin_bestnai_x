@@ -18,7 +18,7 @@
             </span>
             <span class="plugin-meta">
               <span class="plugin-author">by <span id="pluginAuthor">Menkelo</span></span>
-              <span id="pluginVersion">v3.0.14</span>
+              <span id="pluginVersion">v3.0.15</span>
               <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
             </span>
           </div>
@@ -110,7 +110,6 @@
               <strong>素材库</strong>
               <span id="assetPanelCount">0 项</span>
             </div>
-            <button id="assetPanelClose" class="asset-icon-btn" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
           </header>
           <div class="asset-panel-tools">
             <label class="asset-search"><i data-lucide="search"></i><input id="assetSearch" type="search" placeholder="搜索素材" /></label>
@@ -137,22 +136,21 @@
       </section>
     </div>
 
-    <div id="imageViewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
-      <button id="imageViewerClose" class="image-viewer-close" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+    <div id="imageViewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1" hidden>
       <figure class="image-viewer-stage">
         <img id="imageViewerImage" alt="" />
         <figcaption class="image-viewer-details">
           <div class="image-viewer-heading">
             <strong id="imageViewerCaption">图片预览</strong>
-            <span id="imageViewerDimensions">原始尺寸</span>
+            <span class="image-viewer-facts"><span id="imageViewerArtist" hidden></span><span id="imageViewerDimensions">原始尺寸</span></span>
+          </div>
+          <div id="imageViewerPromptSection" class="image-viewer-copy">
+            <div class="image-viewer-copy-head"><span>提示词</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerPrompt" title="复制提示词" aria-label="复制提示词"><i data-lucide="copy"></i></button></div>
+            <p id="imageViewerPrompt" class="image-viewer-copy-text">暂无提示词记录</p>
           </div>
           <div class="image-viewer-copy">
-            <span>提示词</span>
-            <p id="imageViewerPrompt">暂无提示词记录</p>
-          </div>
-          <div class="image-viewer-copy">
-            <span>英文 tags</span>
-            <p id="imageViewerTags">暂无英文 tags 记录</p>
+            <div class="image-viewer-copy-head"><span>英文 tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 tags" aria-label="复制英文 tags"><i data-lucide="copy"></i></button></div>
+            <p id="imageViewerTags" class="image-viewer-copy-text">暂无英文 tags 记录</p>
           </div>
         </figcaption>
       </figure>

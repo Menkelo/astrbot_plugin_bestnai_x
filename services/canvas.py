@@ -375,6 +375,7 @@ class CanvasStore:
                     "height": int(_bounded_number(raw_meta.get("height"), 0, 0, 20_000)),
                     "finalPrompt": _short_text(raw_meta.get("finalPrompt"), 6000),
                     "tags": _short_text(raw_meta.get("tags"), 6000),
+                    "artist": _short_text(raw_meta.get("artist"), 120),
                     "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
                     "translatedPromptExpanded": bool(
                         raw_meta.get("translatedPromptExpanded", False)
@@ -560,6 +561,7 @@ class CanvasStore:
         prompt: Any = "",
         tags: Any = "",
         ratio: Any = "",
+        artist: Any = "",
     ) -> Dict[str, Any]:
         asset_id = str(asset.get("id") or "")
         if not ASSET_ID_RE.fullmatch(asset_id):
@@ -576,6 +578,7 @@ class CanvasStore:
                 "source": _short_text(source, 80),
                 "prompt": _short_text(prompt, 6000),
                 "tags": _short_text(tags, 6000),
+                "artist": _short_text(artist, 120),
                 "ratio": _short_text(ratio, 32),
             }
         )
@@ -804,6 +807,7 @@ class CanvasService:
                 payload.get("prompt"),
                 payload.get("tags"),
                 payload.get("ratio"),
+                payload.get("artist"),
             )
             return json_response({"image": entry, **asset_payload})
         except FileNotFoundError:

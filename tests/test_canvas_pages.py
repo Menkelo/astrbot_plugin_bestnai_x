@@ -40,11 +40,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
-            'targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input")',
+            'targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")',
             editor,
         )
         self.assertIn(
-            'document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input")',
+            'document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")',
             editor,
         )
         self.assertIn(".prompt-text {", styles)
@@ -157,10 +157,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="imageViewer"', html)
         self.assertIn('id="imageViewerPrompt"', html)
         self.assertIn('id="imageViewerTags"', html)
-        self.assertIn('makeAction("maximize-2", "放大查看"', editor)
+        self.assertNotIn('id="imageViewerClose"', html)
+        self.assertNotIn('makeAction("maximize-2", "放大查看"', editor)
+        self.assertIn('data-copy-target="imageViewerPrompt"', html)
+        self.assertIn('data-copy-target="imageViewerTags"', html)
         self.assertIn("function openImageViewer", editor)
         self.assertIn('frame.addEventListener("click", () => openImageViewer(node))', editor)
+        self.assertIn('!event.target.closest("#imageViewerImage, .image-viewer-details")', editor)
+        self.assertIn("function copyViewerText", editor)
+        self.assertIn("function isPureEnglishPrompt", editor)
+        self.assertIn("els.imageViewerPromptSection.hidden", editor)
         self.assertIn(".image-viewer {", styles)
+        self.assertIn(".image-viewer-copy[hidden]", styles)
+        self.assertIn("user-select: text;", styles)
 
     def test_library_preloads_and_uses_click_preview_with_drag_placement(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
@@ -180,6 +189,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('card.addEventListener("click", () => addImageAssetToCanvas(item))', editor)
         self.assertIn('thumb.style.aspectRatio = `${item.width} / ${item.height}`', editor)
         self.assertIn("object-fit: contain;", styles)
+        self.assertIn("align-self: start;", styles)
+        self.assertIn(".asset-grid.empty", styles)
+        self.assertNotIn('id="assetPanelClose"', html)
+
+    def test_artist_badges_and_generation_buttons_have_stable_layout(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
+
+        self.assertIn("function artistDisplayName", editor)
+        self.assertIn('artist: result.meta?.artist || ""', editor)
+        self.assertIn('artist: node.meta?.artist || ""', editor)
+        self.assertIn('artist: item.artist || ""', editor)
+        self.assertIn('artistBadge.className = "image-artist-badge"', editor)
+        self.assertIn('artistBadge.className = "node-artist-badge"', editor)
+        self.assertIn("width: 72px;", styles)
+        self.assertIn("flex: 0 0 72px;", styles)
+        self.assertIn('"artist": _short_text(raw_meta.get("artist"), 120)', service)
 
     def test_clicked_nodes_move_to_front_and_image_labels_keep_source_prompt(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
