@@ -2064,7 +2064,7 @@ select:focus-visible,
   }
 }
 
-@media (max-width: 900px) and (orientation: landscape) {
+@media (orientation: landscape) and (max-height: 620px) and (max-width: 1400px) {
   .topbar {
     --compact-tool-size: clamp(32px, 4vw, 38px);
     gap: 4px;
@@ -2078,10 +2078,14 @@ select:focus-visible,
   }
 
   .toolbar {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     gap: clamp(2px, .5vw, 6px);
     max-width: none;
     overflow: visible;
+  }
+
+  .toolbar-items .tool-btn span {
+    display: none;
   }
 
   .toolbar-items,

@@ -499,9 +499,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("justify-self: center;", mobile_styles)
         self.assertIn("place-items: center;", mobile_styles)
         landscape_styles = styles.split(
-            "@media (max-width: 900px) and (orientation: landscape) {", 1
+            "@media (orientation: landscape) and (max-height: 620px) and (max-width: 1400px) {",
+            1,
         )[1].split("@media (max-width: 620px) {", 1)[0]
         self.assertIn("overflow: visible;", landscape_styles)
+        self.assertIn("flex: 0 0 auto;", landscape_styles)
+        self.assertIn(".toolbar-items .tool-btn span", landscape_styles)
         self.assertIn("--compact-tool-size: clamp(32px, 4vw, 38px);", landscape_styles)
         self.assertIn("min-width: var(--compact-tool-size);", landscape_styles)
         self.assertNotIn(".toolbar-fixed .tool-btn:not(#fitBtn)", mobile_styles)
