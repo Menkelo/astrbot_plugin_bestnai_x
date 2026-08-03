@@ -374,6 +374,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('class="topbar panel"', html)
+        topbar_start = html.index('class="topbar panel"')
+        toast_position = html.index('id="toastRegion"')
+        board_start = html.index('id="board"')
+        self.assertLess(topbar_start, toast_position)
+        self.assertLess(toast_position, board_start)
         self.assertIn('id="connectionIndicator"', html)
         self.assertIn('class="plugin-title-row"', html)
         self.assertLess(html.index('id="pluginVersion"'), html.index('id="connectionIndicator"'))
@@ -386,6 +391,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".plugin-meta > span:not(.connection-indicator)", styles)
         self.assertIn("left: -22px;", styles)
         self.assertIn("right: -22px;", styles)
+        toast_styles = styles.split(".toast-region {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: absolute;", toast_styles)
+        self.assertIn("top: 50%;", toast_styles)
+        self.assertIn("left: 50%;", toast_styles)
+        self.assertIn("transform: translate(-50%, -50%);", toast_styles)
+        self.assertNotIn("right: 24px;", toast_styles)
+        toast_body = editor.split("function toast(message", 1)[1].split("function setConnectionState", 1)[0]
+        self.assertIn("els.toastRegion.replaceChildren(item)", toast_body)
+        self.assertNotIn("els.toastRegion.appendChild(item)", toast_body)
 
     def test_character_preservation_guides_visual_retagging(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")

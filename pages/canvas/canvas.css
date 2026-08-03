@@ -1881,25 +1881,32 @@ select:focus-visible,
 }
 
 .toast-region {
-  position: fixed;
+  position: absolute;
   z-index: 100;
-  top: 88px;
-  right: 24px;
-  display: grid;
-  width: min(330px, calc(100vw - 48px));
-  gap: 8px;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: min(360px, 42vw);
+  justify-content: center;
   pointer-events: none;
+  transform: translate(-50%, -50%);
 }
 
 .toast {
-  padding: 10px 13px;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 6px 13px;
+  overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow: 0 16px 38px var(--shadow);
+  border-radius: 999px;
+  background: var(--card-solid);
+  box-shadow: 0 5px 16px rgba(15, 23, 42, .13);
   color: var(--text);
   font-size: 11px;
   line-height: 1.45;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   animation: toast-in .16s ease-out;
 }
 

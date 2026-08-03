@@ -120,7 +120,9 @@ function toast(message, type = "info") {
   const item = document.createElement("div");
   item.className = `toast${type === "error" ? " error" : ""}`;
   item.textContent = String(message || "操作失败");
-  els.toastRegion.appendChild(item);
+  item.title = item.textContent;
+  item.setAttribute("role", type === "error" ? "alert" : "status");
+  els.toastRegion.replaceChildren(item);
   window.setTimeout(() => item.remove(), 3600);
 }
 
@@ -2486,7 +2488,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.28"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.29"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
