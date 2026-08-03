@@ -1545,7 +1545,7 @@ select:focus-visible,
 
 .asset-delete-actions button {
   display: inline-flex;
-  min-width: 58px;
+  min-width: 72px;
   height: 28px;
   align-items: center;
   justify-content: center;
@@ -1571,8 +1571,7 @@ select:focus-visible,
   opacity: .45;
 }
 
-.asset-delete-actions button svg,
-.asset-delete-toggle > svg {
+.asset-delete-actions button svg {
   width: 12px;
   height: 12px;
 }

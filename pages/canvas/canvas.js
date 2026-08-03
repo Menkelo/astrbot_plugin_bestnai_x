@@ -1994,20 +1994,25 @@ function setAssetPanel(open) {
   els.assetPanel.classList.toggle("open", open);
   document.getElementById("assetLibraryBtn").classList.toggle("active", open);
   if (!open) {
-    setAssetDeleteMode(false, false);
+    setAssetDeleteMode(false);
     return;
   }
   alignAssetPanel();
   renderAssetLibrary();
 }
 
-function setAssetDeleteMode(enabled, render = true) {
+function setAssetDeleteMode(enabled) {
   state.assetDeleteMode = !!enabled;
-  if (!state.assetDeleteMode) state.selectedAssetIds.clear();
+  if (!state.assetDeleteMode) {
+    state.selectedAssetIds.clear();
+    els.assetGrid.querySelectorAll(".asset-image-card.selected").forEach((card) => {
+      card.classList.remove("selected");
+      card.setAttribute("aria-selected", "false");
+    });
+  }
   els.assetPanel.classList.toggle("delete-mode", state.assetDeleteMode);
   els.assetDeleteToggle.checked = state.assetDeleteMode;
   updateAssetDeleteControls();
-  if (render && els.assetPanel.classList.contains("open")) renderAssetLibrary();
 }
 
 function updateAssetDeleteControls() {
@@ -2015,7 +2020,7 @@ function updateAssetDeleteControls() {
   els.assetDeleteActions.hidden = !state.assetDeleteMode;
   els.assetDeleteCount.textContent = `已选 ${count} 项`;
   els.assetDeleteConfirm.disabled = count === 0 || state.deletingAssets;
-  els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除";
+  els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除所选";
   els.assetDeleteToggle.disabled = state.deletingAssets;
 }
 
@@ -2035,7 +2040,7 @@ async function deleteSelectedLibraryAssets() {
   try {
     await Promise.all(ids.map((id) => bridge.apiPost("canvas/library/image/delete", { id })));
     state.library.images = state.library.images.filter((item) => !ids.includes(item.id));
-    setAssetDeleteMode(false, false);
+    setAssetDeleteMode(false);
     renderAssetLibrary();
     toast(`已删除 ${ids.length} 项素材`);
   } catch (error) {
@@ -2488,7 +2493,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.29"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.30"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

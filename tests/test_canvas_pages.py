@@ -256,8 +256,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetDeleteToggle"', html)
         self.assertIn('id="assetDeleteConfirm"', html)
+        self.assertIn('<span>删除所选</span>', html)
+        self.assertIn('<span>多选</span>', html)
+        self.assertNotIn('<i data-lucide="trash-2"></i><span>删除</span>\n              <input id="assetDeleteToggle"', html)
         self.assertIn("selectedAssetIds: new Set()", editor)
         self.assertIn("function deleteSelectedLibraryAssets()", editor)
+        delete_mode_body = editor.split("function setAssetDeleteMode", 1)[1].split(
+            "function updateAssetDeleteControls", 1
+        )[0]
+        self.assertNotIn("renderAssetLibrary()", delete_mode_body)
+        self.assertIn('card.classList.remove("selected")', delete_mode_body)
         self.assertIn('canvas/library/image/delete', editor)
         self.assertIn(".asset-select-indicator", styles)
         self.assertIn(".asset-panel.delete-mode .asset-image-card.selected", styles)
