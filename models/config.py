@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 FIXED_MODEL = "nai-diffusion-4-5-full"
@@ -156,6 +156,7 @@ class SafetyConfig:
     enabled: bool = True
     provider_id: str = ""
     prompt_block_enabled: bool = True
+    prompt_block_words: Optional[List[str]] = None
 
 
 @dataclass
@@ -259,6 +260,12 @@ class PluginConfig:
         raw_artist_presets = _normalize_string_list(
             prompt_conf.get("artist_presets", [])
         )
+        raw_prompt_block_words = safety_conf.get("prompt_block_words")
+        prompt_block_words = (
+            None
+            if raw_prompt_block_words is None
+            else _normalize_string_list(raw_prompt_block_words)
+        )
 
         if not raw_artist_presets:
             raw_artist_presets = DEFAULT_ARTIST_PRESET_LIST.copy()
@@ -294,6 +301,7 @@ class PluginConfig:
                 enabled=bool(safety_conf.get("enabled", True)),
                 provider_id=safety_provider_id,
                 prompt_block_enabled=bool(safety_conf.get("prompt_block_enabled", True)),
+                prompt_block_words=prompt_block_words,
             ),
             image_retag=ImageRetagConfig(
                 enabled=bool(image_retag_conf.get("enabled", False)),

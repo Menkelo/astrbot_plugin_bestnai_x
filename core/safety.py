@@ -132,15 +132,25 @@ def append_safe_negative(negative_prompt: str) -> str:
     return negative_prompt.rstrip(" ,") + ", " + ", ".join(tags_to_add)
 
 
-def filter_sensitive_prompt(prompt: str) -> tuple[str, list[str]]:
+def filter_sensitive_prompt(
+    prompt: str,
+    blocked_words: list[str] | None = None,
+) -> tuple[str, list[str]]:
     """从提示词中移除明显 NSFW / explicit 关键词。"""
     filtered = str(prompt or "")
     removed_words: list[str] = []
-
-    for word in sorted(HARD_BLOCK_WORDS, key=len, reverse=True):
-        if not word:
+    words = HARD_BLOCK_WORDS if blocked_words is None else blocked_words
+    normalized_words: list[str] = []
+    seen_words: set[str] = set()
+    for raw_word in words:
+        word = str(raw_word).strip()
+        word_key = word.casefold()
+        if not word or word_key in seen_words:
             continue
+        seen_words.add(word_key)
+        normalized_words.append(word)
 
+    for word in sorted(normalized_words, key=len, reverse=True):
         pattern = re.escape(word)
         flags = re.IGNORECASE
 
@@ -179,7 +189,11 @@ class SafetyModerator:
                 filtered_prompt=prompt or "",
             )
 
-        filtered_prompt, removed_words = filter_sensitive_prompt(prompt)
+        blocked_words = getattr(self.config, "prompt_block_words", None)
+        filtered_prompt, removed_words = filter_sensitive_prompt(
+            prompt,
+            blocked_words,
+        )
 
         if removed_words:
             return SafetyCheckResult(

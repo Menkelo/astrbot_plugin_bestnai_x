@@ -1596,6 +1596,10 @@ select:focus-visible,
   scrollbar-width: thin;
 }
 
+.asset-grid > * {
+  flex: 0 0 auto;
+}
+
 .asset-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

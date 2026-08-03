@@ -757,7 +757,11 @@ function renderPromptNode(node) {
   translatedPanel.open = !!node.meta?.translatedPromptExpanded;
   element.classList.toggle("translated-expanded", translatedPanel.open);
   const savedPromptEditorHeight = Number(node.meta?.promptEditorHeight || 0);
-  if (translatedPanel.open && savedPromptEditorHeight > 0) {
+  if (
+    translatedPanel.open
+    && node.meta?.promptEditorHeightUnit === "css"
+    && savedPromptEditorHeight > 0
+  ) {
     element.style.setProperty("--prompt-editor-height", `${savedPromptEditorHeight}px`);
   }
   const translatedSummary = document.createElement("summary");
@@ -768,13 +772,19 @@ function renderPromptNode(node) {
   translatedPrompt.placeholder = "生成或反推后会在这里保存英文 tags";
   translatedPrompt.value = node.meta?.translatedPrompt || node.meta?.retagPrompt || "";
   translatedPanel.append(translatedSummary, translatedPrompt);
-  translatedSummary.addEventListener("click", () => {
+  const lockPromptEditorHeight = () => {
     if (translatedPanel.open) return;
-    const promptEditorHeight = Math.round(prompt.getBoundingClientRect().height);
+    const promptEditorHeight = prompt.offsetHeight;
     if (promptEditorHeight <= 0) return;
     element.style.setProperty("--prompt-editor-height", `${promptEditorHeight}px`);
-    node.meta = { ...(node.meta || {}), promptEditorHeight };
-  });
+    node.meta = {
+      ...(node.meta || {}),
+      promptEditorHeight,
+      promptEditorHeightUnit: "css",
+    };
+  };
+  translatedSummary.addEventListener("pointerdown", lockPromptEditorHeight);
+  translatedSummary.addEventListener("click", lockPromptEditorHeight);
   translatedPanel.addEventListener("toggle", () => {
     const expanded = translatedPanel.open;
     if (!!node.meta?.translatedPromptExpanded === expanded) return;
@@ -2410,7 +2420,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.22"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.23"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

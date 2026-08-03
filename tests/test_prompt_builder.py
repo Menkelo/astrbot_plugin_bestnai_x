@@ -12,14 +12,11 @@ astrbot_api_module = types.ModuleType("astrbot.api")
 astrbot_api_module.logger = logging.getLogger("test.prompt_builder")
 sys.modules.setdefault("astrbot", astrbot_module)
 sys.modules.setdefault("astrbot.api", astrbot_api_module)
+sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
 
 workspace_dir = Path(__file__).resolve().parents[2]
 if str(workspace_dir) not in sys.path:
     sys.path.insert(0, str(workspace_dir))
-
-safety_module = types.ModuleType("astrbot_plugin_bestnai_x.core.safety")
-safety_module.append_safe_negative = lambda prompt: f"{prompt}, nsfw"
-sys.modules.setdefault("astrbot_plugin_bestnai_x.core.safety", safety_module)
 
 from astrbot_plugin_bestnai_x.models.config import GenerationConfig
 from astrbot_plugin_bestnai_x.services.prompt_builder import PromptBuilder
