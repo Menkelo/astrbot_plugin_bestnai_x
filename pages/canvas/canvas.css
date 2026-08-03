@@ -1731,7 +1731,7 @@ select:focus-visible,
 .asset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, var(--asset-thumb-size, 112px));
-  grid-auto-rows: var(--asset-card-height, 137px);
+  grid-auto-rows: var(--asset-card-height, 112px);
   min-height: 0;
   flex: 1;
   align-content: start;
@@ -1790,7 +1790,7 @@ select:focus-visible,
 
 .asset-grid.compact-layout .asset-image-card {
   display: flex;
-  height: var(--asset-card-height, 137px);
+  height: var(--asset-card-height, 112px);
   flex-direction: column;
 }
 
@@ -1868,26 +1868,6 @@ select:focus-visible,
   font-weight: 750;
 }
 
-.asset-card-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 5px;
-  padding: 7px;
-  border-top: 1px solid var(--line);
-}
-
-.asset-card-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 10.5px;
-  font-weight: 800;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .asset-card-remove {
   display: grid;
   width: 25px;
@@ -1908,6 +1888,31 @@ select:focus-visible,
 .asset-card-remove svg {
   width: 12px;
   height: 12px;
+}
+
+.asset-image-remove {
+  position: absolute;
+  z-index: 3;
+  top: 7px;
+  left: 7px;
+  border: 1px solid rgba(255, 255, 255, .68);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .86);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .14);
+  color: #64748b;
+  opacity: .84;
+  backdrop-filter: blur(8px);
+}
+
+.asset-image-remove:hover {
+  border-color: rgba(254, 202, 202, .9);
+  background: rgba(254, 242, 242, .96);
+  color: var(--danger);
+  opacity: 1;
+}
+
+.asset-thumb .asset-thumb-artist {
+  max-width: calc(100% - 48px);
 }
 
 .asset-prompt-card {

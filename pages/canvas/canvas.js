@@ -2093,7 +2093,7 @@ function syncAssetControls() {
   els.assetSourceFilter.disabled = promptMode;
   els.assetSizeControl.hidden = promptMode || state.assetUi.layout !== "compact";
   els.assetGrid.style.setProperty("--asset-thumb-size", `${state.assetUi.thumbSize}px`);
-  els.assetGrid.style.setProperty("--asset-card-height", `${Math.round(state.assetUi.thumbSize * 1.22)}px`);
+  els.assetGrid.style.setProperty("--asset-card-height", `${state.assetUi.thumbSize}px`);
 }
 
 function activeAssetItems() {
@@ -2255,16 +2255,12 @@ function renderImageAssetCard(item, container = els.assetGrid, wide = false) {
   }).catch(() => {
     if (loading.isConnected) loading.textContent = "图片读取失败";
   });
-  const meta = document.createElement("div");
-  meta.className = "asset-card-meta";
-  const name = document.createElement("span");
-  name.className = "asset-card-name";
-  name.textContent = item.name || `图片 ${item.id.slice(0, 8)}`;
+  const displayName = item.name || `图片 ${item.id.slice(0, 8)}`;
   const remove = document.createElement("button");
   remove.type = "button";
-  remove.className = "asset-card-remove";
+  remove.className = "asset-card-remove asset-image-remove";
   remove.title = "从素材库移除";
-  remove.setAttribute("aria-label", `移除图片素材 ${name.textContent}`);
+  remove.setAttribute("aria-label", `移除图片素材 ${displayName}`);
   remove.appendChild(icon("x"));
   remove.addEventListener("click", async (event) => {
     event.stopPropagation();
@@ -2272,8 +2268,8 @@ function renderImageAssetCard(item, container = els.assetGrid, wide = false) {
     state.library.images = state.library.images.filter((entry) => entry.id !== item.id);
     renderAssetLibrary();
   });
-  meta.append(name, remove);
-  card.append(thumb, meta);
+  thumb.appendChild(remove);
+  card.appendChild(thumb);
   attachLibraryImageDrag(card, item);
   container.appendChild(card);
 }
@@ -2583,7 +2579,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.24"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.25"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2875,7 +2871,7 @@ document.querySelectorAll("[data-asset-layout]").forEach((button) => {
 els.assetThumbSize.addEventListener("input", () => {
   state.assetUi.thumbSize = clamp(Number(els.assetThumbSize.value) || 112, 88, 168);
   els.assetGrid.style.setProperty("--asset-thumb-size", `${state.assetUi.thumbSize}px`);
-  els.assetGrid.style.setProperty("--asset-card-height", `${Math.round(state.assetUi.thumbSize * 1.22)}px`);
+  els.assetGrid.style.setProperty("--asset-card-height", `${state.assetUi.thumbSize}px`);
   saveAssetPreferences();
 });
 els.assetResetFilters.addEventListener("click", () => {

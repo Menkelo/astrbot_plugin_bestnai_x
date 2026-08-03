@@ -245,6 +245,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("object-fit: contain;", styles)
         self.assertIn("object-fit: cover;", styles)
         self.assertIn("grid-auto-rows: var(--asset-card-height", styles)
+        self.assertIn(".asset-image-remove {", styles)
+        self.assertIn('thumb.appendChild(remove);', editor)
+        self.assertNotIn('name.className = "asset-card-name"', editor)
         self.assertIn("align-self: start;", styles)
         self.assertIn(".asset-grid.empty", styles)
         self.assertIn('const ASSET_UI_KEY = "bestnaiInfiniteCanvasAssetUi"', editor)
@@ -285,7 +288,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果")',
             editor,
         )
-        self.assertIn("name.textContent = item.name", editor)
         self.assertIn("tags: result.meta?.translatedPrompt || workingPrompt", editor)
         self.assertIn("retagged,", editor)
         self.assertIn('source: node.meta?.retagged ? "retagged" : "generated"', editor)
