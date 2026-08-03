@@ -1489,7 +1489,7 @@ select:focus-visible,
   bottom: 166px;
   display: flex;
   width: 380px;
-  max-width: calc(100vw - 48px);
+  max-width: calc(100vw - 24px);
   min-height: 0;
   flex-direction: column;
   gap: 10px;

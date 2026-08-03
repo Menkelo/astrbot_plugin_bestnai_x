@@ -2102,16 +2102,18 @@ function alignAssetPanel() {
     els.assetPanel.style.removeProperty("left");
     els.assetPanel.style.removeProperty("top");
     els.assetPanel.style.removeProperty("bottom");
+    els.assetPanel.style.removeProperty("width");
     return;
   }
   const topbarRect = document.querySelector(".topbar").getBoundingClientRect();
+  const buttonRect = document.getElementById("assetLibraryBtn").getBoundingClientRect();
   const viewportRect = els.viewport.getBoundingClientRect();
   const minimapRect = els.minimap.getBoundingClientRect();
-  const panelWidth = Math.min(380, window.innerWidth - 48);
   const gap = 14;
-  const rightEdge = clamp(topbarRect.right - viewportRect.left, panelWidth + 24, viewportRect.width - 12);
-  const left = rightEdge - panelWidth;
-  els.assetPanel.style.left = `${left}px`;
+  const rightEdge = Math.min(topbarRect.right - viewportRect.left, viewportRect.width - 12);
+  const leftEdge = clamp(buttonRect.left - viewportRect.left, 12, rightEdge - 240);
+  els.assetPanel.style.left = `${leftEdge}px`;
+  els.assetPanel.style.width = `${rightEdge - leftEdge}px`;
   els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
   if (minimapRect.height > 0) {
     els.assetPanel.style.bottom = `${viewportRect.bottom - minimapRect.top + gap}px`;
@@ -2484,7 +2486,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.27"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.28"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
