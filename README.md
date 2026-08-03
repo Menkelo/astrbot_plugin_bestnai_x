@@ -1,28 +1,8 @@
 # astrbot_plugin_bestnai_x
 
-BestNAI 插件特异版（`astrbot_plugin_bestnai_x`）：通过兼容 OpenAI 格式的生图 API 在 AstrBot 中生成 NovelAI 风格（NAI Diffusion）图片。
+在 AstrBot 中通过 OpenAI 兼容接口生成 NovelAI 风格图片，固定使用 `nai-diffusion-4-5-full`。
 
-本插件为 [astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai) 原版插件的特异版。
-
-## 与原版的区别
-
-以下对比以原仓库 [cunzaijiang/astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai) `v2.2.1` 的 README 与 metadata 为准。本特异版不是原版的配置兼容升级，安装前应确认所需工作流。
-
-| 项目 | 原版 `astrbot_plugin_bestnai` | 本特异版 `astrbot_plugin_bestnai_x` |
-|------|------------------------------|------------------------------------|
-| 模型 | 支持 NAI 3 / 4 / 4.5 切换，关闭 NSFW 时切换 Curated | 固定 `nai-diffusion-4-5-full`，不切换历史模型或 Curated |
-| 生图接口 | 面向 BestNAI API，手动配置 URL 与 Key | 支持 AstrBot 提供商或手动 OpenAI 兼容 API；优先 `/images/generations`，失败回退 `/chat/completions` |
-| 指令体系 | 提供 `/nai_adv`、`/nai_set`、`/nai_size`、`/nai_nsfw`、`/nai_recall`、`/nai_artist` 等会话级指令 | 以 `/nai`、`/nai0` 为主，增加 `/画师画廊`、`/查看画师`、`/设置画师`；不沿用原版高级参数、模型切换、NSFW 开关和撤回指令 |
-| 比例设置 | 通过 `/nai_size` 或高级参数设置尺寸 | 可直接在提示词或画师串中写 `16:9`、`横屏`、`1024x1024`、`--ratio` 等，并自动锚定合法分辨率 |
-| 中文翻译 | 使用单独配置的翻译 API | 使用 AstrBot 翻译提供商，结合 Danbooru Tag 检索；未修改的中文提示词可复用翻译缓存 |
-| 图片反推 | 原版不提供 | 支持发送/回复图片或 `@` QQ 用户头像反推 tags；合并用户提示词后生成，并可保持角色身份和复用识图缓存 |
-| 画师预设 | 通过 `/nai_artist` 管理会话级预设 | 配置中维护预设，支持持久化默认预设、临时调用、预览图与合成画师画廊 |
-| QQ 安全机制 | 使用 NSFW 开关、关键词清理和 Curated 模型 | 保持 Full 模型，采用可配置提示词过滤、固定安全负面词和发送前视觉审核；Canvas Web API 不套用 QQ 专用过滤 |
-| 状态与存储 | 提供用户冷却、最后图片撤回、可选图片目录保存 | 不沿用原版冷却/自动撤回体系；画布项目、节点、素材库、图片资源和最近选项独立持久化 |
-| Web 工作台 | 无 | 集成 AstrBot Page/Services 的 Infinite Canvas，支持项目、节点连线、反推链路、素材库及手机端操作 |
-| 最低 AstrBot | 原版 README 未声明明确最低版本 | 要求 AstrBot `4.26.0+`，用于 Page 与 `register_web_api` 服务集成 |
-
-简单选择：需要原版的多模型、会话级高级参数、冷却或撤回功能时使用原版；需要 NAI 4.5 Full、AstrBot Provider、QQ 安全审核、图片反推和无限画布时使用本特异版。
+原版仓库：[cunzaijiang/astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai)
 
 ---
 
