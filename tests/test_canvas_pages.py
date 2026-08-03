@@ -214,12 +214,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         download_body = editor.split("async function downloadImage", 1)[1].split(
             "function openImageViewer", 1
         )[0]
-        self.assertIn("const blob = await response.blob()", download_body)
-        self.assertIn("URL.createObjectURL(blob)", download_body)
-        self.assertIn('anchor.target = "_blank"', download_body)
-        self.assertIn('anchor.rel = "noopener"', download_body)
-        self.assertIn("URL.revokeObjectURL(objectUrl)", download_body)
-        self.assertNotIn("anchor.href = node.dataUrl", download_body)
+        self.assertIn('bridge.download(', download_body)
+        self.assertIn('"canvas/asset/download"', download_body)
+        self.assertNotIn("response.blob()", download_body)
+        self.assertNotIn("URL.createObjectURL", download_body)
+        self.assertNotIn('target = "_blank"', download_body)
         self.assertIn("if (canvasGenerationActive())", download_body)
         self.assertIn("生图或反推期间暂不可下载", download_body)
         self.assertIn("function canvasGenerationActive()", editor)
@@ -492,6 +491,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn")', editor)
         self.assertIn("overflow-x: auto;", mobile_styles)
         self.assertIn("-webkit-overflow-scrolling: touch;", mobile_styles)
+        self.assertIn("grid-template-columns: repeat(9, minmax(28px, 1fr));", mobile_styles)
+        self.assertIn("display: contents;", mobile_styles)
+        self.assertIn("justify-self: center;", mobile_styles)
         self.assertNotIn(".toolbar-fixed .tool-btn:not(#fitBtn)", mobile_styles)
         self.assertIn("const canvasTouchPointers = new Map()", editor)
         self.assertIn("function beginCanvasPinch()", editor)

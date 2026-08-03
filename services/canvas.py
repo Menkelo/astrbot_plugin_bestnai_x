@@ -705,6 +705,7 @@ class CanvasService:
             ("workspace/export", self.export_workspace, ["GET"], "Infinite Canvas：导出工作区"),
             ("upload", self.upload_asset, ["POST"], "Infinite Canvas：上传图片"),
             ("asset", self.get_asset, ["GET"], "Infinite Canvas：读取图片"),
+            ("asset/download", self.download_asset, ["GET"], "Infinite Canvas：下载图片"),
             ("projects", self.list_projects, ["GET"], "Infinite Canvas：项目列表"),
             ("projects/create", self.create_project, ["POST"], "Infinite Canvas：创建项目"),
             ("projects/update", self.update_project, ["POST"], "Infinite Canvas：更新项目"),
@@ -1007,6 +1008,20 @@ class CanvasService:
         asset_id = str(request.query.get("id", "") or "")
         try:
             return json_response(self.store.asset_payload(asset_id))
+        except FileNotFoundError:
+            return error_response("图片资源不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def download_asset(self) -> Any:
+        asset_id = str(request.query.get("id", "") or "")
+        try:
+            asset_path, mime_type = self.store.get_asset(asset_id)
+            return file_response(
+                asset_path,
+                filename=f"bestnai-{asset_id}{asset_path.suffix.lower()}",
+                content_type=mime_type,
+            )
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)
         except CanvasValidationError as exc:

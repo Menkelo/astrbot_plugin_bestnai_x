@@ -2011,31 +2011,18 @@ async function downloadImage(node) {
     toast("生图或反推期间暂不可下载", "error");
     return;
   }
-  if (!node.dataUrl) {
+  if (!node.assetId) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
   }
   try {
-    const response = await fetch(node.dataUrl);
-    const blob = await response.blob();
-    if (!blob.size) throw new Error("图片数据为空");
-    const extension = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-      "image/gif": "gif",
-    }[blob.type.toLowerCase()] || "png";
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = `bestnai-${node.assetId || Date.now()}.${extension}`;
-    anchor.target = "_blank";
-    anchor.rel = "noopener";
-    anchor.hidden = true;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+    const mime = /^data:image\/([^;,]+)/i.exec(node.dataUrl || "")?.[1]?.toLowerCase() || "png";
+    const extension = mime === "jpeg" ? "jpg" : mime;
+    await bridge.download(
+      "canvas/asset/download",
+      { id: node.assetId },
+      `bestnai-${node.assetId}.${extension}`,
+    );
   } catch (error) {
     toast(error.message || "图片下载失败", "error");
   }
@@ -2647,7 +2634,7 @@ async function loadInitialState() {
   loadPromptDefaults(preferences || {});
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.36"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.37"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {

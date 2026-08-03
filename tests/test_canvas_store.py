@@ -278,6 +278,14 @@ class CanvasStoreTest(unittest.TestCase):
         )
         self.assertIn(
             (
+                "/test_plugin/canvas/asset/download",
+                ("GET",),
+                "Infinite Canvas：下载图片",
+            ),
+            routes,
+        )
+        self.assertIn(
+            (
                 "/test_plugin/canvas/preferences",
                 ("POST",),
                 "Infinite Canvas：保存用户偏好",

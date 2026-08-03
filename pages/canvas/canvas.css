@@ -2102,10 +2102,14 @@ select:focus-visible,
 
   .toolbar {
     grid-area: tools;
+    display: grid;
+    grid-template-columns: repeat(9, minmax(28px, 1fr));
     width: 100%;
     max-width: none;
+    min-width: 0;
     margin: 0;
     padding: 5px 0 0;
+    gap: 0;
     overflow-x: auto;
     overflow-y: hidden;
     border-top: 1px solid var(--line);
@@ -2120,9 +2124,7 @@ select:focus-visible,
 
   .toolbar-items,
   .toolbar-fixed {
-    flex: 0 0 auto;
-    gap: 2px;
-    overflow: visible;
+    display: contents;
   }
 
   .toolbar-project-switcher {
@@ -2153,7 +2155,10 @@ select:focus-visible,
   .toolbar-items .tool-btn {
     width: 32px;
     height: 32px;
-    min-width: 32px;
+    max-width: 100%;
+    min-width: 28px;
+    padding: 0;
+    justify-self: center;
   }
 
   .minimap,
