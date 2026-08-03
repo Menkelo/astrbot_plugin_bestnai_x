@@ -392,6 +392,7 @@ class CanvasStore:
                     "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
                     "retagCharacterKeep": bool(raw_meta.get("retagCharacterKeep", False)),
                     "retagCharacterName": _short_text(raw_meta.get("retagCharacterName"), 120),
+                    "retagged": bool(raw_meta.get("retagged", False)),
                     "characterKeep": bool(raw_meta.get("characterKeep", False)),
                     "characterName": _short_text(raw_meta.get("characterName"), 120),
                     "userResized": bool(raw_meta.get("userResized", False)),

@@ -50,6 +50,14 @@ const els = {
   assetEmpty: document.getElementById("assetEmpty"),
   assetSearch: document.getElementById("assetSearch"),
   assetPanelCount: document.getElementById("assetPanelCount"),
+  assetResultSummary: document.getElementById("assetResultSummary"),
+  assetArtistFilter: document.getElementById("assetArtistFilter"),
+  assetRatioFilter: document.getElementById("assetRatioFilter"),
+  assetSourceFilter: document.getElementById("assetSourceFilter"),
+  assetSort: document.getElementById("assetSort"),
+  assetThumbSize: document.getElementById("assetThumbSize"),
+  assetSizeControl: document.getElementById("assetSizeControl"),
+  assetResetFilters: document.getElementById("assetResetFilters"),
   projectMenuBtn: document.getElementById("projectMenuBtn"),
   projectMenu: document.getElementById("projectMenu"),
   projectList: document.getElementById("projectList"),
@@ -86,6 +94,17 @@ const state = {
   library: { images: [], prompts: [] },
   libraryAssetPromises: new Map(),
   libraryPreloadPromise: null,
+  libraryRenderObserver: null,
+  libraryRenderCleanup: null,
+  assetUi: {
+    type: "image",
+    layout: "compact",
+    sort: "newest",
+    artist: "",
+    ratio: "",
+    source: "",
+    thumbSize: 112,
+  },
   canvases: [],
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
@@ -96,6 +115,8 @@ const state = {
 const MAX_HISTORY = 40;
 const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
 const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults";
+const ASSET_UI_KEY = "bestnaiInfiniteCanvasAssetUi";
+const ASSET_RENDER_BATCH = 48;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 function icon(name, className = "") {
@@ -1693,6 +1714,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
           tags: result.meta?.translatedPrompt || workingPrompt,
           artist: result.meta?.artist || "",
           ratio: result.meta?.ratio || node.ratio,
+          retagged,
           width: sourceWidth,
           height: sourceHeight,
           finalPrompt: result.meta?.finalPrompt || "",
@@ -1998,40 +2020,179 @@ function setAssetPanel(open) {
   if (open) renderAssetLibrary();
 }
 
+function loadAssetPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ASSET_UI_KEY) || "{}");
+    if (["image", "prompt"].includes(saved.type)) state.assetUi.type = saved.type;
+    if (["compact", "masonry"].includes(saved.layout)) state.assetUi.layout = saved.layout;
+    if (["newest", "oldest", "name"].includes(saved.sort)) state.assetUi.sort = saved.sort;
+    state.assetUi.artist = String(saved.artist || "");
+    state.assetUi.ratio = String(saved.ratio || "");
+    state.assetUi.source = ["generated", "retagged"].includes(saved.source) ? saved.source : "";
+    state.assetUi.thumbSize = clamp(Number(saved.thumbSize) || 112, 88, 168);
+  } catch (_) {
+    // Keep defaults when storage is unavailable or contains stale data.
+  }
+}
+
+function saveAssetPreferences() {
+  try {
+    localStorage.setItem(ASSET_UI_KEY, JSON.stringify(state.assetUi));
+  } catch (_) {
+    // The current browser may disable local storage.
+  }
+}
+
+function assetTimestamp(item) {
+  const timestamp = Date.parse(item.updatedAt || item.createdAt || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function assetSourceKind(item) {
+  const source = String(item.source || "").toLowerCase();
+  return source.includes("retag") || source.includes("reverse") || source.includes("反推")
+    ? "retagged"
+    : "generated";
+}
+
+function replaceAssetFilterOptions(select, label, values, selected) {
+  const options = [new Option(label, "")];
+  values.forEach((value) => options.push(new Option(value, value)));
+  select.replaceChildren(...options);
+  select.value = values.includes(selected) ? selected : "";
+  return select.value;
+}
+
+function syncAssetControls() {
+  const items = state.assetUi.type === "image" ? state.library.images : state.library.prompts;
+  const artists = [...new Set(items.map((item) => String(item.artist || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const ratios = [...new Set(items.map((item) => String(item.ratio || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  state.assetUi.artist = replaceAssetFilterOptions(
+    els.assetArtistFilter, "全部画师", artists, state.assetUi.artist,
+  );
+  state.assetUi.ratio = replaceAssetFilterOptions(
+    els.assetRatioFilter, "全部比例", ratios, state.assetUi.ratio,
+  );
+  els.assetSourceFilter.value = state.assetUi.source;
+  els.assetSort.value = state.assetUi.sort;
+  els.assetThumbSize.value = String(state.assetUi.thumbSize);
+  document.querySelectorAll("[data-asset-tab]").forEach((button) => {
+    const active = button.dataset.assetTab === state.assetUi.type;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll("[data-asset-layout]").forEach((button) => {
+    const active = button.dataset.assetLayout === state.assetUi.layout;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const promptMode = state.assetUi.type === "prompt";
+  els.assetPanel.classList.toggle("prompt-mode", promptMode);
+  els.assetSourceFilter.disabled = promptMode;
+  els.assetSizeControl.hidden = promptMode || state.assetUi.layout !== "compact";
+  els.assetGrid.style.setProperty("--asset-thumb-size", `${state.assetUi.thumbSize}px`);
+  els.assetGrid.style.setProperty("--asset-card-height", `${Math.round(state.assetUi.thumbSize * 1.22)}px`);
+}
+
 function activeAssetItems() {
   const query = els.assetSearch.value.trim().toLowerCase();
-  const items = [
-    ...state.library.images.map((item) => ({ kind: "image", item })),
-    ...state.library.prompts.map((item) => ({ kind: "prompt", item })),
-  ];
-  if (!query) return items;
-  return items.filter(({ item }) => (
-    `${item.name || ""} ${item.prompt || ""} ${item.tags || ""}`.toLowerCase().includes(query)
-  ));
+  const kind = state.assetUi.type;
+  const sourceItems = kind === "image" ? state.library.images : state.library.prompts;
+  const items = sourceItems.filter((item) => {
+    const searchable = `${item.name || ""} ${item.prompt || ""} ${item.tags || ""} ${item.artist || ""}`
+      .toLowerCase();
+    return (!query || searchable.includes(query))
+      && (!state.assetUi.artist || item.artist === state.assetUi.artist)
+      && (!state.assetUi.ratio || item.ratio === state.assetUi.ratio)
+      && (kind !== "image" || !state.assetUi.source || assetSourceKind(item) === state.assetUi.source);
+  }).map((item) => ({ kind, item }));
+  items.sort((left, right) => {
+    if (state.assetUi.sort === "name") {
+      return String(left.item.name || left.item.prompt || "")
+        .localeCompare(String(right.item.name || right.item.prompt || ""), "zh-CN");
+    }
+    const delta = assetTimestamp(left.item) - assetTimestamp(right.item);
+    return state.assetUi.sort === "oldest" ? delta : -delta;
+  });
+  return items;
 }
 
 function renderAssetLibrary() {
+  state.libraryRenderCleanup?.();
+  state.libraryRenderCleanup = null;
+  state.libraryRenderObserver?.disconnect();
+  state.libraryRenderObserver = null;
+  syncAssetControls();
   const items = activeAssetItems();
+  const total = state.assetUi.type === "image" ? state.library.images.length : state.library.prompts.length;
   els.assetGrid.replaceChildren();
+  els.assetGrid.scrollTop = 0;
+  els.assetGrid.className = `asset-grid ${state.assetUi.type}-mode ${state.assetUi.layout}-layout`;
   els.assetGrid.classList.toggle("empty", items.length === 0);
-  els.assetPanelCount.textContent = `${items.length} 项`;
+  els.assetPanelCount.textContent = items.length === total ? `${total} 项` : `${items.length} / ${total} 项`;
+  els.assetResultSummary.textContent = state.assetUi.type === "image" ? "图片" : "提示词";
   els.assetEmpty.classList.toggle("visible", items.length === 0);
+  els.assetEmpty.querySelector("span").textContent = items.length
+    ? ""
+    : total
+      ? "没有符合筛选条件的素材"
+      : `暂无${state.assetUi.type === "image" ? "图片" : "提示词"}素材`;
 
-  if (items.length) {
+  if (items.length) renderAssetBatch(items, 0);
+  refreshIcons(els.assetPanel);
+}
+
+function renderAssetBatch(items, start) {
+  const end = Math.min(items.length, start + ASSET_RENDER_BATCH);
+  if (state.assetUi.type === "image" && state.assetUi.layout === "masonry") {
     let columns = null;
-    items.forEach(({ kind, item }) => {
-      if (kind === "image" && isLandscapeAsset(item)) {
+    items.slice(start, end).forEach(({ item }) => {
+      if (isLandscapeAsset(item)) {
         renderImageAssetCard(item, els.assetGrid, true);
         columns = null;
         return;
       }
       if (!columns) columns = appendAssetColumns();
       const target = columns[0].offsetHeight <= columns[1].offsetHeight ? columns[0] : columns[1];
-      if (kind === "image") renderImageAssetCard(item, target);
-      else renderPromptAssetCard(item, target);
+      renderImageAssetCard(item, target);
+    });
+  } else {
+    items.slice(start, end).forEach(({ kind, item }) => {
+      if (kind === "image") renderImageAssetCard(item, els.assetGrid);
+      else renderPromptAssetCard(item, els.assetGrid);
     });
   }
-  refreshIcons(els.assetPanel);
+  if (end >= items.length) {
+    refreshIcons(els.assetGrid);
+    return;
+  }
+  const sentinel = document.createElement("div");
+  sentinel.className = "asset-load-sentinel";
+  sentinel.textContent = `继续加载 ${items.length - end} 项…`;
+  els.assetGrid.appendChild(sentinel);
+  const loadNextBatch = () => {
+    const gridRect = els.assetGrid.getBoundingClientRect();
+    const sentinelRect = sentinel.getBoundingClientRect();
+    if (sentinelRect.top > gridRect.bottom + 240) return;
+    state.libraryRenderCleanup?.();
+    state.libraryRenderCleanup = null;
+    state.libraryRenderObserver = null;
+    sentinel.remove();
+    renderAssetBatch(items, end);
+  };
+  const onAssetScroll = () => loadNextBatch();
+  state.libraryRenderObserver = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) loadNextBatch();
+  }, { root: els.assetGrid, rootMargin: "240px 0px" });
+  state.libraryRenderCleanup = () => {
+    state.libraryRenderObserver?.disconnect();
+    els.assetGrid.removeEventListener("scroll", onAssetScroll);
+  };
+  els.assetGrid.addEventListener("scroll", onAssetScroll, { passive: true });
+  state.libraryRenderObserver.observe(sentinel);
+  refreshIcons(els.assetGrid);
 }
 
 function appendAssetColumns() {
@@ -2060,6 +2221,7 @@ function renderImageAssetCard(item, container = els.assetGrid, wide = false) {
   card.classList.toggle("wide", wide);
   card.title = "点击预览，拖到画布使用";
   card.dataset.assetId = item.id;
+  card.dataset.assetSource = assetSourceKind(item);
   const thumb = document.createElement("div");
   thumb.className = "asset-thumb";
   if (item.width && item.height) thumb.style.aspectRatio = `${item.width} / ${item.height}`;
@@ -2292,7 +2454,7 @@ async function saveImageToLibrary(node) {
     const result = await bridge.apiPost("canvas/library/image/add", {
       assetId: node.assetId,
       name: node.title || node.meta?.prompt || "画布图片",
-      source: "canvas",
+      source: node.meta?.retagged ? "retagged" : "generated",
       prompt: node.meta?.prompt || "",
       tags: node.meta?.tags || node.meta?.finalPrompt || "",
       artist: node.meta?.artist || "",
@@ -2410,6 +2572,7 @@ function centerViewportOnWorldPoint(point) {
 
 async function loadInitialState() {
   bridge = await getBridge();
+  loadAssetPreferences();
   const [config, canvasList, library] = await Promise.all([
     bridge.apiGet("canvas/config"),
     bridge.apiGet("canvas/canvases"),
@@ -2420,7 +2583,7 @@ async function loadInitialState() {
   loadPromptDefaults();
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.23"}`;
+  els.pluginVersion.textContent = `v${plugin.version || "3.0.24"}`;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -2683,6 +2846,46 @@ document.getElementById("assetLibraryBtn").addEventListener("click", () => {
   setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
 els.assetSearch.addEventListener("input", renderAssetLibrary);
+document.querySelectorAll("[data-asset-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.assetUi.type = button.dataset.assetTab;
+    saveAssetPreferences();
+    renderAssetLibrary();
+  });
+});
+document.querySelectorAll("[data-asset-layout]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.assetUi.layout = button.dataset.assetLayout;
+    saveAssetPreferences();
+    renderAssetLibrary();
+  });
+});
+[
+  [els.assetArtistFilter, "artist"],
+  [els.assetRatioFilter, "ratio"],
+  [els.assetSourceFilter, "source"],
+  [els.assetSort, "sort"],
+].forEach(([select, key]) => {
+  select.addEventListener("change", () => {
+    state.assetUi[key] = select.value;
+    saveAssetPreferences();
+    renderAssetLibrary();
+  });
+});
+els.assetThumbSize.addEventListener("input", () => {
+  state.assetUi.thumbSize = clamp(Number(els.assetThumbSize.value) || 112, 88, 168);
+  els.assetGrid.style.setProperty("--asset-thumb-size", `${state.assetUi.thumbSize}px`);
+  els.assetGrid.style.setProperty("--asset-card-height", `${Math.round(state.assetUi.thumbSize * 1.22)}px`);
+  saveAssetPreferences();
+});
+els.assetResetFilters.addEventListener("click", () => {
+  els.assetSearch.value = "";
+  state.assetUi.artist = "";
+  state.assetUi.ratio = "";
+  state.assetUi.source = "";
+  saveAssetPreferences();
+  renderAssetLibrary();
+});
 
 els.imageInput.addEventListener("change", () => {
   uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());
