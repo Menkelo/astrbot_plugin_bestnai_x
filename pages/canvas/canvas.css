@@ -815,6 +815,9 @@ select:focus-visible,
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
+  /* .node 是 overflow: visible（端口要露在卡片外），所以裁剪必须落在 node-body 上，
+     否则卡片被压到最小高度时底部内容会画到圆角外面 */
+  overflow: hidden;
 }
 
 .prompt-text,
@@ -833,8 +836,10 @@ select:focus-visible,
   line-height: 1.6;
 }
 
+/* 卡片收缩时由文本框让出空间，下面的选项、按钮和状态行都不参与压缩。
+   min-height 必须归零，否则它撑住高度把底部内容顶出卡片。 */
 .prompt-text {
-  min-height: 88px;
+  min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
   resize: none;
@@ -853,6 +858,7 @@ select:focus-visible,
 
 .prompt-options {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   margin-top: 9px;
@@ -883,6 +889,8 @@ select:focus-visible,
 
 .node-footer {
   display: flex;
+  min-height: 0;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -936,6 +944,7 @@ select:focus-visible,
 .character-keep-row {
   display: flex;
   min-width: 0;
+  flex: 0 0 auto;
   align-items: center;
   gap: 10px;
   margin-top: 9px;
@@ -1059,11 +1068,19 @@ select:focus-visible,
 }
 
 .node-status {
+  display: -webkit-box;
   min-height: 16px;
+  flex: 0 0 auto;
   margin-top: 8px;
+  overflow: hidden;
   color: var(--faint);
   font-size: 10px;
   line-height: 1.45;
+  /* 这一行是共用的：Ctrl+Enter 提示、"已连接原图…"、statusText、以及任意长度的
+     报错都走这里。限成两行加省略号，长文案才不会把卡片撑破 */
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 
 .node-status.error {
@@ -2054,10 +2071,6 @@ select:focus-visible,
     max-width: calc(100vw - 252px);
   }
 
-  .toolbar-items .tool-btn span {
-    display: none;
-  }
-
   .toolbar-items .tool-btn {
     width: 38px;
     padding: 0;
@@ -2082,10 +2095,6 @@ select:focus-visible,
     gap: clamp(2px, .5vw, 6px);
     max-width: none;
     overflow: visible;
-  }
-
-  .toolbar-items .tool-btn span {
-    display: none;
   }
 
   .toolbar-items,

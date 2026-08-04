@@ -504,7 +504,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[1].split("@media (max-width: 620px) {", 1)[0]
         self.assertIn("overflow: visible;", landscape_styles)
         self.assertIn("flex: 0 0 auto;", landscape_styles)
-        self.assertIn(".toolbar-items .tool-btn span", landscape_styles)
         self.assertIn("--compact-tool-size: clamp(32px, 4vw, 38px);", landscape_styles)
         self.assertIn("min-width: var(--compact-tool-size);", landscape_styles)
         self.assertNotIn(".toolbar-fixed .tool-btn:not(#fitBtn)", mobile_styles)
@@ -549,6 +548,67 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("overflow-y: auto;", translated_styles)
         logo_styles = styles.split(".canvas-mark {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 999px;", logo_styles)
+
+    def test_quick_toolbar_is_icon_only(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        toolbar = html.split('id="quickToolbar"', 1)[1].split("</nav>", 1)[0]
+        items = toolbar.split('class="toolbar-items"', 1)[1].split("</div>", 1)[0]
+
+        # 工具栏只留图标，文字标签靠 title / aria-label 提供
+        self.assertNotIn("<span>", items)
+        for button_id, label in (
+            ("addImageBtn", "上传图片"),
+            ("addPromptBtn", "添加提示词节点"),
+            ("addNoteBtn", "添加备注节点"),
+            ("assetLibraryBtn", "素材库"),
+        ):
+            with self.subTest(button=button_id):
+                self.assertIn(f'id="{button_id}"', items)
+                self.assertIn(f'aria-label="{label}"', items)
+        self.assertEqual(items.count("icon-only"), 4)
+
+        # 图标固定 16px 且不参与压缩，最小按钮 28px 也放得下
+        icon_styles = styles.split(".tool-btn svg {", 1)[1].split("}", 1)[0]
+        self.assertIn("width: 16px;", icon_styles)
+        self.assertIn("flex: 0 0 auto;", icon_styles)
+
+        # 右键菜单仍保留文字，那里没有空间压力
+        self.assertIn('id="contextAddImageBtn"', html)
+        self.assertIn("<span>图片</span>", html)
+
+    def test_prompt_card_bottom_hint_stays_inside_the_card(self) -> None:
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        # .node 是 overflow: visible（端口要露出卡片），所以裁剪必须落在 node-body
+        node_styles = styles.split(".node {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow: visible;", node_styles)
+        body_styles = styles.split(".prompt-node .node-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow: hidden;", body_styles)
+
+        # 收缩时由文本框让出空间（行首锚定，避免匹配到 translated-expanded 的覆盖规则）
+        prompt_styles = styles.split("\n.prompt-text {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 0;", prompt_styles)
+        self.assertIn("flex: 1 1 auto;", prompt_styles)
+
+        # 底部四块都不参与压缩，不会被挤出卡片
+        for selector in (
+            ".prompt-options {",
+            ".character-keep-row {",
+            ".node-footer {",
+            ".node-status {",
+        ):
+            with self.subTest(selector=selector):
+                block = styles.split(selector, 1)[1].split("}", 1)[0]
+                self.assertIn("flex: 0 0 auto;", block)
+
+        # 状态行是共用的：快捷键提示、已连接原图提示、报错都走这里，
+        # 长文案必须截断，否则会把卡片撑破
+        status_styles = styles.split(".node-status {", 1)[1].split("}", 1)[0]
+        self.assertIn("-webkit-line-clamp: 2;", status_styles)
+        self.assertIn("overflow: hidden;", status_styles)
+        self.assertIn("overflow-wrap: anywhere;", status_styles)
 
     def test_middle_mouse_pans_and_context_menu_adds_nodes(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
