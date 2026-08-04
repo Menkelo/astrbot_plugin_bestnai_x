@@ -158,6 +158,95 @@ select:focus-visible,
   display: none;
 }
 
+/* 生图参数面板：与项目菜单同一套视觉语言 */
+.gen-settings-panel {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  width: min(268px, calc(100vw - 24px));
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card-solid);
+  box-shadow: 0 22px 56px rgba(15, 23, 42, .16);
+}
+
+.gen-settings-panel[hidden] {
+  display: none;
+}
+
+.gen-settings-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gen-settings-head strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.gen-settings-head span {
+  color: var(--faint);
+  font-size: 9.5px;
+}
+
+.gen-settings-row {
+  display: grid;
+  align-items: center;
+  gap: 4px 10px;
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.gen-settings-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.gen-settings-row input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: none;
+  background: var(--card-solid);
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.gen-settings-row input:focus {
+  border-color: var(--line-2);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
+}
+
+.gen-settings-hint {
+  color: var(--faint);
+  font-size: 9px;
+  grid-column: 2;
+}
+
+.gen-settings-reset {
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card-solid);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.gen-settings-reset:hover {
+  border-color: var(--line-2);
+  color: var(--text);
+}
+
 .canvas-context-menu {
   position: fixed;
   z-index: 95;

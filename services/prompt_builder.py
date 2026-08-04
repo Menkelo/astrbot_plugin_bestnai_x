@@ -14,6 +14,38 @@ from ..models.config import GenerationConfig, PluginConfig
 
 FIXED_MODEL = "nai-diffusion-4-5-full"
 
+# 反推时给用户手写提示词加的正向权重。
+# NovelAI 数值语法：`1.3::tag, tag::`，比花括号叠加更好控制强度。
+RETAG_USER_PROMPT_WEIGHT = 1.3
+
+
+def apply_prompt_weight(text: str, weight: float = RETAG_USER_PROMPT_WEIGHT) -> str:
+    """用 NovelAI 数值语法给一段提示词整体加权。
+
+    反推产出的 tags 往往几十个，用户自己写的那几个词会被淹没。
+    加权后它们在最终 prompt 里的影响力才和"用户主动要求"相称。
+
+    权重为 1（或更小 / 非法）时原样返回，不引入多余语法。
+    """
+    content = str(text or "").strip().strip(",").strip()
+
+    if not content:
+        return ""
+
+    try:
+        value = float(weight)
+    except (TypeError, ValueError):
+        return content
+
+    if not (value > 1.0):
+        return content
+
+    # 已经带了数值权重就不再套一层，避免 1.3::1.3::xxx::::
+    if re.match(r"^\d+(?:\.\d+)?::", content) and content.endswith("::"):
+        return content
+
+    return f"{value:g}::{content}::"
+
 
 def cleanup_file(file_path: str) -> None:
     if not file_path:

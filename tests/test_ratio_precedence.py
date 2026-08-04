@@ -109,3 +109,51 @@ class RetagRatioWiringTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CanvasGenerationSettingsWiringTest(unittest.TestCase):
+    """步数 / 引导系数 / 种子的前后端接线。"""
+
+    def setUp(self) -> None:
+        self.main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.editor = (ROOT / "pages" / "canvas" / "canvas.js").read_text(encoding="utf-8")
+        self.html = (ROOT / "pages" / "canvas" / "editor.html").read_text(encoding="utf-8")
+        self.store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
+
+    def test_backend_clamps_steps_and_scale(self) -> None:
+        self.assertIn("def _clamp_steps", self.main)
+        self.assertIn("def _clamp_scale", self.main)
+        self.assertIn("MIN_STEPS", self.main)
+        self.assertIn("MAX_SCALE", self.main)
+        # 画布传来的值不可信，必须夹在合法区间内
+        self.assertIn("steps=self._clamp_steps(payload.get(\"steps\")", self.main)
+        self.assertIn("scale=self._clamp_scale(payload.get(\"scale\")", self.main)
+
+    def test_seed_is_returned_and_reusable(self) -> None:
+        self.assertIn('seed=payload.get("seed")', self.main)
+        self.assertIn('"seed": result.seed', self.main)
+        self.assertIn("state.generation.steps", self.editor)
+        self.assertIn("seed: node.meta?.retagSeed || undefined", self.editor)
+
+    def test_settings_panel_exists_and_is_global(self) -> None:
+        self.assertIn('id="genSettingsPanel"', self.html)
+        self.assertIn('id="genStepsInput"', self.html)
+        self.assertIn('id="genScaleInput"', self.html)
+        self.assertIn("function setupGenSettings", self.editor)
+        self.assertIn("function clampGenValue", self.editor)
+
+    def test_new_meta_fields_are_persisted(self) -> None:
+        # 工作区不保存这些字段的话，刷新页面种子就丢了
+        for field in ("retagSeed", "retagFromMetadata", '"seed"', '"steps"', '"scale"'):
+            with self.subTest(field=field):
+                self.assertIn(field, self.store)
+        for key in ("steps", "scale"):
+            with self.subTest(preference=key):
+                self.assertIn(f'"{key}"', self.store)
+
+    def test_image_card_shows_seed_instead_of_prompt(self) -> None:
+        card = self.editor.split("meta.className = \"image-meta\"", 1)[1].split(
+            "meta.append(title, detail)", 1
+        )[0]
+        self.assertIn("seed", card)
+        self.assertNotIn("node.meta?.prompt", card)

@@ -30,6 +30,13 @@ const els = {
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
   canvasMark: document.querySelector(".canvas-mark"),
+  genSettingsBtn: document.getElementById("genSettingsBtn"),
+  genSettingsPanel: document.getElementById("genSettingsPanel"),
+  genStepsInput: document.getElementById("genStepsInput"),
+  genScaleInput: document.getElementById("genScaleInput"),
+  genStepsHint: document.getElementById("genStepsHint"),
+  genScaleHint: document.getElementById("genScaleHint"),
+  genSettingsResetBtn: document.getElementById("genSettingsResetBtn"),
   connectionIndicator: document.getElementById("connectionIndicator"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
@@ -70,7 +77,11 @@ const state = {
     defaultArtist: "",
     retagEnabled: false,
     retagConfigured: false,
+    steps: { default: 28, min: 1, max: 50 },
+    scale: { default: 7, min: 1, max: 10 },
   },
+  // 步数与引导系数是画布全局设置，空值表示沿用后端默认
+  generation: { steps: null, scale: null },
   nodes: [],
   connections: [],
   viewport: { x: 160, y: 120, scale: 1 },
@@ -603,6 +614,96 @@ function loadPromptDefaults(preferences = {}) {
     ratio: hasOptionValue(state.config.ratios, persisted.ratio) ? persisted.ratio : fallbackRatio,
     artist: normalizedArtistSelection(persisted.artist),
   };
+  state.generation = {
+    steps: clampGenValue(preferences.steps, state.config.steps, true),
+    scale: clampGenValue(preferences.scale, state.config.scale, false),
+  };
+  renderGenSettings();
+}
+
+// 空值表示"沿用后端默认"，所以不能简单地 || 成一个数字
+function clampGenValue(raw, bounds, isInt) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  const parsed = isInt ? parseInt(text, 10) : parseFloat(text);
+  if (!Number.isFinite(parsed)) return null;
+  const min = Number(bounds?.min);
+  const max = Number(bounds?.max);
+  const lo = Number.isFinite(min) ? min : parsed;
+  const hi = Number.isFinite(max) ? max : parsed;
+  const clamped = Math.min(hi, Math.max(lo, parsed));
+  return isInt ? Math.round(clamped) : Math.round(clamped * 10) / 10;
+}
+
+function renderGenSettings() {
+  const steps = state.config.steps || {};
+  const scale = state.config.scale || {};
+  if (els.genStepsInput) {
+    els.genStepsInput.min = steps.min ?? 1;
+    els.genStepsInput.max = steps.max ?? 50;
+    els.genStepsInput.placeholder = `默认 ${steps.default ?? 28}`;
+    els.genStepsInput.value = state.generation.steps == null ? "" : state.generation.steps;
+  }
+  if (els.genScaleInput) {
+    els.genScaleInput.min = scale.min ?? 1;
+    els.genScaleInput.max = scale.max ?? 10;
+    els.genScaleInput.placeholder = `默认 ${scale.default ?? 7}`;
+    els.genScaleInput.value = state.generation.scale == null ? "" : state.generation.scale;
+  }
+  if (els.genStepsHint) {
+    els.genStepsHint.textContent = `${steps.min ?? 1}–${steps.max ?? 50}，留空用默认 ${steps.default ?? 28}`;
+  }
+  if (els.genScaleHint) {
+    els.genScaleHint.textContent = `${scale.min ?? 1}–${scale.max ?? 10}，留空用默认 ${scale.default ?? 7}`;
+  }
+}
+
+function setGenSettingsPanel(open) {
+  if (!els.genSettingsPanel || !els.genSettingsBtn) return;
+  els.genSettingsPanel.hidden = !open;
+  els.genSettingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) return;
+  renderGenSettings();
+  const rect = els.genSettingsBtn.getBoundingClientRect();
+  const width = els.genSettingsPanel.offsetWidth || 268;
+  els.genSettingsPanel.style.top = `${rect.bottom + 8}px`;
+  els.genSettingsPanel.style.left = `${Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width))}px`;
+}
+
+function commitGenSetting(key, input, isInt) {
+  const bounds = state.config[key] || {};
+  const next = clampGenValue(input.value, bounds, isInt);
+  if (state.generation[key] === next) {
+    renderGenSettings();
+    return;
+  }
+  state.generation[key] = next;
+  renderGenSettings();
+  persistCanvasPreferences();
+}
+
+function setupGenSettings() {
+  if (!els.genSettingsBtn || !els.genSettingsPanel) return;
+  els.genSettingsBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setGenSettingsPanel(els.genSettingsPanel.hidden);
+  });
+  els.genSettingsPanel.addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", () => setGenSettingsPanel(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.genSettingsPanel.hidden) setGenSettingsPanel(false);
+  });
+  window.addEventListener("resize", () => {
+    if (!els.genSettingsPanel.hidden) setGenSettingsPanel(true);
+  });
+  els.genStepsInput.addEventListener("change", () => commitGenSetting("steps", els.genStepsInput, true));
+  els.genScaleInput.addEventListener("change", () => commitGenSetting("scale", els.genScaleInput, false));
+  els.genSettingsResetBtn.addEventListener("click", () => {
+    state.generation = { steps: null, scale: null };
+    renderGenSettings();
+    persistCanvasPreferences();
+    toast("已恢复默认生图参数");
+  });
 }
 
 function persistCanvasPreferences() {
@@ -611,6 +712,8 @@ function persistCanvasPreferences() {
     lastCanvasId: canvasId,
     ratio: state.promptDefaults.ratio || "",
     artist: state.promptDefaults.artist || "",
+    steps: state.generation.steps == null ? "" : String(state.generation.steps),
+    scale: state.generation.scale == null ? "" : String(state.generation.scale),
   };
   state.preferencesSaveChain = state.preferencesSaveChain
     .catch(() => undefined)
@@ -1107,7 +1210,10 @@ function renderImageNode(node) {
   const meta = document.createElement("div");
   meta.className = "image-meta";
   const title = document.createElement("strong");
-  title.textContent = node.meta?.prompt || node.title || "图片资源";
+  // 种子比提示词更有用：提示词在卡片里本来就看得到，种子是唯一能复现这张图的信息
+  const seed = Number(node.meta?.seed) || 0;
+  title.textContent = seed ? `seed ${seed}` : (node.title || "图片资源");
+  title.title = seed ? `种子 ${seed}（点击图片可查看完整提示词）` : title.textContent;
   const detail = document.createElement("span");
   const size = node.meta?.width && node.meta?.height ? `${node.meta.width}×${node.meta.height}` : "原始尺寸";
   detail.textContent = `${size}${node.meta?.ratio ? ` · ${node.meta.ratio}` : ""}`;
@@ -1808,6 +1914,10 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
       cachedTranslation: node.meta?.translationResult || "",
+      steps: state.generation.steps,
+      scale: state.generation.scale,
+      // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
+      seed: node.meta?.retagSeed || undefined,
     });
     const assets = Array.isArray(result?.assets) ? result.assets : [];
     if (!assets.length) throw new Error("服务未返回图片");
@@ -1847,6 +1957,9 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
           width: sourceWidth,
           height: sourceHeight,
           finalPrompt: result.meta?.finalPrompt || "",
+          seed: result.meta?.seed || 0,
+          steps: result.meta?.steps || 0,
+          scale: result.meta?.scale || 0,
         },
       };
       state.nodes.push(imageNode);
@@ -1975,10 +2088,18 @@ async function retagFromNode(id, generateAfter = false) {
       retagRatio: result.ratio || "",
       retagCharacterKeep: keepCharacter,
       retagCharacterName: characterName,
+      retagSeed: Number(result.seed) || 0,
+      retagFromMetadata: !!result.fromMetadata,
       translatedPrompt: retagPrompt,
     };
-    node.statusText = "已合并新提示词与原图 tags";
-    toast(cachedRetag ? "已复用反推结果" : "反推提示词已合并");
+    node.statusText = result.fromMetadata
+      ? `已读取原图内嵌参数 · 种子 ${result.seed}`
+      : "已合并新提示词与原图 tags";
+    toast(
+      result.fromMetadata
+        ? "已读取原图内嵌的 NovelAI 参数"
+        : (cachedRetag ? "已复用反推结果" : "反推提示词已合并"),
+    );
     scheduleSave();
     succeeded = true;
   } catch (error) {
@@ -3251,6 +3372,7 @@ window.addEventListener("beforeunload", (event) => {
 
 refreshIcons();
 setupLogoEasterEgg();
+setupGenSettings();
 loadInitialState().catch((error) => {
   setConnectionState("offline");
   toast(error.message, "error");

@@ -191,6 +191,9 @@ class CanvasStore:
             "lastCanvasId": last_canvas_id,
             "ratio": _short_text(payload.get("ratio"), 32),
             "artist": _short_text(payload.get("artist"), 120),
+            # 步数与引导系数是画布全局设置，留空表示沿用后端默认值
+            "steps": _short_text(payload.get("steps"), 8),
+            "scale": _short_text(payload.get("scale"), 8),
         }
 
     def save_preferences(self, payload: Any) -> Dict[str, str]:
@@ -206,6 +209,9 @@ class CanvasStore:
                 current["ratio"] = _short_text(payload.get("ratio"), 32)
             if "artist" in payload:
                 current["artist"] = _short_text(payload.get("artist"), 120)
+            for key in ("steps", "scale"):
+                if key in payload:
+                    current[key] = _short_text(payload.get(key), 8)
             self._write_json(self.preferences_path, current)
             return current
 
@@ -454,6 +460,11 @@ class CanvasStore:
                     "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
                     "retagCharacterKeep": bool(raw_meta.get("retagCharacterKeep", False)),
                     "retagCharacterName": _short_text(raw_meta.get("retagCharacterName"), 120),
+                    "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, 2_147_483_647)),
+                    "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
+                    "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, 2_147_483_647)),
+                    "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
+                    "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                     "retagged": bool(raw_meta.get("retagged", False)),
                     "characterKeep": bool(raw_meta.get("characterKeep", False)),
                     "characterName": _short_text(raw_meta.get("characterName"), 120),

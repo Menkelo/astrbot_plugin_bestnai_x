@@ -5,7 +5,7 @@ import base64
 import json
 import random
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
@@ -13,6 +13,16 @@ import aiohttp
 from astrbot.api import logger
 
 from ..models.config import GenerationConfig, PluginConfig
+
+
+MAX_SEED = 2_147_483_647
+
+
+class GenerationResult(NamedTuple):
+    """一次生图的产物。seed 要回传给前端展示与复现。"""
+
+    images: List[Tuple[str, bytes]]
+    seed: int
 
 
 class GenerationError(Exception):
@@ -60,29 +70,38 @@ class ImageGenerator:
         self,
         prompt: str,
         gen_config: GenerationConfig,
-    ) -> List[Tuple[str, bytes]]:
+        seed: Optional[int] = None,
+    ) -> "GenerationResult":
         if not self.config.api_url or not self.config.api_key:
             raise APIKeyError("未配置生图 API 地址或 API Key")
 
         api_base = self.config.api_url.rstrip("/")
         api_key = self.config.api_key.strip()
 
+        # 种子在这里定一次，两条端点路径和 fallback 共用同一个值。
+        # 以前两个方法各自随机，fallback 后拿到的图和日志里的种子对不上。
+        resolved_seed = self._resolve_seed(seed)
+
         if getattr(self.config, "use_manual_api", False):
             logger.info("[BestNAI] 当前为手动生图 API 模式，直接使用 /chat/completions")
-            return await self._generate_by_chat_endpoint(
+            images = await self._generate_by_chat_endpoint(
                 api_base=api_base,
                 api_key=api_key,
                 prompt=prompt,
                 gen_config=gen_config,
+                seed=resolved_seed,
             )
+            return GenerationResult(images=images, seed=resolved_seed)
 
         try:
-            return await self._generate_by_images_endpoint(
+            images = await self._generate_by_images_endpoint(
                 api_base=api_base,
                 api_key=api_key,
                 prompt=prompt,
                 gen_config=gen_config,
+                seed=resolved_seed,
             )
+            return GenerationResult(images=images, seed=resolved_seed)
 
         except GenerationError as e:
             if self._should_fallback_to_chat(e):
@@ -90,14 +109,29 @@ class ImageGenerator:
                     f"[BestNAI] /images/generations 不可用，尝试 fallback 到 /chat/completions：{e.message}"
                 )
 
-                return await self._generate_by_chat_endpoint(
+                images = await self._generate_by_chat_endpoint(
                     api_base=api_base,
                     api_key=api_key,
                     prompt=prompt,
                     gen_config=gen_config,
+                    seed=resolved_seed,
                 )
+                return GenerationResult(images=images, seed=resolved_seed)
 
             raise
+
+    @staticmethod
+    def _resolve_seed(seed: Optional[int]) -> int:
+        """指定了合法种子就复用，否则随机一个。"""
+        try:
+            value = int(seed)
+        except (TypeError, ValueError):
+            value = 0
+
+        if 1 <= value <= MAX_SEED:
+            return value
+
+        return random.randint(1, MAX_SEED)
 
     async def _generate_by_images_endpoint(
         self,
@@ -105,12 +139,11 @@ class ImageGenerator:
         api_key: str,
         prompt: str,
         gen_config: GenerationConfig,
+        seed: int,
     ) -> List[Tuple[str, bytes]]:
         endpoint = self._endpoint(api_base, "images/generations")
 
         payload = gen_config.to_api_params(prompt)
-
-        seed = random.randint(1, 2_147_483_647)
         payload["seed"] = seed
 
         logger.info(f"[BestNAI] endpoint={endpoint}")
@@ -147,10 +180,10 @@ class ImageGenerator:
         api_key: str,
         prompt: str,
         gen_config: GenerationConfig,
+        seed: int,
     ) -> List[Tuple[str, bytes]]:
         endpoint = self._endpoint(api_base, "chat/completions")
 
-        seed = random.randint(1, 2_147_483_647)
         size_array = [int(gen_config.width), int(gen_config.height)]
 
         user_payload = {

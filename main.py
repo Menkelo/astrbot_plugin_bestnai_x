@@ -11,6 +11,8 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star
 
+from PIL import Image as PILImage
+
 from .constants import (
     PLUGIN_AUTHOR,
     PLUGIN_DISPLAY_NAME,
@@ -48,17 +50,25 @@ from .services.mention_avatar import (
     remove_mention_from_prompt,
 )
 from .services.prompt_builder import (
+    apply_prompt_weight,
     cleanup_file,
     find_non_ascii_chars,
     normalize_prompt_ascii,
     PromptBuilder,
     save_image_to_temp,
 )
+from .services.nai_metadata import read_image_generation_info
 from .services.runtime_state import RuntimeStateService
 
 
 FIXED_MODEL = "nai-diffusion-4-5-full"
 SAFETY_BLOCK_REPLY = "⚠️ 未能通过安全检测，已拦截"
+
+# 画布可手动调节的生图参数范围
+MIN_STEPS = 1
+MAX_STEPS = 50
+MIN_SCALE = 1.0
+MAX_SCALE = 10.0
 
 
 def _parse_size(size_str: str) -> Tuple[int, int]:
@@ -197,6 +207,16 @@ class BestNAIPlugin(Star):
             "ratios": ratios,
             "artists": artists,
             "maxConcurrency": self.plugin_config.max_concurrency,
+            "steps": {
+                "default": self.plugin_config.generation.steps,
+                "min": MIN_STEPS,
+                "max": MAX_STEPS,
+            },
+            "scale": {
+                "default": self.plugin_config.generation.scale,
+                "min": MIN_SCALE,
+                "max": MAX_SCALE,
+            },
             "translatorEnabled": self.plugin_config.translator.enabled,
             "retagEnabled": self.plugin_config.image_retag.enabled,
             "retagConfigured": self.plugin_config.image_retag.enabled
@@ -211,6 +231,33 @@ class BestNAIPlugin(Star):
         character_name: str,
     ) -> Dict[str, object]:
         retag_config = self.plugin_config.image_retag
+
+        # 先看图片自带的 NovelAI 生成参数。命中就不必让视觉模型猜了，
+        # 原始 prompt 和种子一起用能真正还原这张图。
+        # 注意元数据只存在于未经重编码的原始 PNG 里。
+        source_info = await asyncio.to_thread(read_image_generation_info, image_path)
+        source_seed = source_info.get("seed")
+        source_prompt = str(source_info.get("prompt") or "").strip()
+
+        weighted_hint = apply_prompt_weight(user_hint)
+
+        if source_seed and source_prompt:
+            logger.info(
+                f"[BestNAI/Canvas] 图片自带 NovelAI 参数，直接复用：seed={source_seed}"
+            )
+
+            merged = ", ".join(part for part in (source_prompt, weighted_hint) if part)
+
+            return {
+                "prompt": merged,
+                "ratio": self._ratio_from_generation_info(source_info, image_path),
+                "seed": source_seed,
+                "sourcePrompt": source_prompt,
+                "fromMetadata": True,
+                "steps": source_info.get("steps"),
+                "scale": source_info.get("scale"),
+            }
+
         if not retag_config.enabled:
             raise ValueError("图片反推功能未开启，请先在插件配置中启用")
 
@@ -230,6 +277,10 @@ class BestNAIPlugin(Star):
         if not prompt:
             raise ValueError("图片反推结果为空")
 
+        # 用户手写的那几个词要盖过几十个反推 tag，否则会被淹没
+        if weighted_hint and weighted_hint != user_hint:
+            prompt = f"{weighted_hint}, {prompt}"
+
         ratio = ""
         try:
             width, height = await read_image_size_any(image_path)
@@ -240,7 +291,27 @@ class BestNAIPlugin(Star):
         return {
             "prompt": prompt,
             "ratio": ratio,
+            "seed": source_seed,
+            "fromMetadata": False,
         }
+
+    def _ratio_from_generation_info(
+        self,
+        info: Dict[str, object],
+        image_path: str,
+    ) -> str:
+        width = info.get("width")
+        height = info.get("height")
+
+        if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0:
+            return infer_ratio_label_from_size(width, height)
+
+        try:
+            with PILImage.open(image_path) as image:
+                return infer_ratio_label_from_size(image.width, image.height)
+        except Exception as exc:
+            logger.warning(f"[BestNAI/Canvas] 读取原图比例失败: {exc}")
+            return ""
 
     async def _canvas_generate(
         self,
@@ -305,6 +376,12 @@ class BestNAIPlugin(Star):
         except Exception as exc:
             raise ValueError(f"无效比例或尺寸：{ratio}") from exc
 
+        gen_config = replace(
+            gen_config,
+            steps=self._clamp_steps(payload.get("steps"), gen_config.steps),
+            scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
+        )
+
         resolved_artist_name = ""
         artist_prompt = ""
 
@@ -333,9 +410,13 @@ class BestNAIPlugin(Star):
             raise ValueError("提示词清理后为空")
 
         async with self._generation_semaphore:
-            images = await self.generator.generate(final_prompt, gen_config)
+            result = await self.generator.generate(
+                final_prompt,
+                gen_config,
+                seed=payload.get("seed"),
+            )
 
-        return images, {
+        return result.images, {
             "sourcePrompt": prompt,
             "cleanPrompt": clean_prompt,
             "translatedPrompt": translated_prompt,
@@ -352,7 +433,63 @@ class BestNAIPlugin(Star):
             "artist": resolved_artist_name,
             "raw": raw_mode,
             "model": FIXED_MODEL,
+            "seed": result.seed,
+            "steps": gen_config.steps,
+            "scale": gen_config.scale,
         }
+
+    @staticmethod
+    def _clamp_steps(value: object, default: int) -> int:
+        try:
+            steps = int(value)
+        except (TypeError, ValueError):
+            return default
+
+        return max(MIN_STEPS, min(MAX_STEPS, steps))
+
+    @staticmethod
+    def _clamp_scale(value: object, default: float) -> float:
+        try:
+            scale = float(value)
+        except (TypeError, ValueError):
+            return default
+
+        return max(MIN_SCALE, min(MAX_SCALE, scale))
+
+    def _weighted_user_prompt(
+        self,
+        original_prompt: str,
+        ratio_name: str,
+        desc_part: str,
+        artist_name: str,
+        raw_mode: bool,
+    ) -> str:
+        """反推时给用户手写的描述加正向权重，比例与画师名原样保留。
+
+        比例和画师名要留给下游正则解析，不能包进权重语法里。
+        描述为空（用户只写了比例���画师名）时原样返回，不做任何改动。
+        """
+        weighted = apply_prompt_weight(desc_part)
+
+        if not weighted or weighted == desc_part:
+            return original_prompt
+
+        parts = []
+
+        if prompt_has_explicit_ratio(
+            original_prompt,
+            self._short_ratio_aliases(),
+            self.ratio_presets,
+            self._normalize_ratio_label,
+        ) and ratio_name:
+            parts.append(ratio_name)
+
+        if artist_name and not raw_mode:
+            parts.append(artist_name)
+
+        parts.append(weighted)
+
+        return " ".join(parts)
 
     def _prune_persisted_artist_presets(self) -> None:
         """启动时清掉指向已删除画师预设的会话记录。"""
@@ -1415,8 +1552,9 @@ class BestNAIPlugin(Star):
                 )
 
             async with self._generation_semaphore:
-                images = await self.generator.generate(final_prompt, gen_config)
+                result = await self.generator.generate(final_prompt, gen_config)
 
+            images = result.images
             safe_images: List[Tuple[str, bytes]] = []
 
             if self.plugin_config.safety.enabled:
@@ -1608,11 +1746,19 @@ class BestNAIPlugin(Star):
                     if artist_name and not raw_mode:
                         parts.append(artist_name)
 
-                    parts.append(translated)
+                    # 只给描述加权：比例和画师名要留给下游正则解析，
+                    # 一旦被包进 1.3::…:: 里就匹配不到了
+                    parts.append(apply_prompt_weight(translated))
 
                     merged_user_prompt = " ".join(parts)
                 else:
-                    merged_user_prompt = prompt
+                    merged_user_prompt = self._weighted_user_prompt(
+                        prompt,
+                        ratio_name,
+                        desc_part,
+                        artist_name,
+                        raw_mode,
+                    )
 
                 merged_prompt = f"{merged_user_prompt}, {retag_prompt}"
             else:
