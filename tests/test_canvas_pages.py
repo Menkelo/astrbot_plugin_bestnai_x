@@ -87,7 +87,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         expanded_body = styles.split(
             ".prompt-node.translated-expanded .node-body {", 1
         )[1].split("}", 1)[0]
-        self.assertIn("flex: 0 0 auto;", expanded_body)
+        # 展开时 body 也必须跟着卡片高度走，内容撑开会画到卡片外面
+        self.assertIn("flex: 1 1 auto;", expanded_body)
+        expanded_prompt = styles.split(
+            ".prompt-node.translated-expanded .prompt-text {", 1
+        )[1].split("}", 1)[0]
+        # 记忆高度保留，但允许在卡片被缩小时压缩
+        self.assertIn("var(--prompt-editor-height, 132px)", expanded_prompt)
+        self.assertIn("flex: 0 1 ", expanded_prompt)
+        self.assertIn("min-height: 0;", expanded_prompt)
         self.assertIn("function fitExpandedPromptNode", editor)
         self.assertIn("const naturalHeight = Math.ceil(element.scrollHeight)", editor)
         self.assertIn("const nextHeight = clamp(naturalHeight, 300, 800)", editor)
@@ -609,6 +617,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("-webkit-line-clamp: 2;", status_styles)
         self.assertIn("overflow: hidden;", status_styles)
         self.assertIn("overflow-wrap: anywhere;", status_styles)
+
+        # 展开英文 tags 后缩小卡片同样不能溢出：面板和只读框都要可压缩
+        panel_styles = styles.split(".translated-prompt-panel {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 1 auto;", panel_styles)
+        self.assertIn("min-height: 0;", panel_styles)
+        self.assertIn("overflow: hidden;", panel_styles)
+        translated_styles = styles.split(".translated-prompt-text {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 0;", translated_styles)
+        self.assertIn("flex: 0 1 auto;", translated_styles)
 
     def test_plugin_version_has_no_hardcoded_fallback(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")

@@ -821,13 +821,17 @@ select:focus-visible,
   flex-direction: column;
 }
 
+/* 展开英文 tags 时给编辑框一个记忆高度，但仍允许在卡片被缩小时让出空间。
+   用 0 1 而不是 0 0：不主动长高，需要时可以压缩。 */
 .prompt-node.translated-expanded .prompt-text {
   height: var(--prompt-editor-height, 132px);
-  flex: 0 0 var(--prompt-editor-height, 132px);
+  min-height: 0;
+  flex: 0 1 var(--prompt-editor-height, 132px);
 }
 
+/* node-body 必须跟着卡片走，否则内容撑开后会画到卡片外面 */
 .prompt-node.translated-expanded .node-body {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
 }
 
 .prompt-node .node-body {
@@ -1004,8 +1008,12 @@ select:focus-visible,
 }
 
 .translated-prompt-panel {
-  flex: 0 0 auto;
+  display: flex;
+  min-height: 0;
+  flex: 0 1 auto;
+  flex-direction: column;
   margin-top: 9px;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--soft);
@@ -1024,7 +1032,8 @@ select:focus-visible,
   display: block;
   width: calc(100% - 16px);
   height: 88px;
-  min-height: 76px;
+  min-height: 0;
+  flex: 0 1 auto;
   margin: 0 8px 8px;
   padding: 9px 10px;
   resize: none;
