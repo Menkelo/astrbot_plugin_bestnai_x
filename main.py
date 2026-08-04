@@ -35,8 +35,11 @@ from .services.artist_gallery import ArtistGalleryService
 from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
 from .services.image_ratio import (
+    choose_ratio_source,
     infer_ratio_label_from_size,
     prompt_has_explicit_ratio,
+    RATIO_SOURCE_ARTIST,
+    RATIO_SOURCE_IMAGE,
     read_image_size_any,
 )
 from .services.mention_avatar import (
@@ -1199,6 +1202,7 @@ class BestNAIPlugin(Star):
         show_progress: bool = True,
         progress_verb: str = "生图",
         followup_messages: Optional[List[str]] = None,
+        fallback_ratio: str = "",
     ) -> AsyncGenerator:
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
@@ -1245,35 +1249,50 @@ class BestNAIPlugin(Star):
         effective_artist_prompt = ""
         artist_ratio_adopted = False
 
+        user_specified_ratio = prompt_has_explicit_ratio(
+            prompt,
+            self._short_ratio_aliases(),
+            self.ratio_presets,
+            self._normalize_ratio_label,
+        )
+
+        artist_prompt_for_ratio = ""
+
         if not raw_mode:
-            artist_prompt = self._get_effective_artist_prompt(
+            artist_prompt_for_ratio = self._get_effective_artist_prompt(
                 artist_prompt_override,
                 session_id,
             )
 
-            if (
-                artist_prompt
-                and not prompt_has_explicit_ratio(
-                    prompt,
-                    self._short_ratio_aliases(),
-                    self.ratio_presets,
-                    self._normalize_ratio_label,
-                )
-                and prompt_has_explicit_ratio(
-                    artist_prompt,
-                    self._short_ratio_aliases(),
-                    self.ratio_presets,
-                    self._normalize_ratio_label,
-                )
-            ):
-                effective_artist_prompt, ratio_name = self._extract_ratio_from_prompt(
-                    artist_prompt
-                )
-                artist_ratio_adopted = True
+        artist_has_ratio = bool(artist_prompt_for_ratio) and prompt_has_explicit_ratio(
+            artist_prompt_for_ratio,
+            self._short_ratio_aliases(),
+            self.ratio_presets,
+            self._normalize_ratio_label,
+        )
 
-                logger.info(
-                    f"[BestNAI] 用户未指定比例，从画师提示词提取比例：{ratio_name}"
-                )
+        ratio_source = choose_ratio_source(
+            user_specified=user_specified_ratio,
+            artist_has_ratio=artist_has_ratio,
+            has_inferred_ratio=bool(fallback_ratio),
+        )
+
+        if ratio_source == RATIO_SOURCE_ARTIST:
+            effective_artist_prompt, ratio_name = self._extract_ratio_from_prompt(
+                artist_prompt_for_ratio
+            )
+            artist_ratio_adopted = True
+
+            logger.info(
+                f"[BestNAI] 用户未指定比例，从画师提示词提取比例：{ratio_name}"
+            )
+
+        elif ratio_source == RATIO_SOURCE_IMAGE:
+            ratio_name = fallback_ratio
+
+            logger.info(
+                f"[BestNAI] 用户与画师串均未指定比例，使用输入图片推断的比例：{ratio_name}"
+            )
 
         logger.info(
             f"[BestNAI] 解析后 prompt='{clean_prompt}', ratio='{ratio_name}', "
@@ -1376,10 +1395,7 @@ class BestNAIPlugin(Star):
             artist_prompt = (
                 effective_artist_prompt
                 if artist_ratio_adopted
-                else self._get_effective_artist_prompt(
-                    artist_prompt_override,
-                    session_id,
-                )
+                else artist_prompt_for_ratio
             )
 
             final_prompt = self.prompt_builder.build_final_prompt(
@@ -1602,9 +1618,8 @@ class BestNAIPlugin(Star):
             else:
                 merged_prompt = retag_prompt
 
-            if inferred_ratio:
-                merged_prompt = f"{merged_prompt} {inferred_ratio}"
-
+            # 推断出的比例不能拼进提示词：那样会被当成用户手写的比例，
+            # 从而盖掉画师串里配置的比例。作为参数传下去，优先级低于画师串。
             async for result in self._do_generate(
                 event=event,
                 prompt=merged_prompt,
@@ -1612,6 +1627,7 @@ class BestNAIPlugin(Star):
                 show_progress=False,
                 progress_verb="反推",
                 followup_messages=show_messages,
+                fallback_ratio=inferred_ratio,
             ):
                 yield result
 

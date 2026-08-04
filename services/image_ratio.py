@@ -62,6 +62,40 @@ async def read_image_size_any(image_src: str) -> Tuple[int, int]:
     return read_local_image_size(src)
 
 
+RATIO_SOURCE_USER = "user"
+RATIO_SOURCE_ARTIST = "artist"
+RATIO_SOURCE_IMAGE = "image"
+RATIO_SOURCE_DEFAULT = "default"
+
+
+def choose_ratio_source(
+    user_specified: bool,
+    artist_has_ratio: bool,
+    has_inferred_ratio: bool,
+) -> str:
+    """决定画幅比例听谁的。
+
+    优先级从高到低：
+    1. 用户在提示词里手写的比例——最明确的意图，永远最高。
+    2. 画师串里带的比例——是用户自己配置的画师预设，属于用户意图。
+    3. 反推输入图片推断出的比例——只是程序猜的，不能盖过上面两项。
+    4. 配置里的默认比例。
+
+    反推推断的比例曾经被直接拼进提示词，导致它在判定上等同于"用户手写"，
+    把画师串的比例挤掉了。这个函数把优先级写成显式规则，避免再靠字符串拼接表达。
+    """
+    if user_specified:
+        return RATIO_SOURCE_USER
+
+    if artist_has_ratio:
+        return RATIO_SOURCE_ARTIST
+
+    if has_inferred_ratio:
+        return RATIO_SOURCE_IMAGE
+
+    return RATIO_SOURCE_DEFAULT
+
+
 def infer_ratio_label_from_size(width: int, height: int) -> str:
     width = int(width)
     height = int(height)
