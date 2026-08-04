@@ -610,6 +610,48 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("overflow: hidden;", status_styles)
         self.assertIn("overflow-wrap: anywhere;", status_styles)
 
+    def test_plugin_version_has_no_hardcoded_fallback(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 版本号只能来自后端，写死兜底值会在后端没返回时显示成过期的假版本
+        self.assertNotRegex(editor, r'plugin\.version \|\| "\d')
+        self.assertIn('const pluginVersion = String(plugin.version || "").trim()', editor)
+        self.assertIn("els.pluginVersion.hidden = !pluginVersion", editor)
+        self.assertIn('<span id="pluginVersion" hidden></span>', html)
+
+        version_line = next(
+            line for line in html.splitlines() if 'id="pluginVersion"' in line
+        )
+        self.assertNotRegex(version_line, r"v\d+\.\d+")
+
+    def test_logo_easter_egg_needs_three_quick_clicks(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn("function setupLogoEasterEgg()", editor)
+        self.assertIn("setupLogoEasterEgg();", editor)
+
+        body = editor.split("function setupLogoEasterEgg() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("if (clicks < 3)", body)
+        self.assertIn("祝你天天开心！", body)
+        # 隔太久要重新计数，避免几次无关的点击攒够三下
+        self.assertIn("RESET_DELAY", body)
+        self.assertIn("clicks = 0;", body)
+        # 动画进行中不重复叠加，结束后自动清理 class
+        self.assertIn('mark.classList.contains("celebrate")', body)
+        self.assertIn('"animationend"', body)
+        self.assertIn("{ once: true }", body)
+
+        self.assertIn(".canvas-mark.celebrate {", styles)
+        self.assertIn("@keyframes canvas-mark-celebrate {", styles)
+        keyframes = styles.split("@keyframes canvas-mark-celebrate {", 1)[1].split(
+            "\n}", 1
+        )[0]
+        self.assertIn("rotate(1turn)", keyframes)
+
     def test_middle_mouse_pans_and_context_menu_adds_nodes(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

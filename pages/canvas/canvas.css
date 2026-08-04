@@ -359,6 +359,26 @@ select:focus-visible,
   object-fit: cover;
 }
 
+/* 彩蛋：连点三次 logo。prefers-reduced-motion 那条全局规则会把时长压到 .01ms，
+   动画自然失效但提示仍然照常出现 */
+.canvas-mark.celebrate {
+  animation: canvas-mark-celebrate .9s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+@keyframes canvas-mark-celebrate {
+  from {
+    transform: rotate(0turn) scale(1);
+  }
+
+  55% {
+    transform: rotate(.75turn) scale(1.12);
+  }
+
+  to {
+    transform: rotate(1turn) scale(1);
+  }
+}
+
 .canvas-nav-meta {
   display: flex;
   min-width: 0;

@@ -29,6 +29,7 @@ const els = {
   pluginDisplayName: document.getElementById("pluginDisplayName"),
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
+  canvasMark: document.querySelector(".canvas-mark"),
   connectionIndicator: document.getElementById("connectionIndicator"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
@@ -137,6 +138,33 @@ function toast(message, type = "info") {
 function alignToastRegion() {
   const rect = document.querySelector(".topbar").getBoundingClientRect();
   els.toastRegion.style.top = `${(rect.top + rect.bottom) / 2}px`;
+}
+
+// 彩蛋：连点三次 logo 转一圈
+function setupLogoEasterEgg() {
+  const mark = els.canvasMark;
+  if (!mark) return;
+  const RESET_DELAY = 1200;
+  let clicks = 0;
+  let resetTimer = 0;
+  mark.addEventListener("click", () => {
+    window.clearTimeout(resetTimer);
+    clicks += 1;
+    if (clicks < 3) {
+      // 三次要连着点，隔太久就重新数
+      resetTimer = window.setTimeout(() => { clicks = 0; }, RESET_DELAY);
+      return;
+    }
+    clicks = 0;
+    if (mark.classList.contains("celebrate")) return;
+    mark.classList.add("celebrate");
+    mark.addEventListener(
+      "animationend",
+      () => mark.classList.remove("celebrate"),
+      { once: true },
+    );
+    toast("祝你天天开心！");
+  });
 }
 
 function setConnectionState(status) {
@@ -2589,7 +2617,10 @@ async function loadInitialState() {
   loadPromptDefaults(preferences || {});
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
-  els.pluginVersion.textContent = `v${plugin.version || "3.0.41"}`;
+  // 版本号只有后端能提供，拿不到就留空。写死一个兜底版本号只会显示成过期的假信息
+  const pluginVersion = String(plugin.version || "").trim();
+  els.pluginVersion.textContent = pluginVersion ? `v${pluginVersion}` : "";
+  els.pluginVersion.hidden = !pluginVersion;
   els.pluginAuthor.textContent = plugin.author || "Menkelo";
   let canvasMeta = state.canvases.find((item) => item.id === canvasId);
   if (!canvasMeta) {
@@ -3219,6 +3250,7 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 refreshIcons();
+setupLogoEasterEgg();
 loadInitialState().catch((error) => {
   setConnectionState("offline");
   toast(error.message, "error");
