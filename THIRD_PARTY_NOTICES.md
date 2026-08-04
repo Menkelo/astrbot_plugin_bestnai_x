@@ -34,3 +34,19 @@ The canvas bundles Lucide `1.16.0`, copied from the Infinite-Canvas local vendor
 - License: ISC
 
 The bundled file retains its upstream license header.
+
+## Danbooru Tag Search (hosted service)
+
+Chinese prompt translation queries an embedded third-party tag-retrieval service to
+collect candidate Danbooru tags before calling the translation model. No code from the
+service is redistributed with this plugin; it is called over HTTPS at runtime.
+
+- Service: `sakizuki/danboorusearch`
+- Source: https://huggingface.co/spaces/sakizuki/danboorusearch
+- Endpoint: `https://sakizuki-danboorusearch.hf.space`
+- Hosting: Hugging Face Spaces
+
+Requests contain only the prompt text being translated. No API keys, user identifiers,
+or images are sent. The service is optional at runtime: when it is unreachable, returns
+a non-200 status, or times out, retrieval is skipped silently and translation falls back
+to the model's own knowledge.

@@ -575,10 +575,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn("keep_character: bool = False", retagger)
         self.assertIn("character_name: str =", retagger)
-        self.assertIn("Prioritize this supplied character identity", retagger)
-        self.assertIn("no name was supplied", retagger)
         self.assertIn("canonical Danbooru character tag", retagger)
         self.assertIn("keep_character=keep_character", main)
+
+        # 角色识别是固定的第一步，不依赖 keep_character 开关
+        system_prompt = retagger.split("system_prompt = (", 1)[1].split(
+            "if keep_character:", 1
+        )[0]
+        self.assertIn("Step 1 - Identify the character", system_prompt)
+        self.assertIn("Step 2 - Describe the image", system_prompt)
+        self.assertIn('"character"', system_prompt)
+        self.assertIn('"series"', system_prompt)
+        self.assertIn('"tags"', system_prompt)
+        # 不确定时必须留空，不能猜
+        self.assertIn("Never guess and never invent an identity", system_prompt)
+
+        # 解析与拼装由独立函数负责，便于在 tests/test_image_retagger.py 覆盖
+        self.assertIn("def parse_retag_response", retagger)
+        self.assertIn("def compose_retag_prompt", retagger)
+        self.assertIn("character, series, tags = parse_retag_response(", retagger)
 
     def test_qq_retag_uses_detailed_retag_progress(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")

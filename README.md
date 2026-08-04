@@ -11,7 +11,7 @@
 - **基础生图**：`/nai <提示词>` 一键生图。
 - **原始提示词生图**：`/nai0 <英文tag>` 跳过中文翻译，不追加画师串与质量提示词，仅沿用负面提示词。
 - **中文自动翻译**：开启后，`/nai` 中的中文描述会被自动翻译为 Danbooru / NovelAI 英文 tag。
-- **图片反推生图**：发送/回复一张图片后执行 `/nai`，自动用视觉模型把图片反推为 tags 再生图。
+- **图片反推生图**：发送/回复一张图片后执行 `/nai`，自动用视觉模型把图片反推为 tags 再生图；反推时会先识别画面中的已知角色，命中则把角色与作品 tag 排在最前。
 - **头像反推生图**：`/nai @某人` 使用对方 QQ 头像反推 tags 生图。
 - **画师预设系统**：配置中可维护多个画师风格串，支持切换默认预设、按次临时调用、持久化保存。
 - **画师画廊**：为每个画师预设设置预览图，可一键查看全部预设的合成画廊图。
@@ -103,8 +103,6 @@ pip install aiohttp pillow
 |--------|------|--------|------|
 | `enabled` | bool | `false` | 开启后 `/nai` 中的中文描述会自动调用翻译器转为英文 Danbooru tag |
 | `provider_id` | string | 空 | 翻译接口提供商（AstrBot 提供商）。翻译不使用手动生图 API |
-| `system_prompt` | string | 空 | 翻译系统提示词。留空使用内置的 NovelAI / Danbooru 标签专家提示词；填写后**完全替换**内置提示词，只有确实要改翻译风格时才填 |
-| `custom_prefix` | string | 空 | 翻译提示词前缀。追加在系统提示词最前面用于补充额外要求（例如固定画风倾向），不会替换内置提示词 |
 
 > 翻译支持 OpenAI 兼容接口与 Gemini 官方接口（`generativelanguage.googleapis.com`），翻译失败自动重试（默认最多 3 次，指数退避）。
 
@@ -116,6 +114,10 @@ pip install aiohttp pillow
 | `provider_id` | string | 空 | 图片反推接口提供商，需选择支持视觉输入的 AstrBot 提供商 |
 | `show_result` | bool | `false` | 开启后会在生图前发送反推得到的 tags，便于调试 |
 
+> **角色识别**：反推时模型会先判断画面主体是否为可辨认的已知角色，是则把 canonical Danbooru 角色 tag 与作品 tag 排在提示词最前面，显著提升还原度。
+> 判断不确定、或主体是原创角色 / 真人时会留空，不会瞎猜。识别结果不单独发送，只写入日志。
+> 模型未按结构化格式返回时自动退回纯 tags，不影响生图。
+
 ### 6. safety_config - QQ 防封安全审核配置
 
 | 配置项 | 类型 | 默认值 | 说明 |
@@ -125,14 +127,10 @@ pip install aiohttp pillow
 | `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤使用的检测词，可在插件配置中逐项添加、修改或删除；列表留空时不移除任何词 |
 
-> Danbooru Tag 检索的开关与地址见下方 `danbooru_config`。
-
-### 7. danbooru_config - Danbooru 标签检索配置
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `tag_search` | bool | `true` | 启用 Danbooru 标签检索。翻译中文提示词时先检索候选标签再交给模型，结果更贴近真实标签，代价是每次翻译多一次外部请求。关闭后仅靠模型自身知识翻译 |
-| `api_url` | string | `https://sakizuki-danboorusearch.hf.space` | Danbooru 检索服务地址，留空使用默认值 |
+> **Danbooru Tag 检索**已内嵌，翻译中文提示词时自动启用，无需配置。
+> 检索服务由第三方提供：[sakizuki/danboorusearch](https://huggingface.co/spaces/sakizuki/danboorusearch)（`https://sakizuki-danboorusearch.hf.space`），
+> 托管于 Hugging Face Spaces。请求只包含待翻译的提示词文本，不包含任何 API Key；
+> 服务不可用或超时时自动跳过，仅靠模型自身知识翻译，不影响生图。
 
 ---
 

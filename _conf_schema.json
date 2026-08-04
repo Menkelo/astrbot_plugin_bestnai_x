@@ -129,20 +129,6 @@
         "type": "bool",
         "hint": "开启后会在生图前发送翻译得到的英文提示词，便于调试",
         "default": false
-      },
-      "system_prompt": {
-        "description": "翻译系统提示词",
-        "type": "string",
-        "hint": "留空使用内置的 NovelAI/Danbooru 标签专家提示词。填写后完全替换内置提示词，只有确实要改翻译风格时才填。",
-        "default": "",
-        "editor_mode": true
-      },
-      "custom_prefix": {
-        "description": "翻译提示词前缀",
-        "type": "string",
-        "hint": "追加在系统提示词最前面，用于补充额外要求（例如固定画风倾向）。不会替换内置提示词。",
-        "default": "",
-        "editor_mode": true
       }
     }
   },
@@ -258,24 +244,6 @@
           "rape",
           "loli porn"
         ]
-      }
-    }
-  },
-  "danbooru_config": {
-    "description": "Danbooru 标签检索",
-    "type": "object",
-    "items": {
-      "tag_search": {
-        "description": "启用 Danbooru 标签检索",
-        "type": "bool",
-        "hint": "翻译中文提示词时先去 Danbooru 检索候选标签再交给模型，结果更贴近真实标签，代价是每次翻译多一次外部请求。关闭后仅靠模型自身知识翻译。",
-        "default": true
-      },
-      "api_url": {
-        "description": "Danbooru 检索服务地址",
-        "type": "string",
-        "hint": "留空使用默认的 https://sakizuki-danboorusearch.hf.space",
-        "default": "https://sakizuki-danboorusearch.hf.space"
       }
     }
   }

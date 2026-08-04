@@ -188,7 +188,6 @@ class PluginConfig:
     prompt_suffix: str = DEFAULT_QUALITY_STRING
 
     danbooru_api_url: str = ""
-    danbooru_tag_search: bool = False
     retag_show_source: bool = False
 
     raw_config: dict = field(default_factory=dict, repr=False)
@@ -199,7 +198,6 @@ class PluginConfig:
         gen_conf = config.get("generation_config", {}) or {}
         tr_conf = config.get("translator_config", {}) or {}
         prompt_conf = config.get("prompt_config", {}) or {}
-        dan_conf = config.get("danbooru_config", {}) or {}
         safety_conf = config.get("safety_config", {}) or {}
         image_retag_conf = config.get("image_retag_config", {}) or {}
 
@@ -289,8 +287,8 @@ class PluginConfig:
                 model="gpt-4o-mini",
                 show_progress=False,
                 show_result=bool(tr_conf.get("show_result", False)),
-                system_prompt=str(tr_conf.get("system_prompt", "") or ""),
-                custom_prefix=str(tr_conf.get("custom_prefix", "") or ""),
+                system_prompt="",
+                custom_prefix="",
                 max_retries=3,
             ),
             safety=SafetyConfig(
@@ -314,10 +312,8 @@ class PluginConfig:
                 "quality_prompt",
                 prompt_conf.get("prompt_suffix", DEFAULT_QUALITY_STRING),
             ),
-            danbooru_api_url=str(
-                dan_conf.get("api_url", "") or DEFAULT_DANBOORU_API_URL
-            ).strip().rstrip("/"),
-            danbooru_tag_search=bool(dan_conf.get("tag_search", True)),
+            # Danbooru 检索服务内嵌，不开放配置
+            danbooru_api_url=DEFAULT_DANBOORU_API_URL,
             retag_show_source=False,
             raw_config=config,
         )

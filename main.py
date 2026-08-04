@@ -1147,11 +1147,7 @@ class BestNAIPlugin(Star):
 
         translated = await translator.translate(
             text,
-            danbooru_api_url=(
-                self.plugin_config.danbooru_api_url
-                if self.plugin_config.danbooru_tag_search
-                else ""
-            ),
+            danbooru_api_url=self.plugin_config.danbooru_api_url,
         )
 
         if not translated or has_chinese(translated):

@@ -71,6 +71,107 @@ def _clean_tags(text: str) -> str:
     return text
 
 
+def _clean_tag_token(value: str) -> str:
+    """清理单个角色 / 作品 tag。"""
+    token = str(value or "").strip()
+
+    # 模型偶尔会返回 ["hatsune_miku"] 或 "character: hatsune_miku"
+    token = token.strip("[]()\"' \t")
+    token = re.sub(
+        r"^(?:character|series|copyright|角色|作品)\s*[:：]\s*",
+        "",
+        token,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    token = re.sub(r"[^\x00-\x7F]+", "", token)
+    token = re.sub(r"\s+", " ", token).strip(" ,;")
+
+    # 明确表示「没识别出来」的各种写法一律当空，避免污染提示词
+    if token.lower() in {
+        "",
+        "none",
+        "null",
+        "n/a",
+        "na",
+        "nan",
+        "unknown",
+        "unidentified",
+        "original",
+        "original character",
+        "not a character",
+        "no character",
+        "-",
+    }:
+        return ""
+
+    return token
+
+
+def parse_retag_response(text: str) -> Tuple[str, str, str]:
+    """解析反推模型输出，返回 (角色 tag, 作品 tag, 其余 tags)。
+
+    模型被要求返回 {"character","series","tags"}。拿不到结构化结果时
+    退回旧行为：整段当作 tags，角色和作品为空。
+    """
+    raw = str(text or "").strip()
+
+    raw_json = re.sub(r"^```(?:json|txt|text)?", "", raw, flags=re.IGNORECASE).strip()
+    raw_json = re.sub(r"```$", "", raw_json).strip()
+
+    data = None
+
+    try:
+        data = json.loads(raw_json)
+    except Exception:
+        # 有些模型会在 JSON 前后多带一句解释
+        match = re.search(r"\{.*\}", raw_json, flags=re.DOTALL)
+
+        if match:
+            try:
+                data = json.loads(match.group(0))
+            except Exception:
+                data = None
+
+    if not isinstance(data, dict) or "tags" not in data:
+        return "", "", _clean_tags(raw)
+
+    tags_value = data.get("tags")
+
+    if isinstance(tags_value, list):
+        tags_value = ", ".join(str(x) for x in tags_value)
+
+    character = _clean_tag_token(data.get("character", ""))
+    series = _clean_tag_token(data.get("series", ""))
+    tags = _clean_tags(str(tags_value or ""))
+
+    return character, series, tags
+
+
+def compose_retag_prompt(character: str, series: str, tags: str) -> str:
+    """把角色、作品、其余 tags 拼成最终提示词，角色信息排在最前。"""
+    parts = []
+    lowered_tags = (tags or "").lower()
+
+    for token in (character, series):
+        if not token:
+            continue
+
+        # 模型可能已经把角色 tag 写进 tags 里了，避免重复
+        pattern = r"(?:^|,\s*)" + re.escape(token.lower()) + r"(?:\s*,|$)"
+
+        if re.search(pattern, lowered_tags):
+            continue
+
+        if token not in parts:
+            parts.append(token)
+
+    if tags:
+        parts.append(tags)
+
+    return ", ".join(parts).strip(" ,")
+
+
 def _guess_mime(path_or_url: str) -> str:
     low = str(path_or_url or "").lower()
 
@@ -305,24 +406,40 @@ class ImageRetagger:
         image_url = await _image_to_data_url(image_path_or_url)
 
         system_prompt = (
-            "You are an expert anime image tagger for NovelAI image generation. "
-            "Analyze the image and output only English Danbooru/NovelAI tags. "
-            "Use comma-separated tags only. "
-            "Do not output explanations. Do not output markdown. "
-            "Do not output Chinese, Japanese, emoji, or non-ASCII characters. "
-            "Focus on subject, hair, eyes, clothing, pose, expression, background, composition, lighting, camera angle, style, and quality tags."
+            "You are an expert anime image tagger for NovelAI image generation.\n"
+            "\n"
+            "Work in two steps.\n"
+            "Step 1 - Identify the character. Decide whether the subject is a "
+            "recognizable named character from an existing work. Only when you are "
+            "confident, report its canonical Danbooru character tag and the "
+            "copyright/series tag. When the subject is an original character, a real "
+            "person, or you are not confident, leave both fields empty. "
+            "Never guess and never invent an identity.\n"
+            "Step 2 - Describe the image as English Danbooru/NovelAI tags. "
+            "Focus on subject, hair, eyes, clothing, pose, expression, background, "
+            "composition, lighting, camera angle, style, and quality tags.\n"
+            "\n"
+            "Respond with a single JSON object and nothing else. No markdown fence, "
+            "no explanation:\n"
+            '{"character": "hatsune_miku", "series": "vocaloid", '
+            '"tags": "1girl, solo, twintails, ..."}\n'
+            'Use "" for character and series when there is no recognizable character. '
+            "Do not repeat the character or series tag inside tags. "
+            "Tags must be comma-separated English Danbooru tags. "
+            "Do not output Chinese, Japanese, emoji, or non-ASCII characters."
         )
 
         if keep_character:
             system_prompt += (
-                " Character identity preservation is required. "
-                "When the subject is a known character, put the canonical Danbooru character tag and copyright/series tag near the beginning. "
-                "Never invent a character identity when the evidence is insufficient; preserve distinctive visible traits instead."
+                "\n\nCharacter identity preservation is required for this request. "
+                "Put extra effort into step 1, and preserve distinctive visible traits "
+                "in the tags so the identity survives regeneration. "
+                "This still does not permit guessing an identity you are unsure of."
             )
 
         user_text = (
             "Convert this image into NovelAI / Danbooru image generation tags. "
-            "Output tags only, separated by commas."
+            "Return the JSON object described in the system prompt."
         )
 
         if user_hint:
@@ -332,15 +449,10 @@ class ImageRetagger:
             clean_character_name = str(character_name or "").strip()[:120]
             if clean_character_name:
                 user_text += (
-                    "\nCharacter preservation is enabled. "
-                    f"Prioritize this supplied character identity: {clean_character_name}. "
-                    "Use the image to verify it, then include its canonical character and series tags."
-                )
-            else:
-                user_text += (
-                    "\nCharacter preservation is enabled, but no name was supplied. "
-                    "First identify whether the subject is a recognizable named character from the image. "
-                    "If recognized, include the canonical character and series tags; otherwise retain distinctive appearance tags without guessing a name."
+                    f"\nThe user says this is: {clean_character_name}. "
+                    "Verify it against the image. If it matches, use its canonical "
+                    "Danbooru character and series tags. If the image clearly does not "
+                    "match, ignore the supplied name and follow what you actually see."
                 )
 
         payload: Dict[str, Any] = {
@@ -414,12 +526,22 @@ class ImageRetagger:
             raise ImageRetagError(f"图片反推失败：{e}") from e
 
         content = _extract_chat_content(data)
-        tags = _clean_tags(content)
+        character, series, tags = parse_retag_response(content)
 
-        if not tags:
+        if not tags and not character:
             logger.warning(f"[BestNAI/ImageRetag] 空反推结果，raw={str(data)[:1000]}")
             raise ImageRetagError("图片反推结果为空")
 
-        logger.info(f"[BestNAI/ImageRetag] tags={tags[:500]}")
+        if character:
+            logger.info(
+                f"[BestNAI/ImageRetag] 已识别角色：{character}"
+                f"{f'（{series}）' if series else ''}"
+            )
+        else:
+            logger.info("[BestNAI/ImageRetag] 未识别到已知角色，仅使用外观 tags")
 
-        return tags
+        prompt = compose_retag_prompt(character, series, tags)
+
+        logger.info(f"[BestNAI/ImageRetag] tags={prompt[:500]}")
+
+        return prompt
