@@ -96,9 +96,7 @@ class BestNAIPlugin(Star):
 
         self.runtime_state = RuntimeStateService(PLUGIN_NAME)
 
-        self.runtime_artist_prompt_override = ""
-        self.runtime_artist_slot_name = ""
-        self._load_persisted_artist_preset()
+        self._prune_persisted_artist_presets()
 
         self._resolve_image_provider()
 
@@ -136,8 +134,7 @@ class BestNAIPlugin(Star):
         )
 
         artist_source = (
-            self.runtime_artist_slot_name
-            or self.plugin_config.artist_preset
+            self.plugin_config.artist_preset
             or self._get_default_artist_display_name()
         )
 
@@ -150,7 +147,7 @@ class BestNAIPlugin(Star):
             f"审核提供商={self.plugin_config.safety.provider_id or '(未选择)'}，"
             f"图片反推={'开启' if self.plugin_config.image_retag.enabled else '关闭'}，"
             f"反推提供商={self.plugin_config.image_retag.provider_id or '(未选择)'}，"
-            f"画师预设={artist_source}，"
+            f"配置默认画师预设={artist_source}，"
             f"模型={FIXED_MODEL}，"
             f"默认比例={self.default_ratio}，"
             f"插件数据目录={self.artist_gallery.plugin_data_dir}"
@@ -193,7 +190,7 @@ class BestNAIPlugin(Star):
             "configured": self.plugin_config.is_configured(),
             "model": FIXED_MODEL,
             "defaultRatio": self._normalize_ratio_label(self.default_ratio),
-            "defaultArtist": self._get_artist_display_name(),
+            "defaultArtist": self._get_default_artist_display_name(),
             "ratios": ratios,
             "artists": artists,
             "maxConcurrency": self.plugin_config.max_concurrency,
@@ -319,8 +316,9 @@ class BestNAIPlugin(Star):
                 if not resolved_artist_name:
                     raise ValueError(f"画师预设不存在：{artist_name}")
             else:
+                # 画布没有会话概念，用配置里的默认画师预设
                 artist_prompt = self._get_effective_artist_prompt()
-                resolved_artist_name = self._get_artist_display_name()
+                resolved_artist_name = self._get_default_artist_display_name()
 
             final_prompt = self.prompt_builder.build_final_prompt(
                 working_prompt,
@@ -353,25 +351,27 @@ class BestNAIPlugin(Star):
             "model": FIXED_MODEL,
         }
 
-    def _load_persisted_artist_preset(self) -> None:
-        slot_name = self.runtime_state.get_default_artist_slot()
+    def _prune_persisted_artist_presets(self) -> None:
+        """启动时清掉指向已删除画师预设的会话记录。"""
+        presets = self.plugin_config.get_all_artist_slots_map()
 
-        if not slot_name:
-            return
+        removed = self.runtime_state.prune_artist_slots(presets.keys())
 
-        real_slot_name, artist_prompt = self._find_artist_slot(slot_name)
-
-        if not real_slot_name or not artist_prompt:
+        if removed:
             logger.warning(
-                f"[BestNAI] 已保存的默认画师预设不存在，已清除：{slot_name}"
+                f"[BestNAI] 已清除 {removed} 条指向不存在画师预设的会话记录"
             )
-            self.runtime_state.clear_default_artist_slot()
-            return
 
-        self.runtime_artist_slot_name = real_slot_name
-        self.runtime_artist_prompt_override = artist_prompt
+    @staticmethod
+    def _session_id(event: AstrMessageEvent) -> str:
+        """取会话标识，用于把默认画师预设隔离到每个群 / 私聊。"""
+        for attr in ("unified_msg_origin", "session_id"):
+            value = getattr(event, attr, "")
 
-        logger.info(f"[BestNAI] 已恢复默认画师预设：{real_slot_name}")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return ""
 
     def _strip_command_prefix(self, text: str) -> str:
         text = (text or "").strip()
@@ -408,12 +408,15 @@ class BestNAIPlugin(Star):
         manual_api_key = (getattr(self.plugin_config, "api_key", "") or "").strip()
 
         self.plugin_config.use_manual_api = False
+        # 只有真正拿到接口配置才算就绪；否则每次生图前都会再试一次
+        self._image_provider_resolved = False
 
         if not prefer_provider:
             if manual_api_url and manual_api_key:
                 self.plugin_config.api_url = manual_api_url
                 self.plugin_config.api_key = manual_api_key
                 self.plugin_config.use_manual_api = True
+                self._image_provider_resolved = True
 
                 logger.info(
                     f"[BestNAI] 已使用手动生图 API，模式=/chat/completions，api_base={self.plugin_config.api_url}"
@@ -425,16 +428,19 @@ class BestNAIPlugin(Star):
 
         if not provider_id:
             logger.warning("[BestNAI] 已开启优先使用提供商，但未选择生图接口提供商")
+            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         try:
             provider = self.context.get_provider_by_id(provider_id)
         except Exception as e:
             logger.warning(f"[BestNAI] 获取生图接口提供商失败 provider_id={provider_id}: {e}")
+            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         if not provider:
             logger.warning(f"[BestNAI] 找不到生图接口提供商 ID: {provider_id}")
+            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         p_conf = getattr(provider, "provider_config", {}) or {}
@@ -467,30 +473,44 @@ class BestNAIPlugin(Star):
 
         if not base_url:
             logger.warning(f"[BestNAI] 生图接口提供商 {provider_id} 缺少 API Base")
+            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         if not api_key:
             logger.warning(f"[BestNAI] 生图接口提供商 {provider_id} 缺少 API Key")
+            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         self.plugin_config.api_url = str(base_url).rstrip("/")
         self.plugin_config.api_key = str(api_key)
         self.plugin_config.use_manual_api = False
+        self._image_provider_resolved = True
 
         logger.info(
             f"[BestNAI] 已使用生图接口提供商：{provider_id}，api_base={self.plugin_config.api_url}"
         )
 
+    def _warn_if_falling_back_to_manual(self, api_url: str, api_key: str) -> None:
+        """提供商没解析出来、但配置里还留着手动 API 时提醒一句。
+
+        这种情况下插件会拿旧的手动地址继续跑，容易被误认为提供商生效了。
+        """
+        if api_url and api_key:
+            logger.warning(
+                f"[BestNAI] 生图提供商未就绪，本次将改用配置中残留的手动 API：{api_url}。"
+                "如果这不是你想要的，请清空手动 API 地址/Key，或关闭“优先使用提供商”。"
+            )
+
     def _ensure_image_provider_ready(self) -> None:
         """
         Bot 重启时 AstrBot provider 可能晚于插件初始化完成。
-        如果启动阶段没拿到 provider，这里在首次生图前再解析一次，
+        只要提供商还没真正解析成功，就在每次生图前再试一次，
         避免必须手动重载插件。
         """
-        if self.plugin_config.is_configured():
+        if getattr(self.plugin_config, "use_manual_api", False):
             return
 
-        if getattr(self.plugin_config, "use_manual_api", False):
+        if getattr(self, "_image_provider_resolved", False):
             return
 
         logger.info("[BestNAI] 生图接口尚未就绪，尝试重新解析生图提供商")
@@ -888,7 +908,11 @@ class BestNAIPlugin(Star):
 
         return text
 
-    def _try_switch_artist_preset_command(self, prompt: str) -> Tuple[bool, str]:
+    def _try_switch_artist_preset_command(
+        self,
+        prompt: str,
+        session_id: str,
+    ) -> Tuple[bool, str]:
         text = self._normalize_artist_switch_name(prompt)
 
         if not text:
@@ -904,13 +928,13 @@ class BestNAIPlugin(Star):
         }
 
         if text in reset_words:
-            self.runtime_artist_prompt_override = ""
-            self.runtime_artist_slot_name = ""
+            if not session_id:
+                return True, "无法识别当前会话，未能重置画师预设"
 
-            saved = self.runtime_state.clear_default_artist_slot()
+            saved = self.runtime_state.clear_artist_slot(session_id)
 
             if saved:
-                return True, "已恢复配置默认画师预设，并清除已保存的默认预设"
+                return True, "已恢复本会话的配置默认画师预设"
 
             return True, "已恢复配置默认画师预设，但保存状态失败"
 
@@ -919,15 +943,15 @@ class BestNAIPlugin(Star):
         if not slot_name or not artist_prompt:
             return False, ""
 
-        self.runtime_artist_prompt_override = artist_prompt
-        self.runtime_artist_slot_name = slot_name
+        if not session_id:
+            return True, "无法识别当前会话，未能切换画师预设"
 
-        saved = self.runtime_state.set_default_artist_slot(slot_name)
+        saved = self.runtime_state.set_artist_slot(session_id, slot_name)
 
         if saved:
-            return True, f"已切换默认画师预设：{slot_name}（已保存）"
+            return True, f"已切换本会话默认画师预设：{slot_name}（已保存）"
 
-        return True, f"已切换默认画师预设：{slot_name}（保存失败，重启后可能失效）"
+        return True, f"已切换本会话默认画师预设：{slot_name}（保存失败，重启后可能失效）"
 
     def _display_ratio_label(self, ratio_name_or_size: str, width: int, height: int) -> str:
         value = (ratio_name_or_size or "").strip()
@@ -964,10 +988,8 @@ class BestNAIPlugin(Star):
         return f"{int(width)}x{int(height)}"
 
     def _get_default_artist_display_name(self) -> str:
+        """配置里的默认画师预设名（不含任何会话级覆盖）。"""
         try:
-            if self.runtime_artist_slot_name:
-                return self.runtime_artist_slot_name
-
             presets = self.plugin_config.get_artist_presets_map()
 
             if presets:
@@ -978,21 +1000,50 @@ class BestNAIPlugin(Star):
 
         return "未设置"
 
-    def _get_artist_display_name(self, artist_slot_name: str = "") -> str:
+    def _get_session_artist_slot(self, session_id: str) -> str:
+        """取本会话生效的画师预设名，没设过返回空。"""
+        if not session_id:
+            return ""
+
+        slot_name = self.runtime_state.get_artist_slot(session_id)
+
+        if not slot_name:
+            return ""
+
+        real_slot_name, _ = self._find_artist_slot(slot_name)
+
+        return real_slot_name
+
+    def _get_artist_display_name(
+        self,
+        artist_slot_name: str = "",
+        session_id: str = "",
+    ) -> str:
         if artist_slot_name:
             return artist_slot_name
 
-        if self.runtime_artist_slot_name:
-            return self.runtime_artist_slot_name
+        session_slot = self._get_session_artist_slot(session_id)
+
+        if session_slot:
+            return session_slot
 
         return self._get_default_artist_display_name()
 
-    def _get_effective_artist_prompt(self, artist_prompt_override: str = "") -> str:
+    def _get_effective_artist_prompt(
+        self,
+        artist_prompt_override: str = "",
+        session_id: str = "",
+    ) -> str:
         if artist_prompt_override and artist_prompt_override.strip():
             return artist_prompt_override.strip()
 
-        if self.runtime_artist_prompt_override:
-            return self.runtime_artist_prompt_override.strip()
+        session_slot = self._get_session_artist_slot(session_id)
+
+        if session_slot:
+            _, artist_prompt = self._find_artist_slot(session_slot)
+
+            if artist_prompt:
+                return artist_prompt.strip()
 
         return self.plugin_config.get_effective_artist_prompt()
 
@@ -1003,6 +1054,7 @@ class BestNAIPlugin(Star):
         raw_mode: bool,
         progress_verb: str,
         artist_slot_name: str = "",
+        session_id: str = "",
     ) -> str:
         ratio_display = self._display_ratio_label(
             ratio_name,
@@ -1013,7 +1065,7 @@ class BestNAIPlugin(Star):
         if raw_mode:
             return f"🎨 正在{progress_verb}（{ratio_display} | nai0 原始提示词模式）..."
 
-        artist_display = self._get_artist_display_name(artist_slot_name)
+        artist_display = self._get_artist_display_name(artist_slot_name, session_id)
         return f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."
 
     def _progress_message_for_prompt(
@@ -1021,6 +1073,7 @@ class BestNAIPlugin(Star):
         prompt: str,
         raw_mode: bool,
         progress_verb: str,
+        session_id: str = "",
     ) -> str:
         clean_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
         artist_prompt_override = ""
@@ -1030,7 +1083,10 @@ class BestNAIPlugin(Star):
             clean_prompt, artist_prompt_override, artist_slot_name = (
                 self._extract_artist_slot_from_prompt(clean_prompt)
             )
-            artist_prompt = self._get_effective_artist_prompt(artist_prompt_override)
+            artist_prompt = self._get_effective_artist_prompt(
+                artist_prompt_override,
+                session_id,
+            )
 
             if (
                 artist_prompt
@@ -1056,6 +1112,7 @@ class BestNAIPlugin(Star):
             raw_mode,
             progress_verb,
             artist_slot_name,
+            session_id,
         )
 
     def _looks_like_size(self, value: str) -> bool:
@@ -1152,12 +1209,17 @@ class BestNAIPlugin(Star):
         else:
             prompt = self._strip_command_prefix(prompt)
 
+        session_id = self._session_id(event)
+
         if not prompt:
             yield event.plain_result("❌ 请提供提示词")
             return
 
         if not raw_mode:
-            switched, switch_msg = self._try_switch_artist_preset_command(prompt)
+            switched, switch_msg = self._try_switch_artist_preset_command(
+                prompt,
+                session_id,
+            )
 
             if switched:
                 logger.info(f"[BestNAI] {switch_msg}")
@@ -1188,7 +1250,10 @@ class BestNAIPlugin(Star):
         artist_ratio_adopted = False
 
         if not raw_mode:
-            artist_prompt = self._get_effective_artist_prompt(artist_prompt_override)
+            artist_prompt = self._get_effective_artist_prompt(
+                artist_prompt_override,
+                session_id,
+            )
 
             if (
                 artist_prompt
@@ -1216,7 +1281,8 @@ class BestNAIPlugin(Star):
 
         logger.info(
             f"[BestNAI] 解析后 prompt='{clean_prompt}', ratio='{ratio_name}', "
-            f"artist_slot='{artist_slot_name}', runtime_artist='{self.runtime_artist_slot_name}', "
+            f"artist_slot='{artist_slot_name}', "
+            f"session_artist='{self._get_session_artist_slot(session_id)}', "
             f"raw_mode={raw_mode}"
         )
 
@@ -1265,6 +1331,7 @@ class BestNAIPlugin(Star):
                     raw_mode,
                     progress_verb,
                     artist_slot_name,
+                    session_id,
                 )
             )
 
@@ -1313,7 +1380,10 @@ class BestNAIPlugin(Star):
             artist_prompt = (
                 effective_artist_prompt
                 if artist_ratio_adopted
-                else self._get_effective_artist_prompt(artist_prompt_override)
+                else self._get_effective_artist_prompt(
+                    artist_prompt_override,
+                    session_id,
+                )
             )
 
             final_prompt = self.prompt_builder.build_final_prompt(
@@ -1427,6 +1497,7 @@ class BestNAIPlugin(Star):
                     prompt,
                     raw_mode,
                     "反推",
+                    self._session_id(event),
                 )
             except Exception as e:
                 yield event.plain_result(
@@ -1587,7 +1658,11 @@ class BestNAIPlugin(Star):
         """查看 BestNAI 画师预设画廊。"""
         presets = self.plugin_config.get_artist_presets_map()
 
-        ok, result = self.artist_gallery.build_or_get_gallery(presets)
+        # 画廊要用 PIL 拼图，放线程里跑，别卡住整个 AstrBot 事件循环
+        ok, result = await asyncio.to_thread(
+            self.artist_gallery.build_or_get_gallery,
+            presets,
+        )
 
         if not ok:
             yield event.plain_result(f"❌ 生成画师画廊失败：{result}")
@@ -1678,7 +1753,8 @@ class BestNAIPlugin(Star):
             )
             return
 
-        ok = self.artist_gallery.record_preview(real_key, img)
+        # 预览图可能是 http 链接，下载走的是同步 urllib，必须放线程里
+        ok = await asyncio.to_thread(self.artist_gallery.record_preview, real_key, img)
 
         if not ok:
             yield event.plain_result("❌ 画师预览图保存失败，请重试")

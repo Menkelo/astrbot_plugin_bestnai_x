@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import random
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -40,6 +42,19 @@ class ImageGenerator:
     def __init__(self, config: PluginConfig) -> None:
         self.config = config
         self.timeout = 300
+
+    @staticmethod
+    def _endpoint(api_base: str, path: str) -> str:
+        """拼接接口地址，api_base 未带 /v1 时自动补上。
+
+        与 translator / safety / image_retagger 的拼接规则保持一致。
+        """
+        base = (api_base or "").rstrip("/")
+
+        if not base.endswith("/v1"):
+            base = f"{base}/v1"
+
+        return f"{base}/{path.lstrip('/')}"
 
     async def generate(
         self,
@@ -91,7 +106,7 @@ class ImageGenerator:
         prompt: str,
         gen_config: GenerationConfig,
     ) -> List[Tuple[str, bytes]]:
-        endpoint = f"{api_base}/images/generations"
+        endpoint = self._endpoint(api_base, "images/generations")
 
         payload = gen_config.to_api_params(prompt)
 
@@ -133,7 +148,7 @@ class ImageGenerator:
         prompt: str,
         gen_config: GenerationConfig,
     ) -> List[Tuple[str, bytes]]:
-        endpoint = f"{api_base}/chat/completions"
+        endpoint = self._endpoint(api_base, "chat/completions")
 
         seed = random.randint(1, 2_147_483_647)
         size_array = [int(gen_config.width), int(gen_config.height)]
@@ -246,7 +261,7 @@ class ImageGenerator:
         except aiohttp.ClientConnectorError as e:
             raise GenerationError(f"无法连接 API：{e}") from e
 
-        except TimeoutError as e:
+        except (asyncio.TimeoutError, TimeoutError) as e:
             raise ServerBusyError("生图请求超时，请稍后重试") from e
 
         except aiohttp.ClientError as e:
@@ -311,10 +326,9 @@ class ImageGenerator:
         text = (e.message or "").lower()
         status = getattr(e, "status_code", None)
 
-        if status in (400, 404, 405, 501):
-            status_match = True
-        else:
-            status_match = False
+        # 404 / 405 / 501 表示该路由不存在或不被支持，值得改走 chat/completions。
+        # 400 不算，它通常意味着参数有问题，重试 chat 也不会成功。
+        status_match = status in (404, 405, 501)
 
         keywords = [
             "未开放",
@@ -340,7 +354,7 @@ class ImageGenerator:
 
         keyword_match = any(k.lower() in text for k in keywords)
 
-        return status_match and keyword_match or keyword_match
+        return status_match or keyword_match
 
     async def _extract_images_from_response(
         self,
@@ -661,6 +675,33 @@ class ImageGenerator:
 
         return "png"
 
+    def _is_api_host(self, url: str) -> bool:
+        """判断 url 是否指向已配置的生图 API 主机。
+
+        模型输出里的链接是不可信的：`_find_image_urls` 会抓出任意 http(s) 地址，
+        只有回到 API 自己的主机时才允许带上 Authorization 头，
+        否则 API Key 会被送给模型指定的任意第三方。
+        """
+        try:
+            target = urlparse(url)
+            configured = urlparse(self.config.api_url or "")
+        except Exception:
+            return False
+
+        if not target.hostname or not configured.hostname:
+            return False
+
+        def effective_port(parsed) -> int:
+            if parsed.port:
+                return parsed.port
+            return 443 if parsed.scheme == "https" else 80
+
+        return (
+            target.scheme in ("http", "https")
+            and target.hostname.lower() == configured.hostname.lower()
+            and effective_port(target) == effective_port(configured)
+        )
+
     async def _download_image(
         self,
         url: str,
@@ -670,8 +711,12 @@ class ImageGenerator:
             "Accept": "image/*,*/*",
         }
 
-        if api_key:
+        if api_key and self._is_api_host(url):
             headers["Authorization"] = f"Bearer {api_key}"
+        elif api_key:
+            logger.info(
+                f"[BestNAI] 图片链接不属于已配置的 API 主机，下载时不发送 API Key：{url}"
+            )
 
         timeout = aiohttp.ClientTimeout(total=self.timeout)
 

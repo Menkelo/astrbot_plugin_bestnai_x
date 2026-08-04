@@ -479,6 +479,9 @@ async function saveWorkspace() {
     scheduleSave(700);
     return state.savePromise;
   }
+  // 定时器已经触发，待保存标记要清掉，否则 saveTimer 会一直为真，
+  // 判断不出还有没有没落盘的改动
+  state.saveTimer = null;
   const targetCanvasId = canvasId;
   const payload = serializableWorkspace();
   state.saving = true;
@@ -2447,54 +2450,6 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   }
 }
 
-function renderPromptAssetCard(item, container = els.assetGrid) {
-  const card = document.createElement("article");
-  card.className = "asset-card asset-prompt-card";
-  card.title = "点击应用到当前提示词节点";
-  const title = document.createElement("strong");
-  title.textContent = item.name || "未命名提示词";
-  const prompt = document.createElement("p");
-  prompt.textContent = item.prompt || "";
-  const footer = document.createElement("footer");
-  const detail = document.createElement("span");
-  detail.textContent = [item.ratio, item.artist].filter(Boolean).join(" · ") || "NAI 提示词";
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "asset-card-remove";
-  remove.title = "删除提示词素材";
-  remove.setAttribute("aria-label", `删除提示词素材 ${title.textContent}`);
-  remove.appendChild(icon("trash-2"));
-  remove.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    await bridge.apiPost("canvas/library/prompt/delete", { id: item.id });
-    state.library.prompts = state.library.prompts.filter((entry) => entry.id !== item.id);
-    renderAssetLibrary();
-  });
-  footer.append(detail, remove);
-  card.append(title, prompt, footer);
-  card.addEventListener("click", () => applyPromptAsset(item));
-  container.appendChild(card);
-}
-
-function applyPromptAsset(item) {
-  let node = findNode(state.selectedId);
-  pushHistory();
-  if (node?.type !== "prompt") {
-    node = createPromptNode();
-    state.nodes.push(node);
-  }
-  node.prompt = item.prompt || "";
-  node.ratio = item.ratio || node.ratio;
-  node.artist = normalizedArtistSelection(item.artist);
-  node.raw = !!item.raw;
-  rememberPromptDefaults({ ratio: node.ratio, artist: node.artist });
-  setSelection([node.id], node.id);
-  renderAll();
-  scheduleSave();
-  setAssetPanel(false);
-  toast("已应用提示词素材");
-}
-
 async function saveImageToLibrary(node) {
   if (!node?.assetId) return;
   try {
@@ -3240,9 +3195,27 @@ window.addEventListener("resize", () => {
 });
 window.addEventListener("online", checkConnection);
 window.addEventListener("offline", () => setConnectionState("offline"));
-window.addEventListener("beforeunload", () => {
+function flushPendingSave() {
+  if (!state.saveTimer) return false;
+  window.clearTimeout(state.saveTimer);
+  state.saveTimer = null;
+  saveWorkspace();
+  return true;
+}
+
+// 切标签、最小化、关页面都会先触发 visibilitychange，
+// 在这里落盘比等到 beforeunload 可靠得多——浏览器会取消 unload 期间的异步请求
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushPendingSave();
+});
+
+window.addEventListener("beforeunload", (event) => {
   window.clearInterval(state.healthTimer);
-  if (state.saveTimer) saveWorkspace();
+  if (!state.saveTimer && !state.saving) return;
+  // 还有改动没写完，与其静默丢失，不如让浏览器提示一下
+  flushPendingSave();
+  event.preventDefault();
+  event.returnValue = "";
 });
 
 refreshIcons();

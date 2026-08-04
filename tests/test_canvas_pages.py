@@ -315,7 +315,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const placed = await placeImageAssetOnCanvas(item, worldCenter())", editor)
         self.assertIn("if (!placed) return", editor)
         place_body = editor.split("async function placeImageAssetOnCanvas", 1)[1].split(
-            "function renderPromptAssetCard", 1
+            "async function saveImageToLibrary", 1
         )[0]
         self.assertNotIn("setAssetPanel(false)", place_body)
 

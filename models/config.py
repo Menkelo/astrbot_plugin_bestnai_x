@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 FIXED_MODEL = "nai-diffusion-4-5-full"
@@ -87,11 +87,11 @@ class GenerationConfig:
             quality_value = ""
 
         params = {
-            "model": FIXED_MODEL,
+            "model": self.model,
             "prompt": prompt,
             "size": f"{self.width}x{self.height}",
-            "steps": 28,
-            "scale": 7.0,
+            "steps": int(self.steps),
+            "scale": float(self.scale),
             "sampler": self.sampler,
             "quality": quality_value,
             "noise_schedule": self.noise_schedule,
@@ -137,18 +137,6 @@ class TranslatorConfig:
         if self.provider_id:
             return True
         return bool(self.base_url and self.api_key)
-
-    def masked_api_key(self) -> str:
-        if self.provider_id:
-            return f"提供商：{self.provider_id}"
-
-        if not self.api_key:
-            return "(未配置)"
-
-        if len(self.api_key) <= 8:
-            return "****"
-
-        return f"{self.api_key[:4]}****{self.api_key[-4:]}"
 
 
 @dataclass
@@ -208,6 +196,7 @@ class PluginConfig:
     @classmethod
     def from_dict(cls, config: dict) -> "PluginConfig":
         api_conf = config.get("api_config", {}) or {}
+        gen_conf = config.get("generation_config", {}) or {}
         tr_conf = config.get("translator_config", {}) or {}
         prompt_conf = config.get("prompt_config", {}) or {}
         dan_conf = config.get("danbooru_config", {}) or {}
@@ -216,8 +205,15 @@ class PluginConfig:
 
         prefer_provider = bool(api_conf.get("prefer_provider", True))
 
+        # max_concurrency 在 _conf_schema.json 里属于 generation_config，
+        # 另外两个位置只是为了兼容手写配置。
+        raw_max_concurrency = gen_conf.get(
+            "max_concurrency",
+            api_conf.get("max_concurrency", config.get("max_concurrency", 1)),
+        )
+
         try:
-            max_concurrency = int(api_conf.get("max_concurrency", 1) or 1)
+            max_concurrency = int(raw_max_concurrency or 1)
         except (TypeError, ValueError):
             max_concurrency = 1
 
@@ -293,8 +289,8 @@ class PluginConfig:
                 model="gpt-4o-mini",
                 show_progress=False,
                 show_result=bool(tr_conf.get("show_result", False)),
-                system_prompt="",
-                custom_prefix="",
+                system_prompt=str(tr_conf.get("system_prompt", "") or ""),
+                custom_prefix=str(tr_conf.get("custom_prefix", "") or ""),
                 max_retries=3,
             ),
             safety=SafetyConfig(
@@ -318,7 +314,9 @@ class PluginConfig:
                 "quality_prompt",
                 prompt_conf.get("prompt_suffix", DEFAULT_QUALITY_STRING),
             ),
-            danbooru_api_url=DEFAULT_DANBOORU_API_URL,
+            danbooru_api_url=str(
+                dan_conf.get("api_url", "") or DEFAULT_DANBOORU_API_URL
+            ).strip().rstrip("/"),
             danbooru_tag_search=bool(dan_conf.get("tag_search", True)),
             retag_show_source=False,
             raw_config=config,
@@ -387,21 +385,6 @@ class PluginConfig:
 
     def is_configured(self) -> bool:
         return bool(self.api_url and self.api_key)
-
-    def masked_api_key(self) -> str:
-        if self.api_url and self.api_key:
-            return "手动生图 API"
-
-        if self.image_provider_id:
-            return f"提供商：{self.image_provider_id}"
-
-        if not self.api_key:
-            return "(未配置)"
-
-        if len(self.api_key) <= 8:
-            return "****"
-
-        return f"{self.api_key[:4]}****{self.api_key[-4:]}"
 
 
 def _extract_provider_id(raw) -> str:
@@ -488,31 +471,3 @@ def _first_artist_preset_name(items: List[str]) -> str:
             return name
 
     return ""
-
-
-def _parse_size(size_str: str) -> Tuple[int, int]:
-    try:
-        parts = size_str.lower().replace("×", "x").split("x")
-
-        if len(parts) != 2:
-            raise ValueError(f"无效的分辨率格式: {size_str}")
-
-        width = int(parts[0].strip())
-        height = int(parts[1].strip())
-
-        if width <= 0 or height <= 0:
-            raise ValueError(f"分辨率必须为正整数: {size_str}")
-
-        return width, height
-
-    except (ValueError, AttributeError) as e:
-        raise ValueError(f"解析分辨率失败: {size_str}") from e
-
-
-def resolve_size_preset(size_input: str, presets: dict) -> Tuple[int, int]:
-    size_input = size_input.strip()
-
-    if size_input in presets:
-        return presets[size_input]
-
-    return _parse_size(size_input)

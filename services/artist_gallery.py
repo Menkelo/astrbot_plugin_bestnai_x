@@ -10,6 +10,7 @@ from astrbot.api import logger
 
 from ..gallery_renderer import PIL_AVAILABLE, build_gallery_image
 from ..image_store import persist_preview_image
+from .runtime_state import get_astrbot_plugin_data_dir
 
 
 PLUGIN_NAME = "astrbot_plugin_bestnai_x"
@@ -17,16 +18,6 @@ PLUGIN_NAME = "astrbot_plugin_bestnai_x"
 
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
-
-
-def get_astrbot_plugin_data_dir(plugin_name: str) -> Path:
-    current = Path(__file__).resolve()
-
-    for parent in current.parents:
-        if parent.name == "data":
-            return parent / "plugin_data" / plugin_name
-
-    return current.parents[3] / "data" / "plugin_data" / plugin_name
 
 
 class ArtistGalleryService:

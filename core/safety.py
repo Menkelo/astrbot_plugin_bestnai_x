@@ -396,21 +396,29 @@ class SafetyModerator:
 
         try:
             data = json.loads(raw)
-            safe = bool(data.get("safe", False))
-            reason = str(data.get("reason", "") or "")
-            return SafetyCheckResult(safe=safe, reason=reason, source="vision")
         except Exception:
-            lower = raw.lower()
+            data = None
 
-            if '"safe": true' in lower or "safe true" in lower:
-                return SafetyCheckResult(safe=True, reason="", source="vision")
+        # 缺少 safe 字段说明模型没按格式回答，按模块约定继续走文本兜底，
+        # 不能默认成 False 把正常图片拦下来。
+        if isinstance(data, dict) and "safe" in data:
+            return SafetyCheckResult(
+                safe=bool(data.get("safe")),
+                reason=str(data.get("reason", "") or ""),
+                source="vision",
+            )
 
-            if "unsafe" in lower or '"safe": false' in lower or "safe false" in lower:
-                return SafetyCheckResult(
-                    safe=False,
-                    reason=raw[:120],
-                    source="vision",
-                )
+        lower = raw.lower()
+
+        if '"safe": true' in lower or "safe true" in lower:
+            return SafetyCheckResult(safe=True, reason="", source="vision")
+
+        if "unsafe" in lower or '"safe": false' in lower or "safe false" in lower:
+            return SafetyCheckResult(
+                safe=False,
+                reason=raw[:120],
+                source="vision",
+            )
 
         logger.warning(f"[BestNAI/Safety] 无法解析审核结果，已放行：{raw[:120]}")
         return SafetyCheckResult(
@@ -498,9 +506,9 @@ class SafetyModerator:
         base = provider.base_url.rstrip("/")
 
         if base.endswith("/v1beta") or base.endswith("/v1"):
-            url = f"{base}/models/{provider.model}:generateContent?key={provider.api_key}"
+            url = f"{base}/models/{provider.model}:generateContent"
         else:
-            url = f"{base}/v1beta/models/{provider.model}:generateContent?key={provider.api_key}"
+            url = f"{base}/v1beta/models/{provider.model}:generateContent"
 
         b64 = base64.b64encode(image_bytes).decode()
         mime = self._mime(image_bytes)
@@ -530,6 +538,8 @@ class SafetyModerator:
 
         headers = {
             "Content-Type": "application/json",
+            # 放在请求头而不是 URL query，避免 API Key 随异常消息进日志
+            "x-goog-api-key": provider.api_key,
         }
 
         async with aiohttp.ClientSession(

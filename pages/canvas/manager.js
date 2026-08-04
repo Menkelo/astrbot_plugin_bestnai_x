@@ -37,6 +37,12 @@ function normalizeCanvas(canvas){
 }
 
 function localResponse(data, ok=true, status=200){
+    // 后端出错时会回 {error: "..."}，桥接层未必抛异常，
+    // 这里统一识别一下，否则删除/恢复这类操作会静默"成功"
+    if(ok && data && (data.error || data.message)){
+        ok = false;
+        status = 500;
+    }
     return {
         ok,
         status,
@@ -528,7 +534,6 @@ function renderBoard(){
 }
 
 function buildCard(c){
-    const isSmart = (c.kind || 'classic') === 'smart';
     const card = document.createElement('div');
     card.className = 'ws-card'
         + (String(c.color || '').trim() ? ' cc-marked' : '')
@@ -539,7 +544,7 @@ function buildCard(c){
     // 卡片布局：顶部=类型标签+更多按钮；中部=标题；底部=节点数·时间。已移除图标。
     card.innerHTML = `
         <div class="ws-card-top">
-            <span class="ws-card-kind ${isSmart ? 'smart' : 'classic'}">${isSmart ? compactLabel('智能画布','智能','Smart') : compactLabel('普通画布','普通','Classic')}</span>
+            <span class="ws-card-kind classic">${compactLabel('普通画布','普通','Classic')}</span>
             <button class="ws-card-menu" type="button" title="${L('更多','More')}" aria-label="${L('更多','More')}"><i data-lucide="more-horizontal" class="w-4 h-4"></i></button>
         </div>
         <div class="ws-card-title">${escapeHtml(c.title)}</div>
@@ -664,8 +669,7 @@ function openCreateCard(worldPt){
 }
 
 async function createCanvasOnBoard(title, kind, worldPt){
-    const isSmart = kind === 'smart';
-    const base = isSmart ? L('智能画布','Smart canvas') : L('画布','Canvas');
+    const base = L('画布','Canvas');
     const name = title || `${base} ${new Date().toLocaleTimeString(langIsEn() ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
     closeCreateCard();
     try {
@@ -674,8 +678,8 @@ async function createCanvasOnBoard(title, kind, worldPt){
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 title: name,
-                icon: isSmart ? 'sparkles' : '🧩',
-                kind: isSmart ? 'smart' : 'classic',
+                icon: '🧩',
+                kind: 'classic',
                 project: currentProjectId,
                 board_x: Math.round(worldPt.x),
                 board_y: Math.round(worldPt.y)
@@ -856,10 +860,26 @@ function exportResourceName(url, index, used){
     return finalName;
 }
 
+// 导出时抓取的是画布内容里出现的外链，这些链接可能来自别人导入的工作区，
+// 所以只允许 http/https、不带凭据、并限制单个资源大小
+const MAX_EXPORT_RESOURCE_BYTES = 20 * 1024 * 1024;
+
 async function fetchResourceBytes(url){
-    const res = await fetch(url);
+    const parsed = new URL(url, window.location.href);
+    if(parsed.protocol !== 'http:' && parsed.protocol !== 'https:'){
+        throw new Error(`unsupported scheme ${parsed.protocol}`);
+    }
+    const res = await fetch(parsed.toString(), { credentials:'omit', referrerPolicy:'no-referrer' });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+    const declared = Number(res.headers.get('content-length') || 0);
+    if(declared > MAX_EXPORT_RESOURCE_BYTES){
+        throw new Error('resource too large');
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if(bytes.length > MAX_EXPORT_RESOURCE_BYTES){
+        throw new Error('resource too large');
+    }
+    return bytes;
 }
 
 function zipCrc32(bytes){
@@ -1136,15 +1156,14 @@ function renderTrash(){
         return;
     }
     deletedCanvases.forEach(c => {
-        const isSmart = (c.kind || 'classic') === 'smart';
         const projName = (projects.find(p => p.id === (c.project || 'default')) || {}).name || L('默认项目','Default');
         const card = document.createElement('div');
         card.className = 'ws-trash-card';
         card.dataset.canvasId = c.id;
         card.innerHTML = `
             <div class="ws-card-top">
-                <span class="ws-card-icon">${renderCanvasIcon(isSmart && /[^\x00-\x7F]/.test(c.icon || '') ? 'sparkles' : c.icon, 17)}</span>
-                <span class="ws-card-kind ${isSmart ? 'smart' : 'classic'}">${isSmart ? L('智能','Smart') : L('普通','Classic')}</span>
+                <span class="ws-card-icon">${renderCanvasIcon(c.icon, 17)}</span>
+                <span class="ws-card-kind classic">${L('普通','Classic')}</span>
             </div>
             <div class="ws-card-title">${escapeHtml(c.title)}</div>
             <div class="ws-card-meta"><span class="ws-card-nodes">${escapeHtml(projName)}</span><span class="ws-card-meta-dot"></span><span class="ws-card-time">${formatCanvasTime(c.deleted_at)}</span></div>

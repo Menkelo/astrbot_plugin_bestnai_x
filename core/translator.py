@@ -527,9 +527,9 @@ class PromptTranslator:
         base = provider.base_url.rstrip("/")
 
         if base.endswith("/v1beta") or base.endswith("/v1"):
-            url = f"{base}/models/{provider.model}:generateContent?key={provider.api_key}"
+            url = f"{base}/models/{provider.model}:generateContent"
         else:
-            url = f"{base}/v1beta/models/{provider.model}:generateContent?key={provider.api_key}"
+            url = f"{base}/v1beta/models/{provider.model}:generateContent"
 
         user_text = (
             f"{system_prompt}\n\n"
@@ -556,6 +556,8 @@ class PromptTranslator:
 
         headers = {
             "Content-Type": "application/json",
+            # 放在请求头而不是 URL query，避免 API Key 随异常消息进日志
+            "x-goog-api-key": provider.api_key,
         }
 
         async with aiohttp.ClientSession(

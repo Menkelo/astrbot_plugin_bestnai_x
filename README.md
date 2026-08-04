@@ -68,7 +68,6 @@ pip install aiohttp pillow
 | `provider_id` | string | 空 | 生图接口提供商，需在 AstrBot 中选择。仅当"优先使用提供商"开启时生效 |
 | `api_url` | string | 空 | 手动生图 API 地址。填写兼容 OpenAI 格式的 API Base，例如 `https://example.com/v1`。关闭"优先使用提供商"后生效，该服务需支持 `/chat/completions` |
 | `api_key` | string | 空 | 手动生图 API Key。关闭"优先使用提供商"后，需与 `api_url` 同时填写才生效 |
-| `max_concurrency` | int | `1` | 生图并发限制。同一时刻最多同时进行的生图任务数，超出时新的生图请求会排队等待。默认 1（串行） |
 
 > **生图接口二选一**：要么开启"优先使用提供商"并选择提供商，要么关闭后同时填写 `api_url` + `api_key`。两者都未配置时，`/nai` 会提示"插件未配置"。
 
@@ -78,6 +77,7 @@ pip install aiohttp pillow
 |--------|------|--------|------|
 | `sampler` | string | `k_euler_ancestral` | 采样器。可选：`k_euler_ancestral`（推荐默认，随机性较强，二次元效果稳定）、`k_euler`（更稳定干净，随机性较低）、`k_dpmpp_2s_ancestral`（细节和质感较好，随机性较强，但部分代理可能不支持） |
 | `default_ratio` | string | `2:3 (832×1216)` | 默认比例，当提示词未指定比例时使用。可选：`16:9 (1216×704)`、`9:16 (704×1216)`、`4:3 (1024×768)`、`3:4 (768×1024)`、`3:2 (1216×832)`、`2:3 (832×1216)`、`1:1 (1024×1024)` |
+| `max_concurrency` | int | `1` | 生图并发限制。同一时刻最多同时进行的生图任务数，超出时新的生图请求会排队等待。默认 1（串行） |
 
 ### 3. prompt_config - 提示词拼接配置
 
@@ -103,6 +103,8 @@ pip install aiohttp pillow
 |--------|------|--------|------|
 | `enabled` | bool | `false` | 开启后 `/nai` 中的中文描述会自动调用翻译器转为英文 Danbooru tag |
 | `provider_id` | string | 空 | 翻译接口提供商（AstrBot 提供商）。翻译不使用手动生图 API |
+| `system_prompt` | string | 空 | 翻译系统提示词。留空使用内置的 NovelAI / Danbooru 标签专家提示词；填写后**完全替换**内置提示词，只有确实要改翻译风格时才填 |
+| `custom_prefix` | string | 空 | 翻译提示词前缀。追加在系统提示词最前面用于补充额外要求（例如固定画风倾向），不会替换内置提示词 |
 
 > 翻译支持 OpenAI 兼容接口与 Gemini 官方接口（`generativelanguage.googleapis.com`），翻译失败自动重试（默认最多 3 次，指数退避）。
 
@@ -123,7 +125,14 @@ pip install aiohttp pillow
 | `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤使用的检测词，可在插件配置中逐项添加、修改或删除；列表留空时不移除任何词 |
 
-> Danbooru Tag 检索服务已内嵌（`https://sakizuki-danboorusearch.hf.space`），翻译中文提示词时默认启用，无需额外配置。
+> Danbooru Tag 检索的开关与地址见下方 `danbooru_config`。
+
+### 7. danbooru_config - Danbooru 标签检索配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `tag_search` | bool | `true` | 启用 Danbooru 标签检索。翻译中文提示词时先检索候选标签再交给模型，结果更贴近真实标签，代价是每次翻译多一次外部请求。关闭后仅靠模型自身知识翻译 |
+| `api_url` | string | `https://sakizuki-danboorusearch.hf.space` | Danbooru 检索服务地址，留空使用默认值 |
 
 ---
 
@@ -192,10 +201,12 @@ pip install aiohttp pillow
 
 | 操作 | 输入示例 | 说明 |
 |------|----------|------|
-| 切换默认画师预设 | `/nai 可爱` | 将该预设设为默认（持久化保存，重启后仍生效） |
+| 切换本会话默认预设 | `/nai 可爱` | 将该预设设为**当前群 / 私聊**的默认（持久化保存，重启后仍生效）。不影响其他群 |
 | 临时调用预设 | `/nai 可爱 miku` | 本次生成使用"可爱"预设，提示词为 `miku` |
 | 方括号临时调用 | `/nai [可爱] miku` | 效果同上，方括号内为预设名 |
-| 清除默认预设 | `/nai 默认`、`/nai 恢复默认`、`/nai 重置画师预设` | 清除已保存的默认画师预设，恢复使用配置默认 |
+| 清除本会话默认 | `/nai 默认`、`/nai 恢复默认`、`/nai 重置画师预设` | 清除当前会话已保存的默认预设，恢复使用配置默认 |
+
+> 默认画师预设**按会话隔离**：每个群和私聊各自保存一份，一个群里切换不会影响其他群。无限画布没有会话概念，使用配置中的第一个预设作为默认。
 
 ---
 

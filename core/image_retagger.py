@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -297,7 +298,10 @@ class ImageRetagger:
         if not model:
             raise ImageRetagError(f"图片反推提供商 {provider_id} 缺少模型配置")
 
-        endpoint = f"{base_url}/chat/completions"
+        # 与 translator / safety / generator 的拼接规则保持一致：
+        # 供应商 api_base 没带 /v1 时补上，否则会 404。
+        endpoint = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
+        endpoint = f"{endpoint}/chat/completions"
         image_url = await _image_to_data_url(image_path_or_url)
 
         system_prompt = (
@@ -399,7 +403,7 @@ class ImageRetagger:
         except ImageRetagError:
             raise
 
-        except TimeoutError as e:
+        except (asyncio.TimeoutError, TimeoutError) as e:
             raise ImageRetagError("图片反推请求超时") from e
 
         except aiohttp.ClientError as e:

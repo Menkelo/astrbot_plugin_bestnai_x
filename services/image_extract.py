@@ -6,6 +6,10 @@ import urllib.parse
 from typing import Any, Dict
 
 
+# 消息对象层级不会很深，超过就认定是环或异常结构，直接放弃
+MAX_SEGMENT_DEPTH = 24
+
+
 def _decode_cq_value(value: str) -> str:
     value = str(value or "").strip()
     value = value.replace("&amp;", "&")
@@ -133,7 +137,7 @@ def _extract_image_from_image_dict(data: Dict[str, Any]) -> str:
     return ""
 
 
-def _extract_image_from_object(obj: Any) -> str:
+def _extract_image_from_object(obj: Any, depth: int = 0, seen: set | None = None) -> str:
     """从非 dict 对象（如 Image/Reply 组件）中提取图片引用。"""
     if obj is None:
         return ""
@@ -150,14 +154,14 @@ def _extract_image_from_object(obj: Any) -> str:
     if type_name in ("image", "reply", "quote"):
         data = getattr(obj, "data", None)
         if data is not None:
-            got = find_image_in_segments(data)
+            got = find_image_in_segments(data, depth + 1, seen)
             if got:
                 return got
 
     for chain_attr in ("message_chain", "messages", "message"):
         chain = getattr(obj, chain_attr, None)
         if chain is not None:
-            got = find_image_in_segments(chain)
+            got = find_image_in_segments(chain, depth + 1, seen)
             if got:
                 return got
 
@@ -169,16 +173,29 @@ def _extract_image_from_object(obj: Any) -> str:
 
     try:
         obj_dict = vars(obj)
-        return find_image_in_segments(obj_dict)
-    except (TypeError, Exception):
+        return find_image_in_segments(obj_dict, depth + 1, seen)
+    except TypeError:
         pass
 
     return ""
 
 
-def find_image_in_segments(obj: Any) -> str:
+def find_image_in_segments(obj: Any, depth: int = 0, seen: set | None = None) -> str:
     if obj is None:
         return ""
+
+    # 消息对象可能带反向引用，靠深度和 id 双重兜底，避免无限递归
+    if depth > MAX_SEGMENT_DEPTH:
+        return ""
+
+    if seen is None:
+        seen = set()
+
+    if isinstance(obj, (dict, list, tuple)) or hasattr(obj, "__dict__"):
+        marker = id(obj)
+        if marker in seen:
+            return ""
+        seen.add(marker)
 
     if isinstance(obj, dict):
         t = str(obj.get("type", obj.get("msg_type", ""))).lower()
@@ -204,7 +221,7 @@ def find_image_in_segments(obj: Any) -> str:
                 nested_chain = data.get("message_chain") or data.get("message") or data.get("messages")
 
                 if nested_chain:
-                    got = find_image_in_segments(nested_chain)
+                    got = find_image_in_segments(nested_chain, depth + 1, seen)
 
                     if got:
                         return got
@@ -220,7 +237,7 @@ def find_image_in_segments(obj: Any) -> str:
                         return img
 
         for v in obj.values():
-            got = find_image_in_segments(v)
+            got = find_image_in_segments(v, depth + 1, seen)
 
             if got:
                 return got
@@ -229,14 +246,14 @@ def find_image_in_segments(obj: Any) -> str:
 
     if isinstance(obj, (list, tuple)):
         for it in obj:
-            got = find_image_in_segments(it)
+            got = find_image_in_segments(it, depth + 1, seen)
 
             if got:
                 return got
 
         return ""
 
-    return _extract_image_from_object(obj)
+    return _extract_image_from_object(obj, depth, seen)
 
 
 def extract_image_from_event_best_effort(event) -> str:

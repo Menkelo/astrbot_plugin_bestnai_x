@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import tempfile
+import time
 import unittest
 import logging
 import sys
@@ -24,6 +26,7 @@ sys.modules.setdefault("astrbot.api", astrbot_api_module)
 sys.modules.setdefault("astrbot.api.web", astrbot_web_module)
 
 from services.canvas import CanvasService, CanvasStore, CanvasValidationError
+from services import canvas as canvas_module
 
 
 class CanvasStoreTest(unittest.TestCase):
@@ -189,8 +192,10 @@ class CanvasStoreTest(unittest.TestCase):
         buffer = BytesIO()
         Image.new("RGB", (48, 32), (90, 120, 200)).save(buffer, format="PNG")
         image = self.store.store_asset(buffer.getvalue())
-        self.store.add_image_to_library(image, "自动上传", "upload")
-        self.assertEqual(self.store.list_library()["images"], [])
+        # 入库只会由用户主动收藏触发，前端传的 source 是 generated / retagged，
+        # 所以素材库不该按 source 过滤掉任何条目。
+        self.store.add_image_to_library(image, "生成结果", "generated")
+        self.assertEqual(len(self.store.list_library()["images"]), 1)
         self.store.add_image_to_library(
             image,
             "天空参考",
@@ -215,6 +220,91 @@ class CanvasStoreTest(unittest.TestCase):
         self.store.remove_image_from_library(image["id"])
         self.store.delete_prompt_asset(prompt["id"])
         self.assertEqual(self.store.list_library(), {"images": [], "prompts": []})
+
+    def _store_aged_asset(self, color: tuple) -> str:
+        """存一张图并把 mtime 调老，绕过回收宽限期。"""
+        buffer = BytesIO()
+        Image.new("RGB", (16, 16), color).save(buffer, format="PNG")
+        asset = self.store.store_asset(buffer.getvalue())
+        path, _ = self.store.get_asset(asset["id"])
+        aged = time.time() - canvas_module.ASSET_GC_GRACE_SECONDS - 60
+        os.utime(path, (aged, aged))
+        return asset["id"]
+
+    def test_orphan_assets_are_collected_but_referenced_ones_survive(self) -> None:
+        node_asset = self._store_aged_asset((10, 20, 30))
+        retag_asset = self._store_aged_asset((40, 50, 60))
+        library_asset = self._store_aged_asset((70, 80, 90))
+        orphan_asset = self._store_aged_asset((100, 110, 120))
+
+        canvas = self.store.create_canvas({"title": "引用检查"})
+        self.store.save_workspace(
+            {
+                "nodes": [
+                    {"id": "img", "type": "image", "assetId": node_asset},
+                    {
+                        "id": "retag",
+                        "type": "image",
+                        "meta": {"retagAssetId": retag_asset},
+                    },
+                ],
+                "connections": [],
+            },
+            canvas["id"],
+        )
+        self.store.add_image_to_library(
+            {"id": library_asset, "width": 16, "height": 16, "format": "png"},
+            "收藏",
+            "generated",
+        )
+
+        self.assertEqual(self.store.collect_orphan_assets(), 1)
+
+        for kept in (node_asset, retag_asset, library_asset):
+            self.assertIsNotNone(self.store.get_asset(kept))
+
+        with self.assertRaises(FileNotFoundError):
+            self.store.get_asset(orphan_asset)
+
+    def test_fresh_assets_are_not_collected(self) -> None:
+        buffer = BytesIO()
+        Image.new("RGB", (16, 16), (1, 2, 3)).save(buffer, format="PNG")
+        fresh = self.store.store_asset(buffer.getvalue())
+
+        # 刚生成、还没进节点的图片处在宽限期内，不能被回收
+        self.assertEqual(self.store.collect_orphan_assets(), 0)
+        self.assertIsNotNone(self.store.get_asset(fresh["id"]))
+
+    def test_unreadable_workspace_aborts_collection(self) -> None:
+        orphan_asset = self._store_aged_asset((5, 5, 5))
+        canvas = self.store.create_canvas({"title": "坏工作区"})
+        (self.store.workspaces_dir / f"{canvas['id']}.json").write_text(
+            "{ 这不是合法 JSON",
+            encoding="utf-8",
+        )
+
+        # 读不出引用关系时宁可不回收，也不能误删还在用的图
+        self.assertEqual(self.store.collect_orphan_assets(), 0)
+        self.assertIsNotNone(self.store.get_asset(orphan_asset))
+
+    def test_purging_canvas_releases_its_assets(self) -> None:
+        asset_id = self._store_aged_asset((9, 9, 9))
+        canvas = self.store.create_canvas({"title": "待删除"})
+        self.store.save_workspace(
+            {
+                "nodes": [{"id": "img", "type": "image", "assetId": asset_id}],
+                "connections": [],
+            },
+            canvas["id"],
+        )
+
+        self.assertIsNotNone(self.store.get_asset(asset_id))
+
+        self.store.trash_canvas(canvas["id"])
+        self.store.purge_canvas(canvas["id"])
+
+        with self.assertRaises(FileNotFoundError):
+            self.store.get_asset(asset_id)
 
     def test_legacy_workspace_is_migrated_to_default_project(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

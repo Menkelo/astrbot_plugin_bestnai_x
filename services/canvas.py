@@ -4,10 +4,12 @@ import base64
 import json
 import math
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Set, Tuple
 from uuid import uuid4
 
 from PIL import Image as PILImage
@@ -30,6 +32,10 @@ MAX_CONNECTIONS = 320
 MAX_WORKSPACE_BYTES = 2 * 1024 * 1024
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_IMAGE_PIXELS = 30_000_000
+
+# 刚生成、还没被放进节点的图片不能马上回收，
+# 否则前端拿到 assetId 却还没保存工作区时会被误删。
+ASSET_GC_GRACE_SECONDS = 3600
 
 ASSET_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 ENTITY_ID_RE = re.compile(r"^(?:default|[a-f0-9]{32})$")
@@ -69,6 +75,7 @@ def _short_text(value: Any, limit: int) -> str:
 
 
 class CanvasStore:
+
     def __init__(self, plugin_name: str, data_dir: Path | None = None) -> None:
         self.data_dir = (
             Path(data_dir)
@@ -82,16 +89,22 @@ class CanvasStore:
         self.canvases_path = self.data_dir / "canvases.json"
         self.library_path = self.data_dir / "library.json"
         self.preferences_path = self.data_dir / "preferences.json"
+        # 这些 JSON 全是「读-改-写」，用一把可重入锁把整段操作圈起来。
+        # 单线程事件循环下本就不会交错，但资源回收要跨多个文件读写，
+        # 万一 web 层跑在线程池里就会丢更新。
+        self._lock = threading.RLock()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_collections()
 
     @staticmethod
+
     def _timestamp() -> str:
         return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
+
     def _read_json(path: Path, fallback: Any) -> Any:
         if not path.exists():
             return fallback
@@ -101,6 +114,7 @@ class CanvasStore:
             raise CanvasValidationError(f"读取 {path.name} 失败：{exc}") from exc
 
     @staticmethod
+
     def _write_json(path: Path, payload: Any) -> None:
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         temp_path = path.with_suffix(path.suffix + ".tmp")
@@ -180,21 +194,23 @@ class CanvasStore:
         }
 
     def save_preferences(self, payload: Any) -> Dict[str, str]:
-        if not isinstance(payload, dict):
-            raise CanvasValidationError("画布偏好必须是 JSON 对象")
-        current = self.load_preferences()
-        if "lastCanvasId" in payload:
-            last_canvas_id = _short_text(payload.get("lastCanvasId"), 32)
-            active_canvas_ids = {item.get("id") for item in self.list_canvases()}
-            current["lastCanvasId"] = last_canvas_id if last_canvas_id in active_canvas_ids else ""
-        if "ratio" in payload:
-            current["ratio"] = _short_text(payload.get("ratio"), 32)
-        if "artist" in payload:
-            current["artist"] = _short_text(payload.get("artist"), 120)
-        self._write_json(self.preferences_path, current)
-        return current
+        with self._lock:
+            if not isinstance(payload, dict):
+                raise CanvasValidationError("画布偏好必须是 JSON 对象")
+            current = self.load_preferences()
+            if "lastCanvasId" in payload:
+                last_canvas_id = _short_text(payload.get("lastCanvasId"), 32)
+                active_canvas_ids = {item.get("id") for item in self.list_canvases()}
+                current["lastCanvasId"] = last_canvas_id if last_canvas_id in active_canvas_ids else ""
+            if "ratio" in payload:
+                current["ratio"] = _short_text(payload.get("ratio"), 32)
+            if "artist" in payload:
+                current["artist"] = _short_text(payload.get("artist"), 120)
+            self._write_json(self.preferences_path, current)
+            return current
 
     @staticmethod
+
     def _validate_entity_id(value: Any, label: str) -> str:
         entity_id = str(value or "")
         if not ENTITY_ID_RE.fullmatch(entity_id):
@@ -215,41 +231,44 @@ class CanvasStore:
         return result
 
     def create_project(self, name: Any) -> Dict[str, Any]:
-        projects = self._projects()
-        project = {
-            "id": uuid4().hex,
-            "name": _short_text(name, 60).strip() or "新项目",
-            "order": len(projects),
-            "createdAt": self._timestamp(),
-        }
-        projects.append(project)
-        self._write_json(self.projects_path, {"projects": projects})
-        return {**project, "canvasCount": 0}
+        with self._lock:
+            projects = self._projects()
+            project = {
+                "id": uuid4().hex,
+                "name": _short_text(name, 60).strip() or "新项目",
+                "order": len(projects),
+                "createdAt": self._timestamp(),
+            }
+            projects.append(project)
+            self._write_json(self.projects_path, {"projects": projects})
+            return {**project, "canvasCount": 0}
 
     def update_project(self, project_id: Any, name: Any) -> Dict[str, Any]:
-        project_id = self._validate_entity_id(project_id, "项目")
-        projects = self._projects()
-        project = next((item for item in projects if item.get("id") == project_id), None)
-        if project is None:
-            raise FileNotFoundError(project_id)
-        project["name"] = _short_text(name, 60).strip() or project.get("name") or "未命名项目"
-        self._write_json(self.projects_path, {"projects": projects})
-        return dict(project)
+        with self._lock:
+            project_id = self._validate_entity_id(project_id, "项目")
+            projects = self._projects()
+            project = next((item for item in projects if item.get("id") == project_id), None)
+            if project is None:
+                raise FileNotFoundError(project_id)
+            project["name"] = _short_text(name, 60).strip() or project.get("name") or "未命名项目"
+            self._write_json(self.projects_path, {"projects": projects})
+            return dict(project)
 
     def delete_project(self, project_id: Any) -> None:
-        project_id = self._validate_entity_id(project_id, "项目")
-        if project_id == "default":
-            raise CanvasValidationError("默认项目不能删除")
-        projects = self._projects()
-        if not any(item.get("id") == project_id for item in projects):
-            raise FileNotFoundError(project_id)
-        projects = [item for item in projects if item.get("id") != project_id]
-        canvases = self._canvases()
-        for canvas in canvases:
-            if canvas.get("projectId") == project_id:
-                canvas["projectId"] = "default"
-        self._write_json(self.projects_path, {"projects": projects})
-        self._write_json(self.canvases_path, {"canvases": canvases})
+        with self._lock:
+            project_id = self._validate_entity_id(project_id, "项目")
+            if project_id == "default":
+                raise CanvasValidationError("默认项目不能删除")
+            projects = self._projects()
+            if not any(item.get("id") == project_id for item in projects):
+                raise FileNotFoundError(project_id)
+            projects = [item for item in projects if item.get("id") != project_id]
+            canvases = self._canvases()
+            for canvas in canvases:
+                if canvas.get("projectId") == project_id:
+                    canvas["projectId"] = "default"
+            self._write_json(self.projects_path, {"projects": projects})
+            self._write_json(self.canvases_path, {"canvases": canvases})
 
     def list_canvases(self, include_deleted: bool = False) -> List[Dict[str, Any]]:
         items = self._canvases()
@@ -258,53 +277,55 @@ class CanvasStore:
         return [dict(item) for item in items if not item.get("deletedAt")]
 
     def create_canvas(self, payload: Any) -> Dict[str, Any]:
-        if not isinstance(payload, dict):
-            payload = {}
-        project_id = self._validate_entity_id(payload.get("projectId") or "default", "项目")
-        if not any(item.get("id") == project_id for item in self._projects()):
-            raise FileNotFoundError(project_id)
-        canvas_id = uuid4().hex
-        now = self._timestamp()
-        canvas = {
-            "id": canvas_id,
-            "title": _short_text(payload.get("title"), 120).strip() or "未命名画布",
-            "projectId": project_id,
-            "x": _bounded_number(payload.get("x"), 120, -1_000_000, 1_000_000),
-            "y": _bounded_number(payload.get("y"), 100, -1_000_000, 1_000_000),
-            "kind": "classic",
-            "nodeCount": 0,
-            "createdAt": now,
-            "updatedAt": now,
-            "deletedAt": "",
-        }
-        canvases = self._canvases()
-        canvases.append(canvas)
-        self._write_json(self.canvases_path, {"canvases": canvases})
-        self._write_json(self.workspaces_dir / f"{canvas_id}.json", self.empty_workspace())
-        return dict(canvas)
-
-    def update_canvas(self, payload: Any) -> Dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise CanvasValidationError("画布更新数据必须是 JSON 对象")
-        canvas_id = self._validate_entity_id(payload.get("id"), "画布")
-        canvases = self._canvases()
-        canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
-        if canvas is None:
-            raise FileNotFoundError(canvas_id)
-        if "title" in payload:
-            canvas["title"] = _short_text(payload.get("title"), 120).strip() or canvas.get("title")
-        if "projectId" in payload:
-            project_id = self._validate_entity_id(payload.get("projectId"), "项目")
+        with self._lock:
+            if not isinstance(payload, dict):
+                payload = {}
+            project_id = self._validate_entity_id(payload.get("projectId") or "default", "项目")
             if not any(item.get("id") == project_id for item in self._projects()):
                 raise FileNotFoundError(project_id)
-            canvas["projectId"] = project_id
-        if "x" in payload:
-            canvas["x"] = _bounded_number(payload.get("x"), canvas.get("x", 0), -1_000_000, 1_000_000)
-        if "y" in payload:
-            canvas["y"] = _bounded_number(payload.get("y"), canvas.get("y", 0), -1_000_000, 1_000_000)
-        canvas["updatedAt"] = self._timestamp()
-        self._write_json(self.canvases_path, {"canvases": canvases})
-        return dict(canvas)
+            canvas_id = uuid4().hex
+            now = self._timestamp()
+            canvas = {
+                "id": canvas_id,
+                "title": _short_text(payload.get("title"), 120).strip() or "未命名画布",
+                "projectId": project_id,
+                "x": _bounded_number(payload.get("x"), 120, -1_000_000, 1_000_000),
+                "y": _bounded_number(payload.get("y"), 100, -1_000_000, 1_000_000),
+                "kind": "classic",
+                "nodeCount": 0,
+                "createdAt": now,
+                "updatedAt": now,
+                "deletedAt": "",
+            }
+            canvases = self._canvases()
+            canvases.append(canvas)
+            self._write_json(self.canvases_path, {"canvases": canvases})
+            self._write_json(self.workspaces_dir / f"{canvas_id}.json", self.empty_workspace())
+            return dict(canvas)
+
+    def update_canvas(self, payload: Any) -> Dict[str, Any]:
+        with self._lock:
+            if not isinstance(payload, dict):
+                raise CanvasValidationError("画布更新数据必须是 JSON 对象")
+            canvas_id = self._validate_entity_id(payload.get("id"), "画布")
+            canvases = self._canvases()
+            canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+            if canvas is None:
+                raise FileNotFoundError(canvas_id)
+            if "title" in payload:
+                canvas["title"] = _short_text(payload.get("title"), 120).strip() or canvas.get("title")
+            if "projectId" in payload:
+                project_id = self._validate_entity_id(payload.get("projectId"), "项目")
+                if not any(item.get("id") == project_id for item in self._projects()):
+                    raise FileNotFoundError(project_id)
+                canvas["projectId"] = project_id
+            if "x" in payload:
+                canvas["x"] = _bounded_number(payload.get("x"), canvas.get("x", 0), -1_000_000, 1_000_000)
+            if "y" in payload:
+                canvas["y"] = _bounded_number(payload.get("y"), canvas.get("y", 0), -1_000_000, 1_000_000)
+            canvas["updatedAt"] = self._timestamp()
+            self._write_json(self.canvases_path, {"canvases": canvases})
+            return dict(canvas)
 
     def trash_canvas(self, canvas_id: Any) -> None:
         self._set_canvas_deleted(canvas_id, self._timestamp())
@@ -313,30 +334,36 @@ class CanvasStore:
         self._set_canvas_deleted(canvas_id, "")
 
     def _set_canvas_deleted(self, canvas_id: Any, deleted_at: str) -> None:
-        canvas_id = self._validate_entity_id(canvas_id, "画布")
-        canvases = self._canvases()
-        canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
-        if canvas is None:
-            raise FileNotFoundError(canvas_id)
-        canvas["deletedAt"] = deleted_at
-        canvas["updatedAt"] = self._timestamp()
-        self._write_json(self.canvases_path, {"canvases": canvases})
+        with self._lock:
+            canvas_id = self._validate_entity_id(canvas_id, "画布")
+            canvases = self._canvases()
+            canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+            if canvas is None:
+                raise FileNotFoundError(canvas_id)
+            canvas["deletedAt"] = deleted_at
+            canvas["updatedAt"] = self._timestamp()
+            self._write_json(self.canvases_path, {"canvases": canvases})
 
     def purge_canvas(self, canvas_id: Any) -> None:
         canvas_id = self._validate_entity_id(canvas_id, "画布")
-        canvases = self._canvases()
-        canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
-        if canvas is None or not canvas.get("deletedAt"):
-            raise FileNotFoundError(canvas_id)
-        self._write_json(
-            self.canvases_path,
-            {"canvases": [item for item in canvases if item.get("id") != canvas_id]},
-        )
-        workspace_path = self.workspaces_dir / f"{canvas_id}.json"
-        if workspace_path.exists():
-            workspace_path.unlink()
+
+        with self._lock:
+            canvases = self._canvases()
+            canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+            if canvas is None or not canvas.get("deletedAt"):
+                raise FileNotFoundError(canvas_id)
+            self._write_json(
+                self.canvases_path,
+                {"canvases": [item for item in canvases if item.get("id") != canvas_id]},
+            )
+            workspace_path = self.workspaces_dir / f"{canvas_id}.json"
+            if workspace_path.exists():
+                workspace_path.unlink()
+
+        self.collect_orphan_assets()
 
     @staticmethod
+
     def empty_workspace() -> Dict[str, Any]:
         return {
             "version": 1,
@@ -494,17 +521,27 @@ class CanvasStore:
         if len(encoded) > MAX_WORKSPACE_BYTES:
             raise CanvasValidationError("工作区数据超过 2 MB 限制")
 
-        workspace_path = self._workspace_file(canvas_id)
-        temp_path = workspace_path.with_suffix(".json.tmp")
-        temp_path.write_bytes(encoded)
-        temp_path.replace(workspace_path)
-        if canvas_id is not None:
-            canvases = self._canvases()
-            canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
-            if canvas is not None:
-                canvas["nodeCount"] = len(workspace["nodes"])
-                canvas["updatedAt"] = workspace["updatedAt"]
-                self._write_json(self.canvases_path, {"canvases": canvases})
+        node_count_dropped = False
+
+        with self._lock:
+            workspace_path = self._workspace_file(canvas_id)
+            temp_path = workspace_path.with_suffix(".json.tmp")
+            temp_path.write_bytes(encoded)
+            temp_path.replace(workspace_path)
+            if canvas_id is not None:
+                canvases = self._canvases()
+                canvas = next((item for item in canvases if item.get("id") == canvas_id), None)
+                if canvas is not None:
+                    previous_count = int(canvas.get("nodeCount", 0) or 0)
+                    canvas["nodeCount"] = len(workspace["nodes"])
+                    canvas["updatedAt"] = workspace["updatedAt"]
+                    node_count_dropped = canvas["nodeCount"] < previous_count
+                    self._write_json(self.canvases_path, {"canvases": canvases})
+
+        # 只在确实删掉节点时才扫一遍，避免每次自动保存都遍历所有工作区
+        if node_count_dropped:
+            self.collect_orphan_assets()
+
         return workspace
 
     def load_workspace(self, canvas_id: str | None = None) -> Dict[str, Any]:
@@ -587,13 +624,100 @@ class CanvasStore:
     def list_library(self) -> Dict[str, List[Dict[str, Any]]]:
         library = self._library()
         return {
-            "images": [
-                dict(item)
-                for item in library["images"]
-                if item.get("source") not in {"generation", "upload"}
-            ],
+            "images": [dict(item) for item in library["images"]],
             "prompts": [dict(item) for item in library["prompts"]],
         }
+
+    def _referenced_asset_ids(self) -> Set[str] | None:
+        """收集所有还在被引用的图片资源 ID。
+
+        任何一个工作区读不出来就返回 None，宁可不回收也不能误删在用的图。
+        """
+        referenced: Set[str] = set()
+
+        try:
+            for entry in self._library()["images"]:
+                asset_id = str(entry.get("id") or "")
+                if asset_id:
+                    referenced.add(asset_id)
+        except Exception as exc:
+            logger.warning(f"[BestNAI/Canvas] 读取素材库失败，跳过资源回收: {exc}")
+            return None
+
+        workspace_files = list(self.workspaces_dir.glob("*.json"))
+
+        if self.workspace_path.exists():
+            workspace_files.append(self.workspace_path)
+
+        for path in workspace_files:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning(
+                    f"[BestNAI/Canvas] 工作区 {path.name} 读取失败，跳过资源回收: {exc}"
+                )
+                return None
+
+            nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
+
+            if not isinstance(nodes, list):
+                continue
+
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+
+                asset_id = str(node.get("assetId") or "")
+                if asset_id:
+                    referenced.add(asset_id)
+
+                meta = node.get("meta")
+
+                if isinstance(meta, dict):
+                    # 反推节点会记住原图，同样算引用
+                    retag_asset_id = str(meta.get("retagAssetId") or "")
+                    if retag_asset_id:
+                        referenced.add(retag_asset_id)
+
+        return referenced
+
+    def collect_orphan_assets(self) -> int:
+        """删除不再被任何画布节点或素材库引用的图片文件，返回删除数量。"""
+        with self._lock:
+            referenced = self._referenced_asset_ids()
+
+            if referenced is None:
+                return 0
+
+            now = time.time()
+            removed = 0
+
+            for path in self.assets_dir.iterdir():
+                if not path.is_file():
+                    continue
+
+                asset_id = path.stem
+
+                # 不是本插件命名规则的文件一律不动
+                if not ASSET_ID_RE.fullmatch(asset_id):
+                    continue
+
+                if asset_id in referenced:
+                    continue
+
+                try:
+                    if now - path.stat().st_mtime < ASSET_GC_GRACE_SECONDS:
+                        continue
+
+                    path.unlink()
+                    removed += 1
+                except OSError as exc:
+                    logger.warning(f"[BestNAI/Canvas] 删除资源 {path.name} 失败: {exc}")
+
+            if removed:
+                logger.info(f"[BestNAI/Canvas] 已回收 {removed} 个未引用的图片资源")
+
+            return removed
 
     def add_image_to_library(
         self,
@@ -605,77 +729,83 @@ class CanvasStore:
         ratio: Any = "",
         artist: Any = "",
     ) -> Dict[str, Any]:
-        asset_id = str(asset.get("id") or "")
-        if not ASSET_ID_RE.fullmatch(asset_id):
-            raise CanvasValidationError("图片资源 ID 无效")
-        library = self._library()
-        existing = next((item for item in library["images"] if item.get("id") == asset_id), None)
-        entry = existing or {"id": asset_id, "createdAt": self._timestamp()}
-        entry.update(
-            {
-                "name": _short_text(name, 160).strip() or entry.get("name") or f"图片 {asset_id[:8]}",
-                "width": int(_bounded_number(asset.get("width"), entry.get("width", 0), 0, 20_000)),
-                "height": int(_bounded_number(asset.get("height"), entry.get("height", 0), 0, 20_000)),
-                "format": _short_text(asset.get("format"), 16),
-                "source": _short_text(source, 80),
-                "prompt": _short_text(prompt, 6000),
-                "tags": _short_text(tags, 6000),
-                "artist": _short_text(artist, 120),
-                "ratio": _short_text(ratio, 32),
-            }
-        )
-        if existing is None:
-            library["images"].insert(0, entry)
-        self._write_json(self.library_path, library)
-        return dict(entry)
+        with self._lock:
+            asset_id = str(asset.get("id") or "")
+            if not ASSET_ID_RE.fullmatch(asset_id):
+                raise CanvasValidationError("图片资源 ID 无效")
+            library = self._library()
+            existing = next((item for item in library["images"] if item.get("id") == asset_id), None)
+            entry = existing or {"id": asset_id, "createdAt": self._timestamp()}
+            entry.update(
+                {
+                    "name": _short_text(name, 160).strip() or entry.get("name") or f"图片 {asset_id[:8]}",
+                    "width": int(_bounded_number(asset.get("width"), entry.get("width", 0), 0, 20_000)),
+                    "height": int(_bounded_number(asset.get("height"), entry.get("height", 0), 0, 20_000)),
+                    "format": _short_text(asset.get("format"), 16),
+                    "source": _short_text(source, 80),
+                    "prompt": _short_text(prompt, 6000),
+                    "tags": _short_text(tags, 6000),
+                    "artist": _short_text(artist, 120),
+                    "ratio": _short_text(ratio, 32),
+                }
+            )
+            if existing is None:
+                library["images"].insert(0, entry)
+            self._write_json(self.library_path, library)
+            return dict(entry)
 
     def remove_image_from_library(self, asset_id: Any) -> None:
         asset_id = str(asset_id or "")
         if not ASSET_ID_RE.fullmatch(asset_id):
             raise CanvasValidationError("图片资源 ID 无效")
-        library = self._library()
-        library["images"] = [item for item in library["images"] if item.get("id") != asset_id]
-        self._write_json(self.library_path, library)
+
+        with self._lock:
+            library = self._library()
+            library["images"] = [item for item in library["images"] if item.get("id") != asset_id]
+            self._write_json(self.library_path, library)
+
+        self.collect_orphan_assets()
 
     def save_prompt_asset(self, payload: Any) -> Dict[str, Any]:
-        if not isinstance(payload, dict):
-            raise CanvasValidationError("提示词素材必须是 JSON 对象")
-        prompt = _short_text(payload.get("prompt"), 6000).strip()
-        if not prompt:
-            raise CanvasValidationError("提示词不能为空")
-        library = self._library()
-        prompt_id = str(payload.get("id") or "")
-        entry = None
-        if prompt_id:
-            if not ENTITY_ID_RE.fullmatch(prompt_id) or prompt_id == "default":
-                raise CanvasValidationError("提示词素材 ID 无效")
-            entry = next((item for item in library["prompts"] if item.get("id") == prompt_id), None)
-        if entry is None:
-            entry = {"id": uuid4().hex, "createdAt": self._timestamp()}
-            library["prompts"].insert(0, entry)
-        entry.update(
-            {
-                "name": _short_text(payload.get("name"), 120).strip() or prompt[:32],
-                "prompt": prompt,
-                "ratio": _short_text(payload.get("ratio"), 32),
-                "artist": _short_text(payload.get("artist"), 120),
-                "raw": bool(payload.get("raw", False)),
-                "updatedAt": self._timestamp(),
-            }
-        )
-        self._write_json(self.library_path, library)
-        return dict(entry)
+        with self._lock:
+            if not isinstance(payload, dict):
+                raise CanvasValidationError("提示词素材必须是 JSON 对象")
+            prompt = _short_text(payload.get("prompt"), 6000).strip()
+            if not prompt:
+                raise CanvasValidationError("提示词不能为空")
+            library = self._library()
+            prompt_id = str(payload.get("id") or "")
+            entry = None
+            if prompt_id:
+                if not ENTITY_ID_RE.fullmatch(prompt_id) or prompt_id == "default":
+                    raise CanvasValidationError("提示词素材 ID 无效")
+                entry = next((item for item in library["prompts"] if item.get("id") == prompt_id), None)
+            if entry is None:
+                entry = {"id": uuid4().hex, "createdAt": self._timestamp()}
+                library["prompts"].insert(0, entry)
+            entry.update(
+                {
+                    "name": _short_text(payload.get("name"), 120).strip() or prompt[:32],
+                    "prompt": prompt,
+                    "ratio": _short_text(payload.get("ratio"), 32),
+                    "artist": _short_text(payload.get("artist"), 120),
+                    "raw": bool(payload.get("raw", False)),
+                    "updatedAt": self._timestamp(),
+                }
+            )
+            self._write_json(self.library_path, library)
+            return dict(entry)
 
     def delete_prompt_asset(self, prompt_id: Any) -> None:
-        prompt_id = self._validate_entity_id(prompt_id, "提示词素材")
-        if prompt_id == "default":
-            raise CanvasValidationError("提示词素材 ID 无效")
-        library = self._library()
-        library["prompts"] = [item for item in library["prompts"] if item.get("id") != prompt_id]
-        self._write_json(self.library_path, library)
-
-
+        with self._lock:
+            prompt_id = self._validate_entity_id(prompt_id, "提示词素材")
+            if prompt_id == "default":
+                raise CanvasValidationError("提示词素材 ID 无效")
+            library = self._library()
+            library["prompts"] = [item for item in library["prompts"] if item.get("id") != prompt_id]
+            self._write_json(self.library_path, library)
 class CanvasService:
+
     def __init__(
         self,
         plugin_name: str,
