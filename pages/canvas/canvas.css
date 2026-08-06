@@ -2509,3 +2509,9 @@ select:focus-visible,
   border-width: 1px 0 0;
   padding: 10px 12px 12px;
 }
+
+.debug-empty {
+  padding: 2px 0;
+  color: var(--muted);
+  font-size: 9.5px;
+}

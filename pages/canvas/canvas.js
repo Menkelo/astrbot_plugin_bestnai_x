@@ -1100,6 +1100,7 @@ function debugPlainText(runs) {
 }
 
 function debugRunsForNode(node) {
+  if (!node) return [];
   return DEBUG_SECTIONS
     .map((section) => ({ label: section.label, run: node.meta?.debug?.[section.key] }))
     .filter((item) => item.run && typeof item.run === "object");
@@ -1180,24 +1181,31 @@ function setDebugBarOpen(open) {
 
 function renderDebugBar() {
   if (!els.debugBar) return;
+  if (!debugModeEnabled()) {
+    els.debugBar.hidden = true;
+    els.debugBarBody.replaceChildren();
+    return;
+  }
   const candidates = [
     findNode(state.selectedId),
     ...[...state.nodes].reverse(),
   ].filter((node, index, list) => node && list.indexOf(node) === index);
   const node = candidates.find((item) => item?.meta?.debug);
-  if (!debugModeEnabled() || !node) {
-    els.debugBar.hidden = true;
-    els.debugBarBody.replaceChildren();
-    return;
-  }
   const runs = debugRunsForNode(node);
   const total = runs.reduce((sum, item) => sum + (Number(item.run.totalMs) || 0), 0);
   els.debugBar.hidden = false;
-  els.debugBarSummary.textContent = `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`;
+  els.debugBarSummary.textContent = node && runs.length
+    ? `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`
+    : "调试信息 · 等待下一次画布请求";
   els.debugBarBody.replaceChildren();
   const panel = makeDebugPanel(node);
   if (panel) {
     els.debugBarBody.appendChild(panel);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "debug-empty";
+    empty.textContent = "运行生成或反推后，这里会显示详细调试信息";
+    els.debugBarBody.appendChild(empty);
   }
   setDebugBarOpen(state.debugBarOpen);
   refreshIcons(els.debugBar);
@@ -2010,16 +2018,27 @@ function fitView() {
   scheduleSave();
 }
 
-async function generateFromNode(id, { retagged = false, promptOverride = "" } = {}) {
+async function generateFromNode(id, {
+  retagged = false,
+  promptOverride = "",
+  retagPrompt = "",
+} = {}) {
   const node = findNode(id);
   if (!node || node.status) return;
-  const workingPrompt = promptOverride.trim() || node.prompt?.trim() || "";
-  if (!workingPrompt) {
+  const basePrompt = node.prompt?.trim() || "";
+  // Retag generation sends the user's prompt and the extracted tags as
+  // separate fields. Keep promptOverride only for backwards-compatible calls
+  // from older saved canvases; it is never used for the retag path.
+  const workingPrompt = retagged ? basePrompt : promptOverride.trim() || basePrompt;
+  const requestRetagPrompt = retagged
+    ? String(retagPrompt || node.meta?.retagPrompt || "").trim()
+    : "";
+  if (!workingPrompt && !requestRetagPrompt) {
     node.error = "请输入提示词";
     renderAll();
     return;
   }
-  const translationSource = retagged ? node.prompt?.trim() || workingPrompt : workingPrompt;
+  const translationSource = retagged ? basePrompt : workingPrompt;
   const canReuseTranslation = /[\u4e00-\u9fff]/.test(translationSource)
     && node.meta?.translationSource === translationSource
     && !!node.meta?.translationResult;
@@ -2034,6 +2053,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
   try {
     const result = await bridge.apiPost("canvas/generate", {
       prompt: workingPrompt,
+      retagPrompt: requestRetagPrompt,
       ratio: node.ratio,
       artist: node.artist,
       raw: !!node.raw,
@@ -2051,7 +2071,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
     pushHistory();
     node.meta = {
       ...(node.meta || {}),
-      translatedPrompt: result.meta?.translatedPrompt || node.meta?.retagPrompt || "",
+      translatedPrompt: result.meta?.translatedPrompt || requestRetagPrompt || "",
       translationSource: result.meta?.translationSource || "",
       translationResult: result.meta?.translationResult || "",
     };
@@ -2256,7 +2276,13 @@ async function retagFromNode(id, generateAfter = false) {
   }
   if (succeeded && generateAfter) {
     const mergedPrompt = node.meta?.retagMergedPrompt || node.prompt;
-    await generateFromNode(id, { retagged: true, promptOverride: mergedPrompt });
+    await generateFromNode(id, {
+      retagged: true,
+      retagPrompt: node.meta?.retagPrompt || "",
+      // Kept for compatibility with canvases saved by 3.3.1; retagged calls
+      // deliberately ignore this legacy mixed string.
+      promptOverride: mergedPrompt,
+    });
   }
   return succeeded;
 }
@@ -3120,7 +3146,7 @@ els.viewport.addEventListener("pointercancel", handleCanvasTouchEnd);
 function nodeEditorOwnsWheel(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   if (!targetElement) return false;
-  if (targetElement.closest(".asset-panel, .image-viewer-details")) return true;
+  if (targetElement.closest(".asset-panel, .image-viewer-details, .debug-bar")) return true;
   const editor = targetElement.closest(".prompt-text, .note-text");
   return !!editor?.closest(".node.selected");
 }
@@ -3133,6 +3159,10 @@ els.viewport.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 els.assetPanel.addEventListener("wheel", (event) => {
+  event.stopPropagation();
+}, { passive: true });
+
+els.debugBar?.addEventListener("wheel", (event) => {
   event.stopPropagation();
 }, { passive: true });
 

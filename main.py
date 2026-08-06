@@ -74,6 +74,44 @@ MIN_SCALE = 1.0
 MAX_SCALE = 10.0
 
 
+def _prompt_token_key(token: str) -> str:
+    """Return a comparison key while ignoring one NovelAI weight wrapper."""
+    value = normalize_prompt_ascii(token).strip(" ,")
+    weighted = re.match(r"^-?\d+(?:\.\d+)?::\s*(.*?)\s*::$", value)
+    if weighted:
+        value = weighted.group(1).strip()
+    return re.sub(r"\s+", " ", value).casefold()
+
+
+def _merge_canvas_retag_prompt(
+    translated_user_prompt: str,
+    retag_prompt: str,
+) -> str:
+    """Combine translated user text and image tags exactly once.
+
+    Older cached retag responses can contain the user's tags (sometimes already
+    weighted). Strip those duplicates and preserve the first occurrence order.
+    """
+    user = normalize_prompt_ascii(translated_user_prompt)
+    retag = normalize_prompt_ascii(retag_prompt)
+    if not retag:
+        return user
+
+    user_tokens = [part.strip() for part in user.split(",") if part.strip()]
+    user_keys = {_prompt_token_key(part) for part in user_tokens if _prompt_token_key(part)}
+    seen = set(user_keys)
+    remaining = []
+    for part in (item.strip() for item in retag.split(",")):
+        key = _prompt_token_key(part)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        remaining.append(part)
+
+    weighted_user = apply_prompt_weight(user) if user else ""
+    return ", ".join(part for part in (weighted_user, ", ".join(remaining)) if part)
+
+
 def _parse_size(size_str: str) -> Tuple[int, int]:
     try:
         text = str(size_str).strip().lower().replace("×", "x")
@@ -403,11 +441,12 @@ class BestNAIPlugin(Star):
         payload: Dict[str, object],
     ) -> Tuple[List[Tuple[str, bytes]], Dict[str, object]]:
         prompt = str(payload.get("prompt") or "").strip()
+        retag_prompt = str(payload.get("retagPrompt") or "").strip()
         ratio = str(payload.get("ratio") or self.default_ratio).strip()
         artist_name = str(payload.get("artist") or "").strip()
         raw_mode = bool(payload.get("raw", False))
 
-        if not prompt:
+        if not prompt and not retag_prompt:
             raise ValueError("请输入提示词")
 
         if len(prompt) > 6000:
@@ -426,6 +465,8 @@ class BestNAIPlugin(Star):
 
         trace = DebugTrace("canvas.generate", bool(payload.get("debug")))
         trace.note("输入提示词", prompt)
+        if retag_prompt:
+            trace.note("反推标签（独立输入）", retag_prompt)
 
         if has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
@@ -470,6 +511,17 @@ class BestNAIPlugin(Star):
             translation_source = ""
             translated_source = ""
             trace.note("翻译", "提示词无中文，未走翻译")
+
+        # Retag tags are already English output from the single vision/tagging
+        # request. Merge them only after translating the user's prompt so the
+        # translation provider never receives the mixed/weighted string.
+        if retag_prompt:
+            translated_user_prompt = translated_prompt or working_prompt
+            working_prompt = _merge_canvas_retag_prompt(
+                translated_user_prompt,
+                retag_prompt,
+            )
+            trace.note("合并后提示词", working_prompt)
 
         try:
             gen_config = self.prompt_builder.build_generation_config(
@@ -543,8 +595,9 @@ class BestNAIPlugin(Star):
             trace,
             {
                 "sourcePrompt": prompt,
+                "retagPrompt": retag_prompt,
                 "cleanPrompt": clean_prompt,
-                "translatedPrompt": translated_prompt,
+                "translatedPrompt": working_prompt,
                 "translationSource": translation_source,
                 "translationResult": translated_source,
                 "finalPrompt": final_prompt,

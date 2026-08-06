@@ -48,6 +48,20 @@ def has_chinese(text: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
 
 
+def normalize_translation_text(text: str) -> str:
+    """Expand terse Chinese hair-color tags before sending them to an LLM.
+
+    Some providers reject or mishandle two-character shorthand such as
+    ``蓝发`` while translating the equivalent ``蓝头发`` reliably. This is
+    request-only normalization; the original prompt remains unchanged in the
+    canvas and cache metadata.
+    """
+    value = str(text or "")
+    for color in ("蓝", "红", "黑", "白", "金", "棕", "紫", "粉", "绿"):
+        value = value.replace(f"{color}发", f"{color}头发")
+    return value
+
+
 def resolve_translation_cache(
     prompt: str,
     requested_source: str,
@@ -273,9 +287,11 @@ class PromptTranslator:
 
         last_error: Optional[Exception] = None
 
+        request_text = normalize_translation_text(text)
+
         for attempt in range(1, max_retries + 1):
             try:
-                return await self._call_llm(text, danbooru_api_url=danbooru_api_url)
+                return await self._call_llm(request_text, danbooru_api_url=danbooru_api_url)
 
             except Exception as e:
                 last_error = e
