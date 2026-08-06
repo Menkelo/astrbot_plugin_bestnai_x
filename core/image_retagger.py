@@ -411,16 +411,16 @@ def _extract_chat_content(data: Any) -> str:
 
 
 class ImageRetagger:
-    def __init__(self, config, context, debug: bool = False) -> None:
+    def __init__(self, config, context) -> None:
         self.config = config
         self.context = context
         self.timeout = 180
-        self.debug = debug
 
     async def retag(
         self,
         image_path_or_url: str,
         user_hint: str = "",
+        debug: bool = False,
     ) -> str:
         provider_id = getattr(self.config, "provider_id", "") or ""
 
@@ -540,7 +540,7 @@ class ImageRetagger:
                             f"[BestNAI/ImageRetag] 接口返回 {resp.status}: {text[:500]}"
                         )
                         raise ImageRetagError(
-                            describe_api_error(message, "图片反推", self.debug)
+                            describe_api_error(message, "图片反推", debug)
                         )
 
                     try:

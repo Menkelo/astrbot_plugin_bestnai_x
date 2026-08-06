@@ -1046,7 +1046,6 @@ select:focus-visible,
   display: grid;
   width: 100%;
   min-height: 0;
-  max-height: 720px;
   place-items: center;
   overflow: hidden;
   border-radius: 16px;
@@ -1081,7 +1080,6 @@ select:focus-visible,
   display: block;
   width: 100%;
   height: auto;
-  max-height: 720px;
   object-fit: contain;
   user-select: none;
 }
@@ -2282,7 +2280,7 @@ select:focus-visible,
   position: absolute;
   z-index: 30;
   top: calc(100% + 8px);
-  left: 0;
+  left: 50%;
   width: min(260px, calc(100vw - 32px));
   min-height: 0;
   flex: 0 0 auto;
@@ -2292,6 +2290,7 @@ select:focus-visible,
   border-radius: 10px;
   background: var(--soft);
   box-shadow: 0 16px 34px var(--shadow);
+  transform: translateX(-50%);
 }
 
 .prompt-advanced summary {
@@ -2339,32 +2338,42 @@ select:focus-visible,
   accent-color: #2563eb;
 }
 
-/* 调试面板：只有开了调试模式、且这个节点刚跑过才会出现 */
-.prompt-debug {
-  min-height: 0;
-  /* 不参与压缩：details 被压矮时内层不会跟着缩（Chromium 的 slot 挡在中间），
-     底部的复制按钮会被 overflow: hidden 切掉。让上面的文本框让位更稳 */
-  flex: 0 0 auto;
-  margin-top: 9px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--soft);
+.advanced-reset-row {
+  display: flex;
+  justify-content: center;
+  padding: 1px 10px 10px;
 }
 
-.prompt-debug summary {
-  padding: 7px 10px;
+.advanced-reset {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-solid);
   color: var(--muted);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 800;
-  list-style-position: inside;
 }
 
-/* 流水想多长有多长，卡片高度是固定的，所以让它自己滚，别去撑卡片 */
+.advanced-reset:hover {
+  border-color: var(--line-2);
+  color: var(--text);
+}
+
+.advanced-reset svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 流水只出现在画布底部状态栏，内容过长时在栏内滚动。 */
 .debug-body {
-  max-height: 168px;
-  padding: 0 10px 9px;
+  max-height: min(320px, 38vh);
+  padding: 0 2px 2px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -2496,72 +2505,7 @@ select:focus-visible,
 }
 
 .debug-bar-body {
-  padding: 0 10px 10px;
-}
-
-.debug-bar-details {
-  display: block;
-  margin: 0;
-  border: 0;
-  background: transparent;
-}
-
-.debug-bar-details > summary {
-  display: none;
-}
-
-.debug-bar-details .debug-body {
-  max-height: 180px;
-  padding: 0;
-}
-
-.asset-image-card {
-  position: relative;
-  z-index: 0;
-  overflow: visible;
-}
-
-.asset-image-card::before,
-.asset-image-card::after {
-  position: absolute;
-  z-index: -1;
-  inset: 5px -4px -4px 4px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--soft-2);
-  box-shadow: 0 5px 12px rgba(15, 23, 42, .06);
-  content: "";
-  transform: rotate(-3deg);
-}
-
-.asset-image-card::after {
-  inset: 3px -2px -2px 2px;
-  background: #fff;
-  transform: rotate(2deg);
-}
-
-.asset-image-card:hover::before {
-  transform: rotate(-5deg) translateY(-2px);
-}
-
-.asset-image-card:hover::after {
-  transform: rotate(4deg) translateY(-1px);
-}
-
-.asset-thumb-seed {
-  position: absolute;
-  z-index: 2;
-  bottom: 7px;
-  left: 7px;
-  max-width: calc(100% - 14px);
-  padding: 4px 6px;
-  border: 1px solid rgba(255, 255, 255, .75);
-  border-radius: 6px;
-  background: rgba(15, 23, 42, .66);
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 8px;
-  font-weight: 800;
-  line-height: 1;
-  pointer-events: none;
+  border-width: 1px 0 0;
+  padding: 10px 12px 12px;
 }

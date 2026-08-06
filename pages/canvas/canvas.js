@@ -75,7 +75,6 @@ const state = {
     defaultArtist: "",
     retagEnabled: false,
     retagConfigured: false,
-    debugMode: false,
     steps: { default: 28, min: 1, max: 28 },
     scale: { default: 7, min: 1, max: 10 },
   },
@@ -982,6 +981,7 @@ function makeAdvancedPanel(node, host) {
     scheduleSave();
   });
 
+  const controls = [];
   ADVANCED_FIELDS.forEach((field) => {
     const bounds = state.config[field.key] || {};
     const min = Number(bounds.min ?? (field.integer ? 1 : 1));
@@ -993,6 +993,7 @@ function makeAdvancedPanel(node, host) {
       : fallback;
     // 反推复用的原图元数据可能带 >28 步，夹回区间，否则读数显示 50 而滑块停在 28
     const current = Math.min(max, Math.max(min, raw));
+    const defaultValue = Math.min(max, Math.max(min, fallback));
 
     const row = document.createElement("div");
     row.className = "advanced-row";
@@ -1035,7 +1036,30 @@ function makeAdvancedPanel(node, host) {
 
     row.append(head, slider);
     panel.appendChild(row);
+    controls.push({ field, slider, value, defaultValue });
   });
+
+  const resetRow = document.createElement("div");
+  resetRow.className = "advanced-reset-row";
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "advanced-reset";
+  reset.title = "恢复插件默认的迭代步数与引导系数";
+  reset.append(icon("rotate-ccw"), document.createTextNode("恢复默认"));
+  reset.addEventListener("pointerdown", (event) => event.stopPropagation());
+  reset.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const nextMeta = { ...(node.meta || {}) };
+    controls.forEach(({ field, slider, value, defaultValue }) => {
+      slider.value = String(defaultValue);
+      value.textContent = field.integer ? String(defaultValue) : defaultValue.toFixed(1);
+      delete nextMeta[field.key];
+    });
+    node.meta = nextMeta;
+    scheduleSave();
+  });
+  resetRow.appendChild(reset);
+  panel.appendChild(resetRow);
 
   return panel;
 }
@@ -1075,30 +1099,17 @@ function debugPlainText(runs) {
   return lines.join("\n").trim();
 }
 
-/** 调试模式专用：把这个节点最近一次运行的流水摊开。没跑过就不渲染。 */
-function makeDebugPanel(node, host) {
-  const runs = DEBUG_SECTIONS
+function debugRunsForNode(node) {
+  return DEBUG_SECTIONS
     .map((section) => ({ label: section.label, run: node.meta?.debug?.[section.key] }))
     .filter((item) => item.run && typeof item.run === "object");
+}
+
+/** 调试模式专用：状态栏自己负责折叠，这里只渲染实际流水内容。 */
+function makeDebugPanel(node) {
+  const runs = debugRunsForNode(node);
 
   if (!debugModeEnabled() || !runs.length) return null;
-
-  const panel = document.createElement("details");
-  panel.className = "prompt-debug";
-  // 特意开着：会打开调试开关的人就是来看这个的
-  panel.open = node.debugOpen !== false;
-  host.classList.toggle("debug-open", panel.open);
-
-  const total = runs.reduce((sum, item) => sum + (Number(item.run.totalMs) || 0), 0);
-  const summary = document.createElement("summary");
-  summary.textContent = `调试信息 · ${formatDebugMs(total)}`;
-  panel.appendChild(summary);
-
-  panel.addEventListener("toggle", () => {
-    // 这份流水本来就不落盘，展开状态跟着它一起活在内存里就行
-    node.debugOpen = panel.open;
-    host.classList.toggle("debug-open", panel.open);
-  });
 
   const body = document.createElement("div");
   body.className = "debug-body";
@@ -1155,8 +1166,7 @@ function makeDebugPanel(node, host) {
   });
   body.appendChild(copy);
 
-  panel.appendChild(body);
-  return panel;
+  return body;
 }
 
 function setDebugBarOpen(open) {
@@ -1180,15 +1190,13 @@ function renderDebugBar() {
     els.debugBarBody.replaceChildren();
     return;
   }
-  const runs = Object.values(node.meta.debug || {}).filter((run) => run && typeof run === "object");
-  const total = runs.reduce((sum, run) => sum + (Number(run.totalMs) || 0), 0);
+  const runs = debugRunsForNode(node);
+  const total = runs.reduce((sum, item) => sum + (Number(item.run.totalMs) || 0), 0);
   els.debugBar.hidden = false;
   els.debugBarSummary.textContent = `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`;
   els.debugBarBody.replaceChildren();
-  const panel = makeDebugPanel(node, els.debugBar);
+  const panel = makeDebugPanel(node);
   if (panel) {
-    panel.open = state.debugBarOpen;
-    panel.classList.add("debug-bar-details");
     els.debugBarBody.appendChild(panel);
   }
   setDebugBarOpen(state.debugBarOpen);
@@ -2577,14 +2585,6 @@ function renderImageAssetCard(item, container = els.assetGrid) {
     artist.title = `画师预设：${item.artist}`;
     thumb.appendChild(artist);
   }
-  const seed = Number(item.seed) || 0;
-  if (seed) {
-    const seedBadge = document.createElement("span");
-    seedBadge.className = "asset-thumb-seed";
-    seedBadge.textContent = `seed ${seed}`;
-    seedBadge.title = `种子 ${seed}`;
-    thumb.appendChild(seedBadge);
-  }
   const selected = document.createElement("span");
   selected.className = "asset-select-indicator";
   selected.setAttribute("aria-hidden", "true");
@@ -2696,6 +2696,7 @@ async function openLibraryImageViewer(item) {
         width: item.width,
         height: item.height,
         ratio: item.ratio || "",
+        seed: Number(item.seed) || 0,
       },
     }, { libraryAsset: item });
   } catch (error) {
@@ -2724,6 +2725,9 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
         width: item.width,
         height: item.height,
         ratio: item.ratio || "",
+        seed: Number(item.seed) || 0,
+        retagged: item.source === "retagged",
+        source: item.source || "",
       },
     });
     return true;
@@ -2872,7 +2876,7 @@ async function loadInitialState() {
   state.config = { ...state.config, ...(config || {}) };
   let savedDebug = null;
   try { savedDebug = localStorage.getItem("bestnaiCanvasDebug"); } catch (_) { /* ignore */ }
-  state.debugEnabled = savedDebug === null ? !!state.config.debugMode : savedDebug === "1";
+  state.debugEnabled = savedDebug === "1";
   els.debugModeBtn?.setAttribute("aria-pressed", String(debugModeEnabled()));
   els.debugModeBtn?.classList.toggle("active", debugModeEnabled());
   loadPromptDefaults(preferences || {});

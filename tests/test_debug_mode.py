@@ -154,15 +154,15 @@ class DebugModeWiringTest(unittest.TestCase):
         self.editor = (ROOT / "pages" / "canvas" / "canvas.js").read_text(encoding="utf-8")
         self.styles = (ROOT / "pages" / "canvas" / "canvas.css").read_text(encoding="utf-8")
 
-    def test_switch_exists_and_defaults_to_off(self) -> None:
-        self.assertIn("debug_mode", self.schema)
-        self.assertEqual(self.schema["debug_mode"]["type"], "bool")
-        self.assertIs(self.schema["debug_mode"]["default"], False)
-        self.assertIn('debug_mode=bool(config.get("debug_mode", False))', self.config)
+    def test_switch_is_canvas_only(self) -> None:
+        self.assertNotIn("debug_mode", self.schema)
+        self.assertNotIn("debug_mode", self.config)
+        self.assertIn('localStorage.getItem("bestnaiCanvasDebug")', self.editor)
 
-    def test_canvas_config_exposes_the_switch(self) -> None:
-        self.assertIn('"debugMode": self.plugin_config.debug_mode', self.main)
-        self.assertIn("debugMode: false", self.editor)
+    def test_canvas_config_does_not_expose_a_global_switch(self) -> None:
+        self.assertNotIn('"debugMode"', self.main)
+        self.assertNotIn("debugMode: false", self.editor)
+        self.assertIn('state.debugEnabled = savedDebug === "1";', self.editor)
 
     def test_both_canvas_paths_record_a_trace(self) -> None:
         self.assertIn('DebugTrace("canvas.generate"', self.main)
@@ -182,6 +182,7 @@ class DebugModeWiringTest(unittest.TestCase):
         self.assertIn("trace.timed(", block)
         self.assertIn('"反推"', block)
         self.assertNotIn("_translate_canvas_hint(user_hint)", block)
+        self.assertIn("debug=debug", block)
 
     def test_trace_goes_to_both_the_response_and_the_log(self) -> None:
         start = self.main.index("def _with_debug")
@@ -194,18 +195,21 @@ class DebugModeWiringTest(unittest.TestCase):
         self.assertIn("if debug is None:\n            return result", with_debug)
 
     def test_frontend_renders_the_panel_only_in_debug_mode(self) -> None:
-        self.assertIn("function makeDebugPanel(node, host)", self.editor)
+        self.assertIn("function makeDebugPanel(node)", self.editor)
         self.assertIn("if (!debugModeEnabled() || !runs.length) return null;", self.editor)
         self.assertIn('recordRunDebug(node, "generate", result.meta?.debug)', self.editor)
         self.assertIn('recordRunDebug(node, "retag", result.debug)', self.editor)
-        self.assertIn(".prompt-debug {", self.styles)
         self.assertIn(".debug-bar {", self.styles)
+        self.assertNotIn(".prompt-debug {", self.styles)
 
-    def test_panel_never_overflows_the_card(self) -> None:
-        # details 被压矮时内层不会跟着缩，只能靠上面的文本框让位
-        panel = self.styles[self.styles.index(".prompt-debug {"):]
-        self.assertIn("flex: 0 0 auto;", panel[: panel.index("}")])
-        self.assertIn("max-height: 168px;", self.styles)
+    def test_bottom_bar_has_one_working_disclosure_layer(self) -> None:
+        render = self.editor.split("function renderDebugBar() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("const panel = makeDebugPanel(node);", render)
+        self.assertNotIn("panel.open", render)
+        self.assertNotIn("debug-bar-details", self.styles)
+        self.assertIn("max-height: min(320px, 38vh);", self.styles)
 
 
 if __name__ == "__main__":

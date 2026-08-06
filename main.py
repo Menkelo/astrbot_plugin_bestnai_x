@@ -121,7 +121,6 @@ class BestNAIPlugin(Star):
         self.image_retagger = ImageRetagger(
             self.plugin_config.image_retag,
             context=self.context,
-            debug=self.plugin_config.debug_mode,
         )
 
         self._generation_semaphore = asyncio.Semaphore(
@@ -225,7 +224,6 @@ class BestNAIPlugin(Star):
             "retagEnabled": self.plugin_config.image_retag.enabled,
             "retagConfigured": self.plugin_config.image_retag.enabled
             and self.plugin_config.image_retag.is_configured(),
-            "debugMode": self.plugin_config.debug_mode,
         }
 
     def _with_debug(
@@ -322,7 +320,11 @@ class BestNAIPlugin(Star):
         try:
             prompt = await trace.timed(
                 "反推",
-                self.image_retagger.retag(image_path, user_hint=user_hint),
+                self.image_retagger.retag(
+                    image_path,
+                    user_hint=user_hint,
+                    debug=debug,
+                ),
             )
         except ImageRetagError as exc:
             raise ValueError(str(exc)) from exc
@@ -1440,7 +1442,7 @@ class BestNAIPlugin(Star):
                 return None, describe_api_error(
                     str(translator.last_error),
                     "提示词翻译",
-                    self.plugin_config.debug_mode,
+                    False,
                 )
 
             return None, "翻译服务返回的仍然是中文，请检查翻译提供商选用的模型"

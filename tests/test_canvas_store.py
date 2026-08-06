@@ -203,6 +203,7 @@ class CanvasStoreTest(unittest.TestCase):
             "blue sky, clouds",
             "3:2",
             "里番",
+            987654321,
         )
         prompt = self.store.save_prompt_asset(
             {"name": "逆光人像", "prompt": "1girl, backlight", "ratio": "2:3"}
@@ -214,6 +215,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(library["images"][0]["tags"], "blue sky, clouds")
         self.assertEqual(library["images"][0]["ratio"], "3:2")
         self.assertEqual(library["images"][0]["artist"], "里番")
+        self.assertEqual(library["images"][0]["seed"], 987654321)
         self.assertEqual(library["prompts"][0]["prompt"], "1girl, backlight")
 
         self.store.remove_image_from_library(image["id"])

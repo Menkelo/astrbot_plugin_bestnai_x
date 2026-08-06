@@ -49,7 +49,8 @@ class RetagTranslationTest(unittest.TestCase):
 
     def test_vision_model_still_receives_the_original_chinese(self) -> None:
         # 中文引导直接交给标签模型，避免重复翻译。
-        self.assertIn("self.image_retagger.retag(image_path, user_hint=user_hint)", self.retag)
+        self.assertIn("user_hint=user_hint", self.retag)
+        self.assertIn("debug=debug", self.retag)
 
     def test_translation_failure_keeps_the_original_text(self) -> None:
         start = self.main.index("async def _translate_canvas_hint")

@@ -300,6 +300,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "async function saveImageToLibrary", 1
         )[0]
         self.assertNotIn("setAssetPanel(false)", place_body)
+        self.assertIn("seed: Number(item.seed) || 0", place_body)
+        self.assertIn('retagged: item.source === "retagged"', place_body)
+        self.assertNotIn("asset-thumb-seed", editor)
+        self.assertNotIn(".asset-thumb-seed", styles)
+        self.assertNotIn(".asset-image-card::before", styles)
 
     def test_artist_badges_and_generation_buttons_have_stable_layout(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -558,6 +563,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("<span>图片</span>", html)
 
     def test_prompt_card_bottom_hint_stays_inside_the_card(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         # .node 是 overflow: visible（端口要露出卡片），所以裁剪必须落在 node-body
@@ -592,6 +598,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
         advanced_styles = styles.split(".prompt-advanced {", 1)[1].split("}", 1)[0]
         self.assertIn("flex: 0 0 auto;", advanced_styles)
         self.assertIn("min-height: 0;", advanced_styles)
+        self.assertIn("left: 50%;", advanced_styles)
+        self.assertIn("transform: translateX(-50%);", advanced_styles)
+
+        advanced_body = editor.split("function makeAdvancedPanel", 1)[1].split(
+            "const DEBUG_SECTIONS", 1
+        )[0]
+        self.assertIn('reset.className = "advanced-reset"', advanced_body)
+        self.assertIn("delete nextMeta[field.key]", advanced_body)
+        self.assertIn("scheduleSave();", advanced_body)
+
+    def test_resized_portrait_images_grow_with_their_width(self) -> None:
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        frame = styles.split(".image-preview-wrap {", 1)[1].split("}", 1)[0]
+        image = styles.split(".image-preview-wrap img {", 1)[1].split("}", 1)[0]
+
+        self.assertNotIn("max-height", frame)
+        self.assertNotIn("max-height", image)
+        self.assertIn("width: 100%;", image)
+        self.assertIn("height: auto;", image)
 
     def test_generation_does_not_interrupt_prompt_typing(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
