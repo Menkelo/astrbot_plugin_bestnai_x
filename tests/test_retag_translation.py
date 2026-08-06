@@ -16,12 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RetagTranslationTest(unittest.TestCase):
-    """反推附带的中文提示词必须在反推那一步就翻掉。
-
-    留着中文拼进 prompt，生成阶段 has_chinese() 会命中，
-    把「中文 hint + 几十个英文 tag」整串再翻一遍：白花一次调用，
-    而且第二次的译文和第一次不一定一致。
-    """
+    """反推只提取图片 tags，手写提示词在生图阶段单独翻译。"""
 
     def setUp(self) -> None:
         self.main = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -30,8 +25,9 @@ class RetagTranslationTest(unittest.TestCase):
         end = self.main.index("async def _translate_canvas_hint")
         self.retag = self.main[start:end]
 
-    def test_canvas_retag_leaves_weighting_to_the_merge_step(self) -> None:
-        self.assertIn("normalize_prompt_ascii(user_hint)", self.retag)
+    def test_canvas_retag_does_not_send_hint_to_vision_model(self) -> None:
+        self.assertIn("self.image_retagger.retag(image_path, debug=debug)", self.retag)
+        self.assertNotIn("user_hint=user_hint", self.retag)
         self.assertNotIn("apply_prompt_weight(user_hint)", self.retag)
 
     def test_metadata_branch_does_not_translate(self) -> None:
@@ -47,10 +43,8 @@ class RetagTranslationTest(unittest.TestCase):
         self.assertIn("self.image_retagger.retag(", self.retag)
         self.assertNotIn("self._translate_canvas_hint(user_hint)", self.retag)
 
-    def test_vision_model_still_receives_the_original_chinese(self) -> None:
-        # 中文引导直接交给标签模型，避免重复翻译。
-        self.assertIn("user_hint=user_hint", self.retag)
-        self.assertIn("debug=debug", self.retag)
+    def test_canvas_trace_marks_hint_as_generation_only(self) -> None:
+        self.assertIn("手写提示词（不送反推）", self.retag)
 
     def test_translation_failure_keeps_the_original_text(self) -> None:
         start = self.main.index("async def _translate_canvas_hint")
@@ -72,13 +66,13 @@ class FreeTierStepsCapTest(unittest.TestCase):
         self.assertIn("MAX_STEPS = 28", self.main)
         self.assertNotIn("MAX_STEPS = 50", self.main)
 
-    def test_frontend_slider_caps_at_28(self) -> None:
-        self.assertIn("steps: { default: 28, min: 1, max: 28 }", self.editor)
-        self.assertNotIn("field.integer ? 50 : 10", self.editor)
+    def test_frontend_does_not_override_steps(self) -> None:
+        self.assertNotIn("steps: { default: 28, min: 1, max: 28 }", self.editor)
+        self.assertNotIn("steps: node.meta?.steps", self.editor)
 
-    def test_frontend_clamps_values_from_image_metadata(self) -> None:
-        # 反推复用的原图可能带 >28 步，不夹回区间的话读数显示 50、滑块停在 28
-        self.assertIn("Math.min(max, Math.max(min, raw))", self.editor)
+    def test_frontend_has_no_generation_parameter_slider(self) -> None:
+        self.assertNotIn("function makeAdvancedPanel", self.editor)
+        self.assertNotIn('slider.type = "range"', self.editor)
 
 
 if __name__ == "__main__":

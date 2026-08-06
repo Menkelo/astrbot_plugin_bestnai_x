@@ -105,7 +105,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(loaded["nodes"][0]["meta"]["translatedPrompt"], "1girl, blue hair")
         self.assertEqual(loaded["nodes"][0]["meta"]["translationSource"], "蓝发少女")
         self.assertEqual(loaded["nodes"][0]["meta"]["translationResult"], "1girl, blue hair")
-        self.assertTrue(loaded["nodes"][0]["meta"]["advancedOpen"])
+        self.assertNotIn("advancedOpen", loaded["nodes"][0]["meta"])
         self.assertEqual(loaded["nodes"][0]["meta"]["steps"], 32)
         self.assertEqual(loaded["nodes"][0]["meta"]["scale"], 6.5)
         # 已删除的字段走白名单被丢掉，不会随旧工作区一直带着

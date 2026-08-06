@@ -821,18 +821,8 @@ select:focus-visible,
   flex-direction: column;
 }
 
-/* 展开高级选项要多占约 90px。卡片可以被拖到 300px，那时输入框已经缩到底，
-   多出来的部分会被 node-body 裁掉，状态行直接看不见——所以展开期间抬高下限 */
-.prompt-node.advanced-open {
-  min-height: 0;
-}
-
-/* 调试面板同理，它比高级选项还高一截 */
+/* 调试信息较高，展开时允许提示词卡片继续收缩。 */
 .prompt-node.debug-open {
-  min-height: 0;
-}
-
-.prompt-node.advanced-open.debug-open {
   min-height: 0;
 }
 
@@ -2273,101 +2263,6 @@ select:focus-visible,
     animation-duration: .01ms !important;
     transition-duration: .01ms !important;
   }
-}
-
-/* 提示词卡片的高级选项：迭代步数与引导系数 */
-.prompt-advanced {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 8px);
-  left: 50%;
-  width: min(260px, calc(100vw - 32px));
-  min-height: 0;
-  flex: 0 0 auto;
-  margin-top: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--soft);
-  box-shadow: 0 16px 34px var(--shadow);
-  transform: translateX(-50%);
-}
-
-.prompt-advanced summary {
-  padding: 7px 10px;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 800;
-  list-style-position: inside;
-}
-
-.advanced-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 0 10px 9px;
-}
-
-.advanced-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.advanced-name {
-  color: var(--muted);
-  cursor: help;
-  font-size: 9.5px;
-  font-weight: 700;
-}
-
-.advanced-value {
-  color: var(--text);
-  font-size: 10px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.advanced-slider {
-  width: 100%;
-  height: 16px;
-  margin: 0;
-  cursor: pointer;
-  accent-color: #2563eb;
-}
-
-.advanced-reset-row {
-  display: flex;
-  justify-content: center;
-  padding: 1px 10px 10px;
-}
-
-.advanced-reset {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card-solid);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 9.5px;
-  font-weight: 800;
-}
-
-.advanced-reset:hover {
-  border-color: var(--line-2);
-  color: var(--text);
-}
-
-.advanced-reset svg {
-  width: 12px;
-  height: 12px;
 }
 
 /* 流水只出现在画布底部状态栏，内容过长时在栏内滚动。 */

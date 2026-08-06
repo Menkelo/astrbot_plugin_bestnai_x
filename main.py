@@ -248,16 +248,6 @@ class BestNAIPlugin(Star):
             "ratios": ratios,
             "artists": artists,
             "maxConcurrency": self.plugin_config.max_concurrency,
-            "steps": {
-                "default": self.plugin_config.generation.steps,
-                "min": MIN_STEPS,
-                "max": MAX_STEPS,
-            },
-            "scale": {
-                "default": self.plugin_config.generation.scale,
-                "min": MIN_SCALE,
-                "max": MAX_SCALE,
-            },
             "translatorEnabled": self.plugin_config.translator.enabled,
             "retagEnabled": self.plugin_config.image_retag.enabled,
             "retagConfigured": self.plugin_config.image_retag.enabled
@@ -291,7 +281,7 @@ class BestNAIPlugin(Star):
     ) -> Dict[str, object]:
         retag_config = self.plugin_config.image_retag
         trace = DebugTrace("canvas.retag", bool(debug))
-        trace.note("手写提示词", user_hint or "(空)")
+        trace.note("手写提示词（仅用于后续生图）", user_hint or "(空)")
 
         # 先看图片自带的 NovelAI 生成参数。命中就不必让视觉模型猜了，
         # 原始 prompt 和种子一起用能真正还原这张图。
@@ -307,15 +297,13 @@ class BestNAIPlugin(Star):
                 f"[BestNAI/Canvas] 图片自带 NovelAI 参数，直接复用：seed={source_seed}"
             )
 
-            raw_hint = normalize_prompt_ascii(user_hint)
-            # Return only the image tags. The caller merges and weights the
-            # current hint exactly once, including on repeated runs.
-            merged = source_prompt
+            # Return only image tags. The caller translates and weights the
+            # current hand-written hint exactly once during generation.
+            image_tags = source_prompt
 
             trace.note("走的分支", "命中原图内嵌参数，未调用视觉模型")
-            trace.note("手写提示词", raw_hint or "(空)")
-            trace.note("原图内嵌提示词", source_prompt)
-            trace.note("合并后提示词", merged)
+            trace.note("手写提示词（不送反推）", user_hint or "(空)")
+            trace.note("原图图片 tags", image_tags)
             trace.note(
                 "原图内嵌参数",
                 {
@@ -328,7 +316,7 @@ class BestNAIPlugin(Star):
             return self._with_debug(
                 trace,
                 {
-                    "prompt": merged,
+                    "prompt": image_tags,
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
@@ -358,11 +346,7 @@ class BestNAIPlugin(Star):
         try:
             prompt = await trace.timed(
                 "反推",
-                self.image_retagger.retag(
-                    image_path,
-                    user_hint=user_hint,
-                    debug=debug,
-                ),
+                self.image_retagger.retag(image_path, debug=debug),
             )
         except ImageRetagError as exc:
             raise ValueError(str(exc)) from exc

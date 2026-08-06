@@ -75,8 +75,6 @@ const state = {
     defaultArtist: "",
     retagEnabled: false,
     retagConfigured: false,
-    steps: { default: 28, min: 1, max: 28 },
-    scale: { default: 7, min: 1, max: 10 },
   },
   nodes: [],
   connections: [],
@@ -854,15 +852,7 @@ function renderPromptNode(node) {
     node.prompt = prompt.value;
     node.error = "";
     if (node.meta?.translatedPrompt || node.meta?.retagPrompt) {
-      const {
-        retagBasePrompt: _retagBasePrompt,
-        retagMergedPrompt: _retagMergedPrompt,
-        translatedPrompt: _translatedPrompt,
-        translationSource: _translationSource,
-        translationResult: _translationResult,
-        ...meta
-      } = node.meta;
-      node.meta = meta;
+      clearRetagCache(node);
     }
     scheduleSave();
   });
@@ -887,8 +877,6 @@ function renderPromptNode(node) {
     scheduleSave();
   });
   options.append(ratioField, artistField);
-
-  const advanced = makeAdvancedPanel(node, element);
 
   const footer = document.createElement("div");
   footer.className = "node-footer";
@@ -937,131 +925,12 @@ function renderPromptNode(node) {
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
   body.append(prompt, options, footer, status);
-  element.appendChild(advanced);
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
   attachNodeResize(resizeHandle, element, node);
   element.appendChild(resizeHandle);
   return element;
-}
-
-const ADVANCED_FIELDS = [
-  {
-    key: "steps",
-    label: "迭代步数",
-    hint: "表示图像生成时的迭代步数，数值越大图像越清晰，但生成时间也越长。",
-    step: 1,
-    integer: true,
-  },
-  {
-    key: "scale",
-    label: "引导系数",
-    hint: "表示图像生成时对提示词的遵循程度，数值越高生成内容越贴合提示词，但可能降低创意多样性。",
-    step: 0.1,
-    integer: false,
-  },
-];
-
-function makeAdvancedPanel(node, host) {
-  const panel = document.createElement("details");
-  panel.className = "prompt-advanced";
-  panel.open = !!node.meta?.advancedOpen;
-  // 展开后内容比矮卡片高，靠这个 class 抬高卡片下限，避免底部被裁掉
-  host.classList.toggle("advanced-open", panel.open);
-
-  const summary = document.createElement("summary");
-  summary.textContent = "高级选项";
-  panel.appendChild(summary);
-
-  panel.addEventListener("toggle", () => {
-    host.classList.toggle("advanced-open", panel.open);
-    if (!!node.meta?.advancedOpen === panel.open) return;
-    node.meta = { ...(node.meta || {}), advancedOpen: panel.open };
-    scheduleSave();
-  });
-
-  const controls = [];
-  ADVANCED_FIELDS.forEach((field) => {
-    const bounds = state.config[field.key] || {};
-    const min = Number(bounds.min ?? (field.integer ? 1 : 1));
-    const max = Number(bounds.max ?? (field.integer ? 28 : 10));
-    const fallback = Number(bounds.default ?? (field.integer ? 28 : 7));
-    const stored = node.meta?.[field.key];
-    const raw = Number.isFinite(Number(stored)) && Number(stored) > 0
-      ? Number(stored)
-      : fallback;
-    // 反推复用的原图元数据可能带 >28 步，夹回区间，否则读数显示 50 而滑块停在 28
-    const current = Math.min(max, Math.max(min, raw));
-    const defaultValue = Math.min(max, Math.max(min, fallback));
-
-    const row = document.createElement("div");
-    row.className = "advanced-row";
-    row.title = field.hint;
-
-    const head = document.createElement("div");
-    head.className = "advanced-head";
-    const name = document.createElement("span");
-    name.className = "advanced-name";
-    name.textContent = field.label;
-    // 悬停提示挂在整行和标签上，鼠标停在哪儿都能看到
-    name.title = field.hint;
-    const value = document.createElement("output");
-    value.className = "advanced-value";
-    value.textContent = field.integer ? String(current) : current.toFixed(1);
-    head.append(name, value);
-
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.className = "advanced-slider";
-    slider.min = String(min);
-    slider.max = String(max);
-    slider.step = String(field.step);
-    slider.value = String(current);
-    slider.title = field.hint;
-    slider.setAttribute("aria-label", field.label);
-
-    const commit = (persist) => {
-      const raw = Number(slider.value);
-      const next = field.integer ? Math.round(raw) : Math.round(raw * 10) / 10;
-      value.textContent = field.integer ? String(next) : next.toFixed(1);
-      node.meta = { ...(node.meta || {}), [field.key]: next };
-      if (persist) scheduleSave();
-    };
-
-    // 拖动时只更新读数，松手才落盘，避免每移动一格就写一次
-    slider.addEventListener("input", () => commit(false));
-    slider.addEventListener("change", () => commit(true));
-    slider.addEventListener("pointerdown", (event) => event.stopPropagation());
-
-    row.append(head, slider);
-    panel.appendChild(row);
-    controls.push({ field, slider, value, defaultValue });
-  });
-
-  const resetRow = document.createElement("div");
-  resetRow.className = "advanced-reset-row";
-  const reset = document.createElement("button");
-  reset.type = "button";
-  reset.className = "advanced-reset";
-  reset.title = "恢复插件默认的迭代步数与引导系数";
-  reset.append(icon("rotate-ccw"), document.createTextNode("恢复默认"));
-  reset.addEventListener("pointerdown", (event) => event.stopPropagation());
-  reset.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const nextMeta = { ...(node.meta || {}) };
-    controls.forEach(({ field, slider, value, defaultValue }) => {
-      slider.value = String(defaultValue);
-      value.textContent = field.integer ? String(defaultValue) : defaultValue.toFixed(1);
-      delete nextMeta[field.key];
-    });
-    node.meta = nextMeta;
-    scheduleSave();
-  });
-  resetRow.appendChild(reset);
-  panel.appendChild(resetRow);
-
-  return panel;
 }
 
 const DEBUG_SECTIONS = [
@@ -2020,16 +1889,12 @@ function fitView() {
 
 async function generateFromNode(id, {
   retagged = false,
-  promptOverride = "",
   retagPrompt = "",
 } = {}) {
   const node = findNode(id);
   if (!node || node.status) return;
   const basePrompt = node.prompt?.trim() || "";
-  // Retag generation sends the user's prompt and the extracted tags as
-  // separate fields. Keep promptOverride only for backwards-compatible calls
-  // from older saved canvases; it is never used for the retag path.
-  const workingPrompt = retagged ? basePrompt : promptOverride.trim() || basePrompt;
+  const workingPrompt = basePrompt;
   const requestRetagPrompt = retagged
     ? String(retagPrompt || node.meta?.retagPrompt || "").trim()
     : "";
@@ -2060,8 +1925,6 @@ async function generateFromNode(id, {
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
       cachedTranslation: node.meta?.translationResult || "",
-      steps: node.meta?.steps,
-      scale: node.meta?.scale,
       debug: debugModeEnabled(),
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       seed: node.meta?.retagSeed || undefined,
@@ -2139,47 +2002,29 @@ function sourceImageForPrompt(promptId) {
   return edge ? findNode(edge.source) : null;
 }
 
-function applyPromptWeight(prompt) {
-  const content = String(prompt || "").trim().replace(/^,+|,+$/g, "");
-  if (!content) return "";
-  if (/^-?\d+(?:\.\d+)?::[\s\S]*::$/.test(content)) return content;
-  return `1.3::${content} ::`;
-}
-
-function mergeRetagPrompt(userPrompt, retagPrompt) {
-  const user = String(userPrompt || "").trim().replace(/^,+|,+$/g, "");
-  const retag = String(retagPrompt || "").trim().replace(/^,+|,+$/g, "");
-  if (!user) return retag;
-  if (!retag) return applyPromptWeight(user);
-
-  // Remove exact comma-delimited tags already supplied by the user. This also
-  // cleans older cached retag responses that included the user hint.
-  const userTokens = new Set(user.split(/\s*,\s*/).map((token) => token.trim().toLowerCase()).filter(Boolean));
-  const weightedUser = applyPromptWeight(user);
-  const withoutLegacyWeight = retag.split(weightedUser).join("");
-  const filtered = withoutLegacyWeight.split(/\s*,\s*/).filter((token) => !userTokens.has(token.trim().toLowerCase()));
-  return [applyPromptWeight(user), filtered.join(", ").trim()].filter(Boolean).join(", ");
-}
-
 function clearRetagCache(node) {
   const {
     retagAssetId: _retagAssetId,
     retagRatio: _retagRatio,
     retagBasePrompt: _retagBasePrompt,
     retagPrompt: _retagPrompt,
-    retagMergedPrompt: _retagMergedPrompt,
+    retagSeed: _retagSeed,
+    retagFromMetadata: _retagFromMetadata,
     translatedPrompt: _translatedPrompt,
+    translationSource: _translationSource,
+    translationResult: _translationResult,
     ...meta
   } = node.meta || {};
   node.meta = meta;
 }
 
-function cachedRetagResult(node, sourceImage) {
+function cachedRetagResult(node, sourceImage, basePrompt) {
   if (!node || !sourceImage?.assetId) return null;
   const meta = node.meta || {};
   if (
     !meta.retagPrompt
     || meta.retagAssetId !== sourceImage.assetId
+    || String(meta.retagBasePrompt || "") !== String(basePrompt || "")
   ) return null;
   return {
     prompt: String(meta.retagPrompt).trim(),
@@ -2218,7 +2063,8 @@ async function retagFromNode(id, generateAfter = false) {
     return false;
   }
 
-  const cachedRetag = cachedRetagResult(node, sourceImage);
+  const basePrompt = node.prompt?.trim() || "";
+  const cachedRetag = cachedRetagResult(node, sourceImage, basePrompt);
   if (!cachedRetag && !state.config.retagConfigured) {
     node.error = "请先配置图片反推提供商";
     renderAll();
@@ -2234,22 +2080,18 @@ async function retagFromNode(id, generateAfter = false) {
 
   let succeeded = false;
   try {
-    const basePrompt = node.prompt?.trim() || "";
     const result = cachedRetag || await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
-      userHint: basePrompt,
       debug: debugModeEnabled(),
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
-    const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt);
 
     pushHistory();
     node.meta = {
       ...(node.meta || {}),
       retagBasePrompt: basePrompt,
       retagPrompt,
-      retagMergedPrompt: mergedPrompt,
       retagAssetId: sourceImage.assetId,
       retagRatio: result.ratio || "",
       retagSeed: Number(result.seed) || 0,
@@ -2259,11 +2101,11 @@ async function retagFromNode(id, generateAfter = false) {
     recordRunDebug(node, "retag", result.debug);
     node.statusText = result.fromMetadata
       ? `已读取原图内嵌参数 · 种子 ${result.seed}`
-      : "已合并新提示词与原图 tags";
+      : "已提取原图 tags，准备生成";
     toast(
       result.fromMetadata
         ? "已读取原图内嵌的 NovelAI 参数"
-        : (cachedRetag ? "已复用反推结果" : "反推提示词已合并"),
+        : (cachedRetag ? "已复用反推结果" : "原图 tags 已提取"),
     );
     scheduleSave();
     succeeded = true;
@@ -2275,13 +2117,9 @@ async function retagFromNode(id, generateAfter = false) {
     renderAll();
   }
   if (succeeded && generateAfter) {
-    const mergedPrompt = node.meta?.retagMergedPrompt || node.prompt;
     await generateFromNode(id, {
       retagged: true,
       retagPrompt: node.meta?.retagPrompt || "",
-      // Kept for compatibility with canvases saved by 3.3.1; retagged calls
-      // deliberately ignore this legacy mixed string.
-      promptOverride: mergedPrompt,
     });
   }
   return succeeded;

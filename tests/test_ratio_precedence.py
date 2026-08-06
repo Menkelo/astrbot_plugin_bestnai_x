@@ -132,40 +132,25 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
     def test_seed_is_returned_and_reusable(self) -> None:
         self.assertIn('seed=payload.get("seed")', self.main)
         self.assertIn('"seed": result.seed', self.main)
-        self.assertIn("steps: node.meta?.steps", self.editor)
-        self.assertIn("scale: node.meta?.scale", self.editor)
+        self.assertNotIn("steps: node.meta?.steps", self.editor)
+        self.assertNotIn("scale: node.meta?.scale", self.editor)
         self.assertIn("seed: node.meta?.retagSeed || undefined", self.editor)
 
-    def test_generation_params_live_on_each_prompt_card(self) -> None:
-        # 全局面板已撤掉，步数 / 引导系数改为每张提示词卡片各自配置
+    def test_canvas_uses_plugin_generation_defaults(self) -> None:
+        # 画布不再提供步数 / 引导系数覆盖，统一使用插件配置。
         self.assertNotIn('id="genSettingsPanel"', self.html)
         self.assertNotIn("function setupGenSettings", self.editor)
-        self.assertIn("function makeAdvancedPanel", self.editor)
-        self.assertIn('summary.textContent = "高级选项"', self.editor)
-        self.assertIn('label: "迭代步数"', self.editor)
-        self.assertIn('label: "引导系数"', self.editor)
-        self.assertIn(
-            "表示图像生成时的迭代步数，数值越大图像越清晰，但生成时间也越长。",
-            self.editor,
-        )
-        self.assertIn(
-            "表示图像生成时对提示词的遵循程度，数值越高生成内容越贴合提示词，但可能降低创意多样性。",
-            self.editor,
-        )
-        # 滑动条形态，悬停提示挂在滑块上
-        self.assertIn('slider.type = "range"', self.editor)
-        self.assertIn("slider.title = field.hint", self.editor)
-        # 拖动只更新读数，松手才落盘
-        self.assertIn('slider.addEventListener("input", () => commit(false))', self.editor)
-        self.assertIn('slider.addEventListener("change", () => commit(true))', self.editor)
+        self.assertNotIn("function makeAdvancedPanel", self.editor)
+        self.assertNotIn('summary.textContent = "高级选项"', self.editor)
+        self.assertNotIn("steps: node.meta?.steps", self.editor)
+        self.assertNotIn("scale: node.meta?.scale", self.editor)
 
     def test_new_meta_fields_are_persisted(self) -> None:
         # 工作区不保存这些字段的话，刷新页面种子就丢了
         for field in ("retagSeed", "retagFromMetadata", '"seed"', '"steps"', '"scale"'):
             with self.subTest(field=field):
                 self.assertIn(field, self.store)
-        # 高级选项的展开态也要跟着节点走，否则每次重渲染都会收起来
-        self.assertIn('"advancedOpen"', self.store)
+        self.assertNotIn('"advancedOpen"', self.store)
 
     def test_image_card_shows_seed_instead_of_prompt(self) -> None:
         card = self.editor.split("meta.className = \"image-meta\"", 1)[1].split(

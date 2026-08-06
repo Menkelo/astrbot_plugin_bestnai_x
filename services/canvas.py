@@ -444,7 +444,6 @@ class CanvasStore:
                     "translationResult": _short_text(raw_meta.get("translationResult"), 6000),
                     "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
                     "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
-                    "retagMergedPrompt": _short_text(raw_meta.get("retagMergedPrompt"), 6000),
                     "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
                     "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
                     "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, 2_147_483_647)),
@@ -454,7 +453,6 @@ class CanvasStore:
                     "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                     "retagged": bool(raw_meta.get("retagged", False)),
                     "userResized": bool(raw_meta.get("userResized", False)),
-                    "advancedOpen": bool(raw_meta.get("advancedOpen", False)),
                 },
             }
             nodes.append(node)

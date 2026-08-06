@@ -132,11 +132,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn(".retag-btn", styles)
         self.assertIn("commands.append(generate)", editor)
         self.assertNotIn('document.createTextNode(node.status === "retagging"', editor)
-        self.assertIn("promptOverride: mergedPrompt", editor)
-        self.assertIn("function mergeRetagPrompt", editor)
-        self.assertIn("const mergedPrompt = mergeRetagPrompt(basePrompt, retagPrompt)", editor)
-        self.assertIn("retagMergedPrompt: mergedPrompt", editor)
+        self.assertNotIn("promptOverride", editor)
+        self.assertNotIn("function mergeRetagPrompt", editor)
+        self.assertIn("retagPrompt: requestRetagPrompt", editor)
+        self.assertIn('retagPrompt: node.meta?.retagPrompt || ""', editor)
         self.assertIn("function cachedRetagResult", editor)
+        self.assertIn("cachedRetagResult(node, sourceImage, basePrompt)", editor)
+        self.assertIn('String(meta.retagBasePrompt || "") !== String(basePrompt || "")', editor)
+        retag_body = editor.split("async function retagFromNode", 1)[1].split(
+            "async function ensureAssetLoaded", 1
+        )[0]
+        self.assertNotIn("userHint:", retag_body)
         self.assertIn("const result = cachedRetag || await bridge.apiPost", editor)
         self.assertIn("retagAssetId: sourceImage.assetId", editor)
         self.assertIn('"正在复用已保存的反推结果…"', editor)
@@ -144,7 +150,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'prompt.addEventListener("keydown"', 1
         )[0]
         self.assertNotIn("retagPrompt: _retagPrompt", prompt_input)
-        self.assertIn("translationSource: _translationSource", prompt_input)
+        self.assertIn("clearRetagCache(node)", prompt_input)
         # 英文 tags 只读框已删除，但翻译结果仍要留在 meta 里供复用
         self.assertNotIn("translated-prompt-text", editor)
         self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
@@ -152,9 +158,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("cachedTranslation: node.meta?.translationResult", editor)
         self.assertIn("translationSource: result.meta?.translationSource", editor)
         self.assertIn("translationResult: result.meta?.translationResult", editor)
-        retag_body = editor.split("async function retagFromNode", 1)[1].split(
-            "async function ensureAssetLoaded", 1
-        )[0]
         self.assertNotIn("node.ratio = result.ratio", retag_body)
         self.assertIn('"正在复用英文 tags 并生成图片…"', editor)
         self.assertNotIn('label: "不使用画师预设"', editor)
@@ -594,19 +597,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("overflow: hidden;", status_styles)
         self.assertIn("overflow-wrap: anywhere;", status_styles)
 
-        # 展开英文 tags 后缩小卡片同样不能溢出：面板和只读框都要可压缩
-        advanced_styles = styles.split(".prompt-advanced {", 1)[1].split("}", 1)[0]
-        self.assertIn("flex: 0 0 auto;", advanced_styles)
-        self.assertIn("min-height: 0;", advanced_styles)
-        self.assertIn("left: 50%;", advanced_styles)
-        self.assertIn("transform: translateX(-50%);", advanced_styles)
-
-        advanced_body = editor.split("function makeAdvancedPanel", 1)[1].split(
-            "const DEBUG_SECTIONS", 1
-        )[0]
-        self.assertIn('reset.className = "advanced-reset"', advanced_body)
-        self.assertIn("delete nextMeta[field.key]", advanced_body)
-        self.assertIn("scheduleSave();", advanced_body)
+        self.assertNotIn(".prompt-advanced", styles)
+        self.assertNotIn("function makeAdvancedPanel", editor)
 
     def test_resized_portrait_images_grow_with_their_width(self) -> None:
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
