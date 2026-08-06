@@ -23,6 +23,7 @@ sys.modules.setdefault("astrbot.api", astrbot_api_module)
 from astrbot_plugin_bestnai_x.core.image_retagger import (
     compose_retag_prompt,
     parse_retag_response,
+    strip_control_tags,
 )
 
 
@@ -96,6 +97,12 @@ class ParseRetagResponseTest(unittest.TestCase):
 
 
 class ComposeRetagPromptTest(unittest.TestCase):
+    def test_control_tags_are_removed_from_visual_tags(self) -> None:
+        self.assertEqual(
+            strip_control_tags("artist:foo, 1girl, best quality, rating:safe, blue hair"),
+            "1girl, blue hair",
+        )
+
     def test_character_and_series_lead_the_prompt(self) -> None:
         self.assertEqual(
             compose_retag_prompt("hatsune_miku", "vocaloid", "1girl, solo"),

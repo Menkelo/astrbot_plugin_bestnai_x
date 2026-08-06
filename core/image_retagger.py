@@ -18,6 +18,29 @@ class ImageRetagError(Exception):
     pass
 
 
+# These are generation controls, not visual attributes. Keeping them out of
+# retag output prevents the normal canvas artist/quality pipeline from adding
+# them a second time.
+_CONTROL_TAGS = {
+    "best quality",
+    "amazing quality",
+    "very aesthetic",
+    "absurdres",
+    "masterpiece",
+    "high quality",
+    "ultra detailed",
+    "highres",
+    "score_9",
+    "score_8_up",
+    "score_7_up",
+    "score_6_up",
+    "rating:safe",
+    "rating:general",
+    "rating:questionable",
+    "rating:explicit",
+}
+
+
 def _clean_tags(text: str) -> str:
     text = str(text or "").strip()
 
@@ -110,6 +133,29 @@ def _clean_tag_token(value: str) -> str:
     return token
 
 
+def strip_control_tags(text: str) -> str:
+    """Remove artist/quality/rating controls from a retag prompt."""
+    cleaned = _clean_tags(text)
+    kept = []
+    for raw_token in re.split(r"\s*,\s*", cleaned):
+        token = raw_token.strip(" ,;")
+        if not token:
+            continue
+        lowered = token.lower()
+        plain = re.sub(r"[\[\]{}()]+", "", lowered).strip()
+        if "artist:" in lowered or re.search(r"\bartist(?:_|\s)", lowered):
+            continue
+        if plain in _CONTROL_TAGS or any(
+            phrase in plain for phrase in ("quality", "aesthetic", "absurdres")
+        ):
+            continue
+        if re.match(r"^(?:rating|score)\s*[:_]", plain):
+            continue
+        if token not in kept:
+            kept.append(token)
+    return ", ".join(kept).strip(" ,;")
+
+
 def parse_retag_response(text: str) -> Tuple[str, str, str]:
     """解析反推模型输出，返回 (角色 tag, 作品 tag, 其余 tags)。
 
@@ -145,7 +191,7 @@ def parse_retag_response(text: str) -> Tuple[str, str, str]:
 
     character = _clean_tag_token(data.get("character", ""))
     series = _clean_tag_token(data.get("series", ""))
-    tags = _clean_tags(str(tags_value or ""))
+    tags = strip_control_tags(str(tags_value or ""))
 
     return character, series, tags
 
@@ -418,14 +464,16 @@ class ImageRetagger:
             "Never guess and never invent an identity.\n"
             "Step 2 - Describe the image as English Danbooru/NovelAI tags. "
             "Focus on subject, hair, eyes, clothing, pose, expression, background, "
-            "composition, lighting, camera angle, style, and quality tags.\n"
+            "composition, lighting, camera angle, and visible style. Do not output "
+            "artist:, quality, rating, score, masterpiece, or aesthetic control tags.\n"
             "\n"
             "Respond with a single JSON object and nothing else. No markdown fence, "
             "no explanation:\n"
             '{"character": "hatsune_miku", "series": "vocaloid", '
             '"tags": "1girl, solo, twintails, ..."}\n'
             'Use "" for character and series when there is no recognizable character. '
-            "Do not repeat the character or series tag inside tags. "
+            "Do not repeat the character or series tag inside tags. Do not include "
+            "artist or quality controls in tags. "
             "Tags must be comma-separated English Danbooru tags. "
             "Do not output Chinese, Japanese, emoji, or non-ASCII characters."
         )

@@ -56,6 +56,9 @@
             <button class="tool-btn icon-only" id="exportBtn" type="button" title="导出工作区" aria-label="导出工作区">
               <i data-lucide="download"></i>
             </button>
+            <button class="tool-btn icon-only" id="debugModeBtn" type="button" title="调试模式" aria-label="调试模式" aria-pressed="false">
+              <i data-lucide="bug"></i>
+            </button>
             <button class="tool-btn icon-only danger" id="clearBtn" type="button" title="清空画布" aria-label="清空画布">
               <i data-lucide="trash-2"></i>
             </button>
@@ -99,6 +102,12 @@
             <div id="minimapViewport" class="minimap-viewport"></div>
           </div>
         </div>
+        <aside id="debugBar" class="debug-bar" hidden aria-label="调试信息">
+          <button id="debugBarToggle" class="debug-bar-toggle" type="button" aria-expanded="false">
+            <i data-lucide="bug"></i><span id="debugBarSummary">调试信息</span><i data-lucide="chevron-up" class="debug-bar-chevron"></i>
+          </button>
+          <div id="debugBarBody" class="debug-bar-body"></div>
+        </aside>
         <aside id="assetPanel" class="asset-panel" aria-label="素材库">
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>

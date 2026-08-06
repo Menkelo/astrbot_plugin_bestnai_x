@@ -176,13 +176,12 @@ class DebugModeWiringTest(unittest.TestCase):
     def test_concurrent_retag_branches_are_timed_separately(self) -> None:
         # 反推和翻译是并发跑的，两边各自的耗时才看得出是谁拖慢了整体
         start = self.main.index("async def _canvas_retag")
-        gather = self.main.index("asyncio.gather(", start)
-        end = self.main.index("except ImageRetagError", gather)
-        block = self.main[gather:end]
+        end = self.main.index("except ImageRetagError", start)
+        block = self.main[start:end]
 
         self.assertIn("trace.timed(", block)
         self.assertIn('"反推"', block)
-        self.assertIn('"翻译手写提示词"', block)
+        self.assertNotIn("_translate_canvas_hint(user_hint)", block)
 
     def test_trace_goes_to_both_the_response_and_the_log(self) -> None:
         start = self.main.index("def _with_debug")
@@ -196,11 +195,11 @@ class DebugModeWiringTest(unittest.TestCase):
 
     def test_frontend_renders_the_panel_only_in_debug_mode(self) -> None:
         self.assertIn("function makeDebugPanel(node, host)", self.editor)
-        self.assertIn("if (!state.config.debugMode || !runs.length) return null;", self.editor)
+        self.assertIn("if (!debugModeEnabled() || !runs.length) return null;", self.editor)
         self.assertIn('recordRunDebug(node, "generate", result.meta?.debug)', self.editor)
         self.assertIn('recordRunDebug(node, "retag", result.debug)', self.editor)
         self.assertIn(".prompt-debug {", self.styles)
-        self.assertIn(".prompt-node.debug-open {", self.styles)
+        self.assertIn(".debug-bar {", self.styles)
 
     def test_panel_never_overflows_the_card(self) -> None:
         # details 被压矮时内层不会跟着缩，只能靠上面的文本框让位

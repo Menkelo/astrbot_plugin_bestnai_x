@@ -45,6 +45,11 @@ const els = {
   imageViewerTags: document.getElementById("imageViewerTags"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetPanel: document.getElementById("assetPanel"),
+  debugModeBtn: document.getElementById("debugModeBtn"),
+  debugBar: document.getElementById("debugBar"),
+  debugBarToggle: document.getElementById("debugBarToggle"),
+  debugBarSummary: document.getElementById("debugBarSummary"),
+  debugBarBody: document.getElementById("debugBarBody"),
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
   assetLibraryCount: document.getElementById("assetLibraryCount"),
@@ -105,12 +110,19 @@ const state = {
   currentCanvasTitle: "未命名项目",
   assetCache: new Map(),
   promptDefaults: { ratio: "", artist: "" },
+  debugEnabled: (() => {
+    try { return localStorage.getItem("bestnaiCanvasDebug") === "1"; } catch (_) { return false; }
+  })(),
+  debugBarOpen: false,
   preferencesSaveChain: Promise.resolve(),
   contextMenuPoint: null,
   viewerLibraryAsset: null,
 };
 
 const MAX_HISTORY = 40;
+function debugModeEnabled() {
+  return !!state.debugEnabled;
+}
 const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
 const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults";
 const ASSET_RENDER_BATCH = 48;
@@ -925,9 +937,8 @@ function renderPromptNode(node) {
   outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
-  body.append(prompt, options, advanced, footer, status);
-  const debugPanel = makeDebugPanel(node, element);
-  if (debugPanel) body.appendChild(debugPanel);
+  body.append(prompt, options, footer, status);
+  element.appendChild(advanced);
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
@@ -1070,7 +1081,7 @@ function makeDebugPanel(node, host) {
     .map((section) => ({ label: section.label, run: node.meta?.debug?.[section.key] }))
     .filter((item) => item.run && typeof item.run === "object");
 
-  if (!state.config.debugMode || !runs.length) return null;
+  if (!debugModeEnabled() || !runs.length) return null;
 
   const panel = document.createElement("details");
   panel.className = "prompt-debug";
@@ -1146,6 +1157,42 @@ function makeDebugPanel(node, host) {
 
   panel.appendChild(body);
   return panel;
+}
+
+function setDebugBarOpen(open) {
+  state.debugBarOpen = !!open;
+  els.debugBarToggle?.setAttribute("aria-expanded", String(state.debugBarOpen));
+  els.debugBar?.classList.toggle("open", state.debugBarOpen);
+  els.debugBarBody?.toggleAttribute("hidden", !state.debugBarOpen);
+  const chevron = els.debugBarToggle?.querySelector(".debug-bar-chevron");
+  chevron?.classList.toggle("rotated", state.debugBarOpen);
+}
+
+function renderDebugBar() {
+  if (!els.debugBar) return;
+  const candidates = [
+    findNode(state.selectedId),
+    ...[...state.nodes].reverse(),
+  ].filter((node, index, list) => node && list.indexOf(node) === index);
+  const node = candidates.find((item) => item?.meta?.debug);
+  if (!debugModeEnabled() || !node) {
+    els.debugBar.hidden = true;
+    els.debugBarBody.replaceChildren();
+    return;
+  }
+  const runs = Object.values(node.meta.debug || {}).filter((run) => run && typeof run === "object");
+  const total = runs.reduce((sum, run) => sum + (Number(run.totalMs) || 0), 0);
+  els.debugBar.hidden = false;
+  els.debugBarSummary.textContent = `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`;
+  els.debugBarBody.replaceChildren();
+  const panel = makeDebugPanel(node, els.debugBar);
+  if (panel) {
+    panel.open = state.debugBarOpen;
+    panel.classList.add("debug-bar-details");
+    els.debugBarBody.appendChild(panel);
+  }
+  setDebugBarOpen(state.debugBarOpen);
+  refreshIcons(els.debugBar);
 }
 
 function makeSelectField(label, items, value, onChange) {
@@ -1640,6 +1687,7 @@ function renderAll() {
   });
   updateHistoryButtons();
   updateSelectionControls();
+  renderDebugBar();
 }
 
 function setupCompositionGuard() {
@@ -1986,6 +2034,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       cachedTranslation: node.meta?.translationResult || "",
       steps: node.meta?.steps,
       scale: node.meta?.scale,
+      debug: debugModeEnabled(),
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       seed: node.meta?.retagSeed || undefined,
     });
@@ -2062,11 +2111,26 @@ function sourceImageForPrompt(promptId) {
   return edge ? findNode(edge.source) : null;
 }
 
+function applyPromptWeight(prompt) {
+  const content = String(prompt || "").trim().replace(/^,+|,+$/g, "");
+  if (!content) return "";
+  if (/^-?\d+(?:\.\d+)?::[\s\S]*::$/.test(content)) return content;
+  return `1.3::${content} ::`;
+}
+
 function mergeRetagPrompt(userPrompt, retagPrompt) {
-  return [userPrompt, retagPrompt]
-    .map((part) => String(part || "").trim().replace(/^,+|,+$/g, ""))
-    .filter(Boolean)
-    .join(", ");
+  const user = String(userPrompt || "").trim().replace(/^,+|,+$/g, "");
+  const retag = String(retagPrompt || "").trim().replace(/^,+|,+$/g, "");
+  if (!user) return retag;
+  if (!retag) return applyPromptWeight(user);
+
+  // Remove exact comma-delimited tags already supplied by the user. This also
+  // cleans older cached retag responses that included the user hint.
+  const userTokens = new Set(user.split(/\s*,\s*/).map((token) => token.trim().toLowerCase()).filter(Boolean));
+  const weightedUser = applyPromptWeight(user);
+  const withoutLegacyWeight = retag.split(weightedUser).join("");
+  const filtered = withoutLegacyWeight.split(/\s*,\s*/).filter((token) => !userTokens.has(token.trim().toLowerCase()));
+  return [applyPromptWeight(user), filtered.join(", ").trim()].filter(Boolean).join(", ");
 }
 
 function clearRetagCache(node) {
@@ -2098,7 +2162,7 @@ function cachedRetagResult(node, sourceImage) {
 function runPromptNode(id) {
   // 每次手动运行都从空白开始记，否则上一轮的反推流水会跟这一轮的生图混在一起
   const node = findNode(id);
-  if (node && state.config.debugMode && node.meta?.debug) {
+  if (node && debugModeEnabled() && node.meta?.debug) {
     const { debug: _debug, ...meta } = node.meta;
     node.meta = meta;
   }
@@ -2108,7 +2172,7 @@ function runPromptNode(id) {
 }
 
 function recordRunDebug(node, stage, payload) {
-  if (!state.config.debugMode) return;
+  if (!debugModeEnabled()) return;
   node.meta = {
     ...(node.meta || {}),
     debug: { ...(node.meta?.debug || {}), [stage]: payload || null },
@@ -2146,6 +2210,7 @@ async function retagFromNode(id, generateAfter = false) {
     const result = cachedRetag || await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
       userHint: basePrompt,
+      debug: debugModeEnabled(),
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
@@ -2512,6 +2577,14 @@ function renderImageAssetCard(item, container = els.assetGrid) {
     artist.title = `画师预设：${item.artist}`;
     thumb.appendChild(artist);
   }
+  const seed = Number(item.seed) || 0;
+  if (seed) {
+    const seedBadge = document.createElement("span");
+    seedBadge.className = "asset-thumb-seed";
+    seedBadge.textContent = `seed ${seed}`;
+    seedBadge.title = `种子 ${seed}`;
+    thumb.appendChild(seedBadge);
+  }
   const selected = document.createElement("span");
   selected.className = "asset-select-indicator";
   selected.setAttribute("aria-hidden", "true");
@@ -2671,6 +2744,7 @@ async function saveImageToLibrary(node) {
       tags: node.meta?.tags || node.meta?.finalPrompt || "",
       artist: node.meta?.artist || "",
       ratio: node.meta?.ratio || "",
+      seed: Number(node.meta?.seed) || 0,
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
@@ -2796,6 +2870,11 @@ async function loadInitialState() {
   ]);
   state.canvases = Array.isArray(canvasList?.canvases) ? canvasList.canvases : [];
   state.config = { ...state.config, ...(config || {}) };
+  let savedDebug = null;
+  try { savedDebug = localStorage.getItem("bestnaiCanvasDebug"); } catch (_) { /* ignore */ }
+  state.debugEnabled = savedDebug === null ? !!state.config.debugMode : savedDebug === "1";
+  els.debugModeBtn?.setAttribute("aria-pressed", String(debugModeEnabled()));
+  els.debugModeBtn?.classList.toggle("active", debugModeEnabled());
   loadPromptDefaults(preferences || {});
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
@@ -3192,6 +3271,15 @@ document.getElementById("contextAddNoteBtn").addEventListener("click", () => {
   addNode(createNoteNode(point));
 });
 document.getElementById("fitBtn").addEventListener("click", fitView);
+els.debugModeBtn?.addEventListener("click", () => {
+  state.debugEnabled = !state.debugEnabled;
+  try { localStorage.setItem("bestnaiCanvasDebug", state.debugEnabled ? "1" : "0"); } catch (_) { /* ignore */ }
+  els.debugModeBtn.setAttribute("aria-pressed", String(debugModeEnabled()));
+  els.debugModeBtn.classList.toggle("active", debugModeEnabled());
+  renderDebugBar();
+  renderAll();
+});
+els.debugBarToggle?.addEventListener("click", () => setDebugBarOpen(!state.debugBarOpen));
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
 els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);

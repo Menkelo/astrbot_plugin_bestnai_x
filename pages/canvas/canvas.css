@@ -824,16 +824,16 @@ select:focus-visible,
 /* 展开高级选项要多占约 90px。卡片可以被拖到 300px，那时输入框已经缩到底，
    多出来的部分会被 node-body 裁掉，状态行直接看不见——所以展开期间抬高下限 */
 .prompt-node.advanced-open {
-  min-height: 360px;
+  min-height: 0;
 }
 
 /* 调试面板同理，它比高级选项还高一截 */
 .prompt-node.debug-open {
-  min-height: 460px;
+  min-height: 0;
 }
 
 .prompt-node.advanced-open.debug-open {
-  min-height: 550px;
+  min-height: 0;
 }
 
 .prompt-node .node-body {
@@ -2279,13 +2279,19 @@ select:focus-visible,
 
 /* 提示词卡片的高级选项：迭代步数与引导系数 */
 .prompt-advanced {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(260px, calc(100vw - 32px));
   min-height: 0;
   flex: 0 0 auto;
-  margin-top: 9px;
+  margin-top: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--soft);
+  box-shadow: 0 16px 34px var(--shadow);
 }
 
 .prompt-advanced summary {
@@ -2432,4 +2438,130 @@ select:focus-visible,
 .debug-copy:hover {
   border-color: var(--line-2);
   color: var(--text);
+}
+
+.debug-bar {
+  position: absolute;
+  z-index: 44;
+  right: 18px;
+  bottom: 16px;
+  left: 18px;
+  width: min(760px, calc(100% - 36px));
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 14px 36px var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.debug-bar[hidden] {
+  display: none;
+}
+
+.debug-bar-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.debug-bar-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.debug-bar-toggle .debug-bar-chevron {
+  margin-left: auto;
+  transition: transform .14s ease;
+}
+
+.debug-bar-toggle .debug-bar-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.debug-bar-body[hidden] {
+  display: none;
+}
+
+.debug-bar-body {
+  padding: 0 10px 10px;
+}
+
+.debug-bar-details {
+  display: block;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+.debug-bar-details > summary {
+  display: none;
+}
+
+.debug-bar-details .debug-body {
+  max-height: 180px;
+  padding: 0;
+}
+
+.asset-image-card {
+  position: relative;
+  z-index: 0;
+  overflow: visible;
+}
+
+.asset-image-card::before,
+.asset-image-card::after {
+  position: absolute;
+  z-index: -1;
+  inset: 5px -4px -4px 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft-2);
+  box-shadow: 0 5px 12px rgba(15, 23, 42, .06);
+  content: "";
+  transform: rotate(-3deg);
+}
+
+.asset-image-card::after {
+  inset: 3px -2px -2px 2px;
+  background: #fff;
+  transform: rotate(2deg);
+}
+
+.asset-image-card:hover::before {
+  transform: rotate(-5deg) translateY(-2px);
+}
+
+.asset-image-card:hover::after {
+  transform: rotate(4deg) translateY(-1px);
+}
+
+.asset-thumb-seed {
+  position: absolute;
+  z-index: 2;
+  bottom: 7px;
+  left: 7px;
+  max-width: calc(100% - 14px);
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, .75);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, .66);
+  color: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
 }

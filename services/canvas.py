@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import json
 import math
 import re
@@ -25,7 +26,7 @@ GenerateCallback = Callable[
     Awaitable[Tuple[List[Tuple[str, bytes]], Dict[str, Any]]],
 ]
 ConfigCallback = Callable[[], Dict[str, Any]]
-RetagCallback = Callable[[str, str], Awaitable[Dict[str, Any]]]
+RetagCallback = Callable[[str, str, bool], Awaitable[Dict[str, Any]]]
 
 MAX_NODES = 160
 MAX_CONNECTIONS = 320
@@ -724,6 +725,7 @@ class CanvasStore:
         tags: Any = "",
         ratio: Any = "",
         artist: Any = "",
+        seed: Any = 0,
     ) -> Dict[str, Any]:
         with self._lock:
             asset_id = str(asset.get("id") or "")
@@ -743,6 +745,7 @@ class CanvasStore:
                     "tags": _short_text(tags, 6000),
                     "artist": _short_text(artist, 120),
                     "ratio": _short_text(ratio, 32),
+                    "seed": int(_bounded_number(seed, entry.get("seed", 0), 0, 2_147_483_647)),
                 }
             )
             if existing is None:
@@ -992,6 +995,7 @@ class CanvasService:
                 payload.get("tags"),
                 payload.get("ratio"),
                 payload.get("artist"),
+                payload.get("seed"),
             )
             return json_response({"image": entry, **asset_payload})
         except FileNotFoundError:
@@ -1065,7 +1069,17 @@ class CanvasService:
                 raise ValueError("画布图片反推服务不可用")
 
             asset_path, _ = self.store.get_asset(asset_id)
-            result = await self.retag_callback(str(asset_path), user_hint)
+            debug = bool(payload.get("debug", False))
+            callback = self.retag_callback
+            try:
+                accepts_debug = len(inspect.signature(callback).parameters) >= 3
+            except (TypeError, ValueError):
+                accepts_debug = True
+            result = await (
+                callback(str(asset_path), user_hint, debug)
+                if accepts_debug
+                else callback(str(asset_path), user_hint)
+            )
             return json_response(result)
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)

@@ -30,28 +30,25 @@ class RetagTranslationTest(unittest.TestCase):
         end = self.main.index("async def _translate_canvas_hint")
         self.retag = self.main[start:end]
 
-    def test_weight_is_applied_to_the_translation_not_the_chinese(self) -> None:
-        self.assertIn("apply_prompt_weight(english_hint)", self.retag)
-        # 这行就是当初的 bug：中文 hint 被直接加权拼进 prompt
+    def test_canvas_retag_leaves_weighting_to_the_merge_step(self) -> None:
+        self.assertIn("normalize_prompt_ascii(user_hint)", self.retag)
         self.assertNotIn("apply_prompt_weight(user_hint)", self.retag)
 
-    def test_metadata_branch_translates_too(self) -> None:
-        # 图片自带 NovelAI 参数时不调视觉模型，但中文 hint 一样要翻
+    def test_metadata_branch_does_not_translate(self) -> None:
+        # Embedded NAI prompts do not need a second translation request.
         start = self.retag.index("if source_seed and source_prompt:")
         end = self.retag.index("if not retag_config.enabled:")
         metadata_branch = self.retag[start:end]
 
-        self.assertIn("self._translate_canvas_hint(user_hint)", metadata_branch)
+        self.assertNotIn("self._translate_canvas_hint(user_hint)", metadata_branch)
 
-    def test_retag_and_translation_run_concurrently(self) -> None:
-        # 两边都是几秒级的网络请求，串着跑等于白等一倍
-        self.assertIn("asyncio.gather(", self.retag)
-        gather = self.retag[self.retag.index("asyncio.gather(") :]
-        self.assertIn("self.image_retagger.retag(", gather)
-        self.assertIn("self._translate_canvas_hint(user_hint)", gather)
+    def test_retag_uses_one_tagging_request(self) -> None:
+        self.assertNotIn("asyncio.gather(", self.retag)
+        self.assertIn("self.image_retagger.retag(", self.retag)
+        self.assertNotIn("self._translate_canvas_hint(user_hint)", self.retag)
 
     def test_vision_model_still_receives_the_original_chinese(self) -> None:
-        # 中文引导对反推结果本身更准，翻译只是为了拼 prompt
+        # 中文引导直接交给标签模型，避免重复翻译。
         self.assertIn("self.image_retagger.retag(image_path, user_hint=user_hint)", self.retag)
 
     def test_translation_failure_keeps_the_original_text(self) -> None:

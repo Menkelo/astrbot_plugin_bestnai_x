@@ -30,7 +30,7 @@ from .core.generator import (
     RateLimitError,
     ServerBusyError,
 )
-from .core.image_retagger import ImageRetagError, ImageRetagger
+from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
 from .core.safety import SafetyModerator
 from .core.translator import PromptTranslator, has_chinese, resolve_translation_cache
 from .image_store import send_image_best_effort
@@ -251,9 +251,10 @@ class BestNAIPlugin(Star):
         self,
         image_path: str,
         user_hint: str,
+        debug: bool = False,
     ) -> Dict[str, object]:
         retag_config = self.plugin_config.image_retag
-        trace = DebugTrace("canvas.retag", self.plugin_config.debug_mode)
+        trace = DebugTrace("canvas.retag", bool(debug))
         trace.note("手写提示词", user_hint or "(空)")
 
         # 先看图片自带的 NovelAI 生成参数。命中就不必让视觉模型猜了，
@@ -263,22 +264,20 @@ class BestNAIPlugin(Star):
             source_info = await asyncio.to_thread(read_image_generation_info, image_path)
 
         source_seed = source_info.get("seed")
-        source_prompt = str(source_info.get("prompt") or "").strip()
+        source_prompt = strip_control_tags(str(source_info.get("prompt") or "").strip())
 
         if source_seed and source_prompt:
             logger.info(
                 f"[BestNAI/Canvas] 图片自带 NovelAI 参数，直接复用：seed={source_seed}"
             )
 
-            english_hint = await trace.timed(
-                "翻译手写提示词",
-                self._translate_canvas_hint(user_hint),
-            )
-            weighted_hint = apply_prompt_weight(english_hint)
-            merged = ", ".join(part for part in (source_prompt, weighted_hint) if part)
+            raw_hint = normalize_prompt_ascii(user_hint)
+            # Return only the image tags. The caller merges and weights the
+            # current hint exactly once, including on repeated runs.
+            merged = source_prompt
 
             trace.note("走的分支", "命中原图内嵌参数，未调用视觉模型")
-            trace.note("手写提示词译文", english_hint or "(空)")
+            trace.note("手写提示词", raw_hint or "(空)")
             trace.note("原图内嵌提示词", source_prompt)
             trace.note("合并后提示词", merged)
             trace.note(
@@ -318,20 +317,12 @@ class BestNAIPlugin(Star):
             },
         )
 
-        # 反推和翻译同时发起：两边都是几秒级的网络请求，串着跑等于白等一倍。
-        # hint 必须在这一步就翻成英文——留着中文拼进 prompt，生成阶段
-        # has_chinese() 会命中，把「中文 hint + 几十个英文 tag」整串再翻一遍。
-        # 视觉模型那边照旧收原始中文 hint，中文引导对反推结果本身更准。
+        # The vision/tagger provider is the only retag request. It receives the
+        # original hint so it can use it while extracting visual tags.
         try:
-            prompt, english_hint = await asyncio.gather(
-                trace.timed(
-                    "反推",
-                    self.image_retagger.retag(image_path, user_hint=user_hint),
-                ),
-                trace.timed(
-                    "翻译手写提示词",
-                    self._translate_canvas_hint(user_hint),
-                ),
+            prompt = await trace.timed(
+                "反推",
+                self.image_retagger.retag(image_path, user_hint=user_hint),
             )
         except ImageRetagError as exc:
             raise ValueError(str(exc)) from exc
@@ -340,16 +331,7 @@ class BestNAIPlugin(Star):
             raise ValueError("图片反推结果为空")
 
         trace.note("反推 tags", prompt)
-        trace.note("手写提示词译文", english_hint or "(空)")
-
-        # 用户手写的那几个词要盖过几十个反推 tag，否则会被淹没
-        weighted_hint = apply_prompt_weight(english_hint)
-
-        if weighted_hint and weighted_hint != english_hint:
-            prompt = f"{weighted_hint}, {prompt}"
-
-        trace.note("加权后提示词", weighted_hint or "(空)")
-        trace.note("合并后提示词", prompt)
+        trace.note("手写提示词", user_hint or "(空)")
 
         ratio = ""
         try:
@@ -440,7 +422,7 @@ class BestNAIPlugin(Star):
         translated_prompt = ""
         working_prompt = clean_prompt
 
-        trace = DebugTrace("canvas.generate", self.plugin_config.debug_mode)
+        trace = DebugTrace("canvas.generate", bool(payload.get("debug")))
         trace.note("输入提示词", prompt)
 
         if has_chinese(clean_prompt):
