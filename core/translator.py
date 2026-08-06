@@ -248,12 +248,16 @@ class PromptTranslator:
         self.config = config
         self.context = context
         self.timeout = 60
+        # translate() 失败时不抛异常，把最后一次异常留在这里，供上层拼失败原因
+        self.last_error: Optional[Exception] = None
 
     async def translate(self, text: str, danbooru_api_url: str = "") -> str:
         """将中文描述翻译为英文提示词。
 
         失败时返回原文，由上层逻辑决定是否中断。
         """
+
+        self.last_error = None
 
         if not self.config.enabled:
             return text
@@ -294,6 +298,8 @@ class PromptTranslator:
             logger.warning(f"[BestNAI] 翻译最终失败，使用原文: {last_error}")
         except Exception:
             pass
+
+        self.last_error = last_error
 
         return text
 

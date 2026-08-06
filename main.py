@@ -20,6 +20,8 @@ from .constants import (
     PLUGIN_REPO,
     PLUGIN_VERSION,
 )
+from .core.api_errors import describe_api_error
+from .core.debug_trace import DebugTrace
 from .core.generator import (
     APIKeyError,
     GenerationError,
@@ -65,8 +67,9 @@ FIXED_MODEL = "nai-diffusion-4-5-full"
 SAFETY_BLOCK_REPLY = "⚠️ 未能通过安全检测，已拦截"
 
 # 画布可手动调节的生图参数范围
+# 步数上限锁在 28：NovelAI 的免费额度只在 ≤28 步时生效，超过就开始扣 Anlas。
 MIN_STEPS = 1
-MAX_STEPS = 50
+MAX_STEPS = 28
 MIN_SCALE = 1.0
 MAX_SCALE = 10.0
 
@@ -118,6 +121,7 @@ class BestNAIPlugin(Star):
         self.image_retagger = ImageRetagger(
             self.plugin_config.image_retag,
             context=self.context,
+            debug=self.plugin_config.debug_mode,
         )
 
         self._generation_semaphore = asyncio.Semaphore(
@@ -221,42 +225,83 @@ class BestNAIPlugin(Star):
             "retagEnabled": self.plugin_config.image_retag.enabled,
             "retagConfigured": self.plugin_config.image_retag.enabled
             and self.plugin_config.image_retag.is_configured(),
+            "debugMode": self.plugin_config.debug_mode,
         }
+
+    def _with_debug(
+        self,
+        trace: DebugTrace,
+        result: Dict[str, object],
+    ) -> Dict[str, object]:
+        """调试模式下把流水挂进返回体，同时原样打一份到后端日志。
+
+        关着开关时 payload() 是 None，返回体一个字段都不多，接口保持原样。
+        """
+        debug = trace.payload()
+
+        if debug is None:
+            return result
+
+        logger.info(trace.log_text())
+        result["debug"] = debug
+
+        return result
 
     async def _canvas_retag(
         self,
         image_path: str,
         user_hint: str,
-        keep_character: bool,
-        character_name: str,
     ) -> Dict[str, object]:
         retag_config = self.plugin_config.image_retag
+        trace = DebugTrace("canvas.retag", self.plugin_config.debug_mode)
+        trace.note("手写提示词", user_hint or "(空)")
 
         # 先看图片自带的 NovelAI 生成参数。命中就不必让视觉模型猜了，
         # 原始 prompt 和种子一起用能真正还原这张图。
         # 注意元数据只存在于未经重编码的原始 PNG 里。
-        source_info = await asyncio.to_thread(read_image_generation_info, image_path)
+        with trace.stage("读原图内嵌参数"):
+            source_info = await asyncio.to_thread(read_image_generation_info, image_path)
+
         source_seed = source_info.get("seed")
         source_prompt = str(source_info.get("prompt") or "").strip()
-
-        weighted_hint = apply_prompt_weight(user_hint)
 
         if source_seed and source_prompt:
             logger.info(
                 f"[BestNAI/Canvas] 图片自带 NovelAI 参数，直接复用：seed={source_seed}"
             )
 
+            english_hint = await trace.timed(
+                "翻译手写提示词",
+                self._translate_canvas_hint(user_hint),
+            )
+            weighted_hint = apply_prompt_weight(english_hint)
             merged = ", ".join(part for part in (source_prompt, weighted_hint) if part)
 
-            return {
-                "prompt": merged,
-                "ratio": self._ratio_from_generation_info(source_info, image_path),
-                "seed": source_seed,
-                "sourcePrompt": source_prompt,
-                "fromMetadata": True,
-                "steps": source_info.get("steps"),
-                "scale": source_info.get("scale"),
-            }
+            trace.note("走的分支", "命中原图内嵌参数，未调用视觉模型")
+            trace.note("手写提示词译文", english_hint or "(空)")
+            trace.note("原图内嵌提示词", source_prompt)
+            trace.note("合并后提示词", merged)
+            trace.note(
+                "原图内嵌参数",
+                {
+                    "seed": source_seed,
+                    "steps": source_info.get("steps"),
+                    "scale": source_info.get("scale"),
+                },
+            )
+
+            return self._with_debug(
+                trace,
+                {
+                    "prompt": merged,
+                    "ratio": self._ratio_from_generation_info(source_info, image_path),
+                    "seed": source_seed,
+                    "sourcePrompt": source_prompt,
+                    "fromMetadata": True,
+                    "steps": source_info.get("steps"),
+                    "scale": source_info.get("scale"),
+                },
+            )
 
         if not retag_config.enabled:
             raise ValueError("图片反推功能未开启，请先在插件配置中启用")
@@ -264,12 +309,29 @@ class BestNAIPlugin(Star):
         if not retag_config.is_configured():
             raise ValueError("图片反推功能未配置，请选择支持视觉输入的提供商")
 
+        trace.note("走的分支", "原图无内嵌参数，调用视觉模型反推")
+        trace.note(
+            "反推提供商",
+            {
+                "provider": retag_config.provider_id or "(手动配置)",
+                "model": retag_config.model or "(默认)",
+            },
+        )
+
+        # 反推和翻译同时发起：两边都是几秒级的网络请求，串着跑等于白等一倍。
+        # hint 必须在这一步就翻成英文——留着中文拼进 prompt，生成阶段
+        # has_chinese() 会命中，把「中文 hint + 几十个英文 tag」整串再翻一遍。
+        # 视觉模型那边照旧收原始中文 hint，中文引导对反推结果本身更准。
         try:
-            prompt = await self.image_retagger.retag(
-                image_path,
-                user_hint=user_hint,
-                keep_character=keep_character,
-                character_name=character_name,
+            prompt, english_hint = await asyncio.gather(
+                trace.timed(
+                    "反推",
+                    self.image_retagger.retag(image_path, user_hint=user_hint),
+                ),
+                trace.timed(
+                    "翻译手写提示词",
+                    self._translate_canvas_hint(user_hint),
+                ),
             )
         except ImageRetagError as exc:
             raise ValueError(str(exc)) from exc
@@ -277,9 +339,17 @@ class BestNAIPlugin(Star):
         if not prompt:
             raise ValueError("图片反推结果为空")
 
+        trace.note("反推 tags", prompt)
+        trace.note("手写提示词译文", english_hint or "(空)")
+
         # 用户手写的那几个词要盖过几十个反推 tag，否则会被淹没
-        if weighted_hint and weighted_hint != user_hint:
+        weighted_hint = apply_prompt_weight(english_hint)
+
+        if weighted_hint and weighted_hint != english_hint:
             prompt = f"{weighted_hint}, {prompt}"
+
+        trace.note("加权后提示词", weighted_hint or "(空)")
+        trace.note("合并后提示词", prompt)
 
         ratio = ""
         try:
@@ -288,12 +358,43 @@ class BestNAIPlugin(Star):
         except Exception as exc:
             logger.warning(f"[BestNAI/Canvas] 读取反推原图比例失败: {exc}")
 
-        return {
-            "prompt": prompt,
-            "ratio": ratio,
-            "seed": source_seed,
-            "fromMetadata": False,
-        }
+        trace.note("推断比例", ratio or "(未识别)")
+
+        return self._with_debug(
+            trace,
+            {
+                "prompt": prompt,
+                "ratio": ratio,
+                "seed": source_seed,
+                "fromMetadata": False,
+            },
+        )
+
+    async def _translate_canvas_hint(self, hint: str) -> str:
+        """把画布上手写的中文提示词翻成英文，翻不了就原样返回。
+
+        这里不报错：翻译器没开 / 没配时，原文会一路带到生成阶段，
+        由那边给出「请先启用翻译器」之类的明确提示，行为和以前一致。
+        """
+        hint = (hint or "").strip()
+
+        if not hint or not has_chinese(hint):
+            return hint
+
+        try:
+            translated, reason = await self._translate_prompt_with_reason(
+                hint,
+                apply_safety_filter=False,
+            )
+        except Exception as exc:
+            logger.warning(f"[BestNAI/Canvas] 反推附带的提示词翻译失败，保留原文: {exc}")
+            return hint
+
+        if not translated:
+            logger.warning(f"[BestNAI/Canvas] 反推附带的提示词未译出，保留原文: {reason}")
+            return hint
+
+        return translated
 
     def _ratio_from_generation_info(
         self,
@@ -339,6 +440,9 @@ class BestNAIPlugin(Star):
         translated_prompt = ""
         working_prompt = clean_prompt
 
+        trace = DebugTrace("canvas.generate", self.plugin_config.debug_mode)
+        trace.note("输入提示词", prompt)
+
         if has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
@@ -348,25 +452,40 @@ class BestNAIPlugin(Star):
                     str(payload.get("cachedTranslation") or ""),
                 )
             )
+            trace.note("送翻译的原文", translation_source or "(空)")
+            trace.note(
+                "翻译来源",
+                "复用节点缓存" if translated_source else "本次调用翻译接口",
+            )
             if not translated_source:
                 tr_cfg = self.plugin_config.translator
                 if not tr_cfg.enabled:
                     raise ValueError("检测到中文提示词，请先在插件配置中启用翻译器")
                 if not tr_cfg.is_configured():
                     raise ValueError("翻译器未配置，请选择翻译提供商")
-                translated_source = await self._translate_prompt(
-                    translation_source,
-                    apply_safety_filter=False,
-                ) or ""
+                with trace.stage("翻译"):
+                    translated_source, failure_reason = (
+                        await self._translate_prompt_with_reason(
+                            translation_source,
+                            apply_safety_filter=False,
+                        )
+                    )
+                translated_source = translated_source or ""
+                if not translated_source:
+                    raise ValueError(failure_reason or "提示词翻译失败，请检查翻译提供商")
             if not translated_source:
                 raise ValueError("提示词翻译失败，请检查翻译提供商")
             translated_prompt = ", ".join(
                 part for part in (translated_source, untranslated_suffix) if part
             )
             working_prompt = translated_prompt
+            trace.note("翻译结果", translated_source)
+            if untranslated_suffix:
+                trace.note("未参与翻译的英文部分", untranslated_suffix)
         else:
             translation_source = ""
             translated_source = ""
+            trace.note("翻译", "提示词无中文，未走翻译")
 
         try:
             gen_config = self.prompt_builder.build_generation_config(
@@ -409,34 +528,57 @@ class BestNAIPlugin(Star):
         if not final_prompt:
             raise ValueError("提示词清理后为空")
 
-        async with self._generation_semaphore:
-            result = await self.generator.generate(
-                final_prompt,
-                gen_config,
-                seed=payload.get("seed"),
-            )
+        trace.note("画师预设", resolved_artist_name or ("原始提示词模式" if raw_mode else "(无)"))
+        trace.note("最终提示词", final_prompt)
+        trace.note(
+            "生图请求参数",
+            {
+                "model": FIXED_MODEL,
+                "width": gen_config.width,
+                "height": gen_config.height,
+                "steps": gen_config.steps,
+                "scale": gen_config.scale,
+                "seed": payload.get("seed") or "(随机)",
+                "raw": raw_mode,
+            },
+        )
 
-        return result.images, {
-            "sourcePrompt": prompt,
-            "cleanPrompt": clean_prompt,
-            "translatedPrompt": translated_prompt,
-            "translationSource": translation_source,
-            "translationResult": translated_source,
-            "finalPrompt": final_prompt,
-            "ratio": self._display_ratio_label(
-                ratio,
-                gen_config.width,
-                gen_config.height,
-            ),
-            "width": gen_config.width,
-            "height": gen_config.height,
-            "artist": resolved_artist_name,
-            "raw": raw_mode,
-            "model": FIXED_MODEL,
-            "seed": result.seed,
-            "steps": gen_config.steps,
-            "scale": gen_config.scale,
-        }
+        # 信号量占用也算进耗时：并发满了在这儿排队，用户看到的就是"生图很慢"
+        with trace.stage("生图"):
+            async with self._generation_semaphore:
+                result = await self.generator.generate(
+                    final_prompt,
+                    gen_config,
+                    seed=payload.get("seed"),
+                )
+
+        trace.note("返回种子", result.seed)
+        trace.note("返回图片数", len(result.images))
+
+        return result.images, self._with_debug(
+            trace,
+            {
+                "sourcePrompt": prompt,
+                "cleanPrompt": clean_prompt,
+                "translatedPrompt": translated_prompt,
+                "translationSource": translation_source,
+                "translationResult": translated_source,
+                "finalPrompt": final_prompt,
+                "ratio": self._display_ratio_label(
+                    ratio,
+                    gen_config.width,
+                    gen_config.height,
+                ),
+                "width": gen_config.width,
+                "height": gen_config.height,
+                "artist": resolved_artist_name,
+                "raw": raw_mode,
+                "model": FIXED_MODEL,
+                "seed": result.seed,
+                "steps": gen_config.steps,
+                "scale": gen_config.scale,
+            },
+        )
 
     @staticmethod
     def _clamp_steps(value: object, default: int) -> int:
@@ -1273,15 +1415,36 @@ class BestNAIPlugin(Star):
 
         翻译失败，或启用过滤后结果为空时返回 None。
         """
+        translated, _ = await self._translate_prompt_with_reason(
+            text,
+            apply_safety_filter=apply_safety_filter,
+        )
+
+        return translated
+
+    async def _translate_prompt_with_reason(
+        self,
+        text: str,
+        apply_safety_filter: bool = True,
+    ) -> Tuple[Optional[str], str]:
+        """同 _translate_prompt，另外返回一句能直接展示给用户的失败原因。
+
+        原因为空串表示翻译成功。translate() 把上游异常吞掉、只返回原文，
+        所以原因得从 translator.last_error 取：否则用户只看到「翻译失败」，
+        分不清是被审核拦了、Key 过期了，还是余额没了。
+        """
         text = (text or "").strip()
 
         if not text:
-            return None
+            return None, ""
 
         tr_cfg = self.plugin_config.translator
 
-        if not tr_cfg.enabled or not tr_cfg.is_configured():
-            return None
+        if not tr_cfg.enabled:
+            return None, "检测到中文提示词，请先在插件配置中启用翻译器"
+
+        if not tr_cfg.is_configured():
+            return None, "翻译器未配置，请选择翻译提供商"
 
         translator = PromptTranslator(tr_cfg, context=self.context)
 
@@ -1291,7 +1454,14 @@ class BestNAIPlugin(Star):
         )
 
         if not translated or has_chinese(translated):
-            return None
+            if translator.last_error is not None:
+                return None, describe_api_error(
+                    str(translator.last_error),
+                    "提示词翻译",
+                    self.plugin_config.debug_mode,
+                )
+
+            return None, "翻译服务返回的仍然是中文，请检查翻译提供商选用的模型"
 
         if apply_safety_filter:
             translated_check = self.safety.check_prompt(translated)
@@ -1303,9 +1473,9 @@ class BestNAIPlugin(Star):
                 translated = translated_check.filtered_prompt
 
         if not translated:
-            return None
+            return None, "翻译结果被安全过滤清空了，请换个说法再试"
 
-        return translated
+        return translated, ""
 
     async def _send_images(
         self,

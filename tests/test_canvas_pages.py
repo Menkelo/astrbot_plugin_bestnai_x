@@ -40,11 +40,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
-            'targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")',
+            'targetElement?.closest(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
             editor,
         )
         self.assertIn(
-            'document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")',
+            'document.activeElement?.closest?.(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
             editor,
         )
         self.assertIn(".prompt-text {", styles)
@@ -76,34 +76,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function attachNodeResize", editor)
         self.assertIn("function attachImageNodeResize", editor)
         self.assertIn("userResized: true", editor)
-        self.assertIn("translatedPromptExpanded", editor)
-        self.assertIn("promptCollapsedHeight", editor)
-        self.assertIn("promptEditorHeight", editor)
-        self.assertIn("promptEditorHeightUnit", editor)
-        self.assertIn("const promptEditorHeight = prompt.offsetHeight", editor)
-        self.assertIn('--prompt-editor-height', editor)
-        self.assertIn(".prompt-node.translated-expanded .prompt-text", styles)
-        self.assertIn(".prompt-node.translated-expanded .node-body", styles)
-        expanded_body = styles.split(
-            ".prompt-node.translated-expanded .node-body {", 1
-        )[1].split("}", 1)[0]
-        # 展开时 body 也必须跟着卡片高度走，内容撑开会画到卡片外面
-        self.assertIn("flex: 1 1 auto;", expanded_body)
-        expanded_prompt = styles.split(
-            ".prompt-node.translated-expanded .prompt-text {", 1
-        )[1].split("}", 1)[0]
-        # 记忆高度保留，但允许在卡片被缩小时压缩
-        self.assertIn("var(--prompt-editor-height, 132px)", expanded_prompt)
-        self.assertIn("flex: 0 1 ", expanded_prompt)
-        self.assertIn("min-height: 0;", expanded_prompt)
-        self.assertIn("function fitExpandedPromptNode", editor)
-        self.assertIn("const naturalHeight = Math.ceil(element.scrollHeight)", editor)
-        self.assertIn("const nextHeight = clamp(naturalHeight, 300, 800)", editor)
-        self.assertNotIn("Math.max(Number(collapsedHeight)", editor)
-        self.assertNotIn("const minimumHeight =", editor)
-        self.assertNotIn("590 : 490", editor)
-        self.assertIn("previousMeta.promptCollapsedHeight || 360", editor)
-        self.assertIn('element.classList.toggle("translated-expanded", expanded)', editor)
+        # 英文 tags 折叠面板已移除，随之而来的展开态布局问题一并消失
+        self.assertNotIn("translatedPromptExpanded", editor)
+        self.assertNotIn("translated-expanded", styles)
+        self.assertNotIn("translated-prompt-panel", styles)
+        self.assertNotIn("--prompt-editor-height", editor)
         self.assertIn('? 450 : 300', editor)
         self.assertIn("min-height: 450px;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn("resize: none;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
@@ -168,7 +145,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertNotIn("retagPrompt: _retagPrompt", prompt_input)
         self.assertIn("translationSource: _translationSource", prompt_input)
-        self.assertIn('translatedSummary.textContent = "英文 tags"', editor)
+        # 英文 tags 只读框已删除，但翻译结果仍要留在 meta 里供复用
+        self.assertNotIn("translated-prompt-text", editor)
         self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
         self.assertIn("cachedTranslationSource: node.meta?.translationSource", editor)
         self.assertIn("cachedTranslation: node.meta?.translationResult", editor)
@@ -179,13 +157,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertNotIn("node.ratio = result.ratio", retag_body)
         self.assertIn('"正在复用英文 tags 并生成图片…"', editor)
-        self.assertIn('document.createTextNode("角色保持")', editor)
-        self.assertIn('characterName.placeholder = "角色名（可选）"', editor)
-        self.assertIn("characterRow.hidden = !sourceImage", editor)
-        self.assertIn(".character-keep-row[hidden]", styles)
-        self.assertIn("const keepCharacter = !!node.meta?.characterKeep", editor)
-        self.assertIn("keepCharacter,", editor)
-        self.assertIn("character_name if keep_character else", service)
         self.assertNotIn('label: "不使用画师预设"', editor)
         self.assertIn('if (node.artist === "__none__") node.artist = ""', editor)
         self.assertIn('bridge.apiPost("canvas/library/image/delete"', editor)
@@ -276,8 +247,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("object-fit: contain;", styles)
         self.assertIn("object-fit: cover;", styles)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", styles)
-        self.assertIn("grid-auto-rows: var(--asset-card-height", styles)
-        self.assertIn("function updateAssetGridMetrics()", editor)
+        # 三列对齐靠 CSS 自己算：卡片正方形、左右留一样的边、缩略图脱离文档流
+        self.assertIn("aspect-ratio: 1;", styles)
+        self.assertIn("padding: 0 3px;", styles)
+        self.assertNotIn("--asset-card-height", styles)
+        self.assertNotIn("updateAssetGridMetrics", editor)
         self.assertIn("function alignAssetPanel()", editor)
         self.assertIn("function alignedPanelEdges()", editor)
         self.assertIn("buttonRect.left", editor)
@@ -542,7 +516,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'els.viewport.addEventListener("wheel"', 1
         )[0]
         self.assertIn(".prompt-text", wheel_owner)
-        self.assertIn(".translated-prompt-text", wheel_owner)
         self.assertIn(".note-text", wheel_owner)
         self.assertIn('.closest(".node.selected")', wheel_owner)
         wheel_body = editor.split('els.viewport.addEventListener("wheel"', 1)[1].split(
@@ -550,10 +523,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertIn("nodeEditorOwnsWheel(event.target)", wheel_body)
         prompt_styles = styles.split(".prompt-text {\n  min-height:", 1)[1].split("}", 1)[0]
-        translated_styles = styles.split(".translated-prompt-text {", 1)[1].split("}", 1)[0]
         self.assertIn("overflow-y: auto;", prompt_styles)
         self.assertIn("overscroll-behavior: contain;", prompt_styles)
-        self.assertIn("overflow-y: auto;", translated_styles)
         logo_styles = styles.split(".canvas-mark {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 999px;", logo_styles)
 
@@ -603,7 +574,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 底部四块都不参与压缩，不会被挤出卡片
         for selector in (
             ".prompt-options {",
-            ".character-keep-row {",
             ".node-footer {",
             ".node-status {",
         ):
@@ -619,13 +589,42 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere;", status_styles)
 
         # 展开英文 tags 后缩小卡片同样不能溢出：面板和只读框都要可压缩
-        panel_styles = styles.split(".translated-prompt-panel {", 1)[1].split("}", 1)[0]
-        self.assertIn("flex: 0 1 auto;", panel_styles)
-        self.assertIn("min-height: 0;", panel_styles)
-        self.assertIn("overflow: hidden;", panel_styles)
-        translated_styles = styles.split(".translated-prompt-text {", 1)[1].split("}", 1)[0]
-        self.assertIn("min-height: 0;", translated_styles)
-        self.assertIn("flex: 0 1 auto;", translated_styles)
+        advanced_styles = styles.split(".prompt-advanced {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 0 auto;", advanced_styles)
+        self.assertIn("min-height: 0;", advanced_styles)
+
+    def test_generation_does_not_interrupt_prompt_typing(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 生成完成会重渲染，整层 replaceChildren 把焦点和光标一起清掉
+        self.assertIn("function captureEditingFocus", editor)
+        self.assertIn("function restoreEditingFocus", editor)
+        render_nodes = editor.split("function renderNodes() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("const editing = captureEditingFocus();", render_nodes)
+        self.assertIn("restoreEditingFocus(editing);", render_nodes)
+        self.assertLess(
+            render_nodes.index("const editing = captureEditingFocus();"),
+            render_nodes.index("els.nodeLayer.replaceChildren();"),
+        )
+        self.assertIn("field.setSelectionRange(snapshot.start, snapshot.end)", editor)
+
+        # 输入法组字期间连重建都不能做，光标恢复救不回未上屏的内容
+        self.assertIn("setupCompositionGuard();", editor)
+        render_all = editor.split("function renderAll() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("if (state.composing) {", render_all)
+        self.assertIn("state.renderPending = true;", render_all)
+        guard = editor.split("function setupCompositionGuard() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn('"compositionstart"', guard)
+        self.assertIn('"compositionend"', guard)
+        # 组字中途节点被移除不会有 compositionend，靠 focusout 兜底
+        self.assertIn('"focusout"', guard)
+        self.assertIn("if (state.renderPending) renderAll();", guard)
 
     def test_plugin_version_has_no_hardcoded_fallback(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
@@ -688,31 +687,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("position: fixed;", menu_styles)
         self.assertIn("border-radius: 18px;", menu_styles)
 
-    def test_character_preservation_guides_visual_retagging(self) -> None:
+    def test_character_preservation_is_removed(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")
-        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
-        self.assertIn("keep_character: bool = False", retagger)
-        self.assertIn("character_name: str =", retagger)
-        self.assertIn("canonical Danbooru character tag", retagger)
-        self.assertIn("keep_character=keep_character", main)
+        # 角色保持已由种子方案取代，前后端都不该再有残留
+        for text in ("keep_character", "character_name"):
+            with self.subTest(backend=text):
+                self.assertNotIn(text, retagger)
+        for text in ("characterKeep", "characterName", "keepCharacter"):
+            with self.subTest(frontend=text):
+                self.assertNotIn(text, editor)
+        self.assertNotIn(".character-keep-row", styles)
+        self.assertNotIn("keepCharacter", service)
 
-        # 角色识别是固定的第一步，不依赖 keep_character 开关
-        system_prompt = retagger.split("system_prompt = (", 1)[1].split(
-            "if keep_character:", 1
-        )[0]
-        self.assertIn("Step 1 - Identify the character", system_prompt)
-        self.assertIn("Step 2 - Describe the image", system_prompt)
-        self.assertIn('"character"', system_prompt)
-        self.assertIn('"series"', system_prompt)
-        self.assertIn('"tags"', system_prompt)
-        # 不确定时必须留空，不能猜
-        self.assertIn("Never guess and never invent an identity", system_prompt)
-
-        # 解析与拼装由独立函数负责，便于在 tests/test_image_retagger.py 覆盖
-        self.assertIn("def parse_retag_response", retagger)
-        self.assertIn("def compose_retag_prompt", retagger)
-        self.assertIn("character, series, tags = parse_retag_response(", retagger)
+        # 角色识别本身保留：那是反推提示词的固定第一步
+        self.assertIn("Step 1 - Identify the character", retagger)
 
     def test_qq_retag_uses_detailed_retag_progress(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")

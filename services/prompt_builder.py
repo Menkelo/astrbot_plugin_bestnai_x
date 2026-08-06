@@ -22,6 +22,13 @@ RETAG_USER_PROMPT_WEIGHT = 1.3
 def apply_prompt_weight(text: str, weight: float = RETAG_USER_PROMPT_WEIGHT) -> str:
     """用 NovelAI 数值语法给一段提示词整体加权。
 
+    官方格式：权重数字紧贴 `::` 开头，用不带数字的 `::` 收尾，例如
+    `1girl, 1.5::rain, night ::, 0.5::coat ::, black shoes`。
+    仅 V4 及以上模型支持，本插件固定 nai-diffusion-4-5-full，可用。
+
+    收尾的 `::` 前必须留一个空格：内容若以数字结尾（例如 `year 2025`），
+    写成 `year 2025::` 会被解析成"权重 2025 的新段落"。
+
     反推产出的 tags 往往几十个，用户自己写的那几个词会被淹没。
     加权后它们在最终 prompt 里的影响力才和"用户主动要求"相称。
 
@@ -40,11 +47,11 @@ def apply_prompt_weight(text: str, weight: float = RETAG_USER_PROMPT_WEIGHT) -> 
     if not (value > 1.0):
         return content
 
-    # 已经带了数值权重就不再套一层，避免 1.3::1.3::xxx::::
-    if re.match(r"^\d+(?:\.\d+)?::", content) and content.endswith("::"):
+    # 已经带了数值权重就不再套一层，避免 1.3::1.3::xxx :: ::
+    if re.match(r"^-?\d+(?:\.\d+)?::", content) and content.endswith("::"):
         return content
 
-    return f"{value:g}::{content}::"
+    return f"{value:g}::{content} ::"
 
 
 def cleanup_file(file_path: str) -> None:

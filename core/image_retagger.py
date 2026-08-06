@@ -11,6 +11,8 @@ import aiohttp
 
 from astrbot.api import logger
 
+from .api_errors import describe_api_error
+
 
 class ImageRetagError(Exception):
     pass
@@ -363,17 +365,16 @@ def _extract_chat_content(data: Any) -> str:
 
 
 class ImageRetagger:
-    def __init__(self, config, context) -> None:
+    def __init__(self, config, context, debug: bool = False) -> None:
         self.config = config
         self.context = context
         self.timeout = 180
+        self.debug = debug
 
     async def retag(
         self,
         image_path_or_url: str,
         user_hint: str = "",
-        keep_character: bool = False,
-        character_name: str = "",
     ) -> str:
         provider_id = getattr(self.config, "provider_id", "") or ""
 
@@ -429,14 +430,6 @@ class ImageRetagger:
             "Do not output Chinese, Japanese, emoji, or non-ASCII characters."
         )
 
-        if keep_character:
-            system_prompt += (
-                "\n\nCharacter identity preservation is required for this request. "
-                "Put extra effort into step 1, and preserve distinctive visible traits "
-                "in the tags so the identity survives regeneration. "
-                "This still does not permit guessing an identity you are unsure of."
-            )
-
         user_text = (
             "Convert this image into NovelAI / Danbooru image generation tags. "
             "Return the JSON object described in the system prompt."
@@ -444,16 +437,6 @@ class ImageRetagger:
 
         if user_hint:
             user_text += f"\nAdditional user hint to merge into the tag result: {user_hint}"
-
-        if keep_character:
-            clean_character_name = str(character_name or "").strip()[:120]
-            if clean_character_name:
-                user_text += (
-                    f"\nThe user says this is: {clean_character_name}. "
-                    "Verify it against the image. If it matches, use its canonical "
-                    "Danbooru character and series tags. If the image clearly does not "
-                    "match, ignore the supplied name and follow what you actually see."
-                )
 
         payload: Dict[str, Any] = {
             "model": model,
@@ -505,7 +488,12 @@ class ImageRetagger:
 
                     if resp.status < 200 or resp.status >= 300:
                         message = _extract_error_message(text)
-                        raise ImageRetagError(message)
+                        logger.warning(
+                            f"[BestNAI/ImageRetag] 接口返回 {resp.status}: {text[:500]}"
+                        )
+                        raise ImageRetagError(
+                            describe_api_error(message, "图片反推", self.debug)
+                        )
 
                     try:
                         data = json.loads(text)

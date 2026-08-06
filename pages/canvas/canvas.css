@@ -158,95 +158,6 @@ select:focus-visible,
   display: none;
 }
 
-/* 生图参数面板：与项目菜单同一套视觉语言 */
-.gen-settings-panel {
-  position: fixed;
-  z-index: 70;
-  display: flex;
-  width: min(268px, calc(100vw - 24px));
-  flex-direction: column;
-  gap: 10px;
-  padding: 13px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--card-solid);
-  box-shadow: 0 22px 56px rgba(15, 23, 42, .16);
-}
-
-.gen-settings-panel[hidden] {
-  display: none;
-}
-
-.gen-settings-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.gen-settings-head strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.gen-settings-head span {
-  color: var(--faint);
-  font-size: 9.5px;
-}
-
-.gen-settings-row {
-  display: grid;
-  align-items: center;
-  gap: 4px 10px;
-  grid-template-columns: 52px minmax(0, 1fr);
-}
-
-.gen-settings-label {
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 700;
-}
-
-.gen-settings-row input {
-  width: 100%;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  outline: none;
-  background: var(--card-solid);
-  color: var(--text);
-  font-size: 11.5px;
-}
-
-.gen-settings-row input:focus {
-  border-color: var(--line-2);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
-}
-
-.gen-settings-hint {
-  color: var(--faint);
-  font-size: 9px;
-  grid-column: 2;
-}
-
-.gen-settings-reset {
-  height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--card-solid);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 10.5px;
-  font-weight: 700;
-}
-
-.gen-settings-reset:hover {
-  border-color: var(--line-2);
-  color: var(--text);
-}
-
 .canvas-context-menu {
   position: fixed;
   z-index: 95;
@@ -910,17 +821,19 @@ select:focus-visible,
   flex-direction: column;
 }
 
-/* 展开英文 tags 时给编辑框一个记忆高度，但仍允许在卡片被缩小时让出空间。
-   用 0 1 而不是 0 0：不主动长高，需要时可以压缩。 */
-.prompt-node.translated-expanded .prompt-text {
-  height: var(--prompt-editor-height, 132px);
-  min-height: 0;
-  flex: 0 1 var(--prompt-editor-height, 132px);
+/* 展开高级选项要多占约 90px。卡片可以被拖到 300px，那时输入框已经缩到底，
+   多出来的部分会被 node-body 裁掉，状态行直接看不见——所以展开期间抬高下限 */
+.prompt-node.advanced-open {
+  min-height: 360px;
 }
 
-/* node-body 必须跟着卡片走，否则内容撑开后会画到卡片外面 */
-.prompt-node.translated-expanded .node-body {
-  flex: 1 1 auto;
+/* 调试面板同理，它比高级选项还高一截 */
+.prompt-node.debug-open {
+  min-height: 460px;
+}
+
+.prompt-node.advanced-open.debug-open {
+  min-height: 550px;
 }
 
 .prompt-node .node-body {
@@ -1052,91 +965,6 @@ select:focus-visible,
 .raw-toggle:focus-within::after {
   opacity: 1;
   transform: translateY(0);
-}
-
-.character-keep-row {
-  display: flex;
-  min-width: 0;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
-  margin-top: 9px;
-}
-
-.character-keep-row[hidden] {
-  display: none;
-}
-
-.character-toggle {
-  flex: 0 0 auto;
-}
-
-.character-name-input {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  outline: none;
-  background: var(--card-solid);
-  color: var(--text);
-  font-size: 10.5px;
-  -webkit-user-select: text;
-  user-select: text;
-}
-
-.character-name-input:focus {
-  border-color: var(--line-2);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
-}
-
-.character-name-input:disabled {
-  cursor: not-allowed;
-  opacity: .52;
-}
-
-.translated-prompt-panel {
-  display: flex;
-  min-height: 0;
-  flex: 0 1 auto;
-  flex-direction: column;
-  margin-top: 9px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--soft);
-}
-
-.translated-prompt-panel summary {
-  padding: 8px 10px;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 10.5px;
-  font-weight: 800;
-  list-style-position: inside;
-}
-
-.translated-prompt-text {
-  display: block;
-  width: calc(100% - 16px);
-  height: 88px;
-  min-height: 0;
-  flex: 0 1 auto;
-  margin: 0 8px 8px;
-  padding: 9px 10px;
-  resize: none;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  outline: none;
-  background: var(--card-solid);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.55;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-user-select: text;
-  user-select: text;
 }
 
 .node-commands {
@@ -1812,12 +1640,14 @@ select:focus-visible,
 .asset-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: var(--asset-card-height, 112px);
+  /* 行高由卡片自己的 aspect-ratio 决定，不再靠 JS 量宽度算高度 */
+  grid-auto-rows: auto;
   min-height: 0;
   flex: 1;
   align-content: start;
   gap: 8px;
-  padding-right: 3px;
+  /* 左右都留 3px：只留右边的话滚动条那侧会比左边宽一截，三列看着就偏了 */
+  padding: 0 3px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -1841,7 +1671,7 @@ select:focus-visible,
 
 .asset-grid.compact-layout .asset-image-card {
   display: flex;
-  height: var(--asset-card-height, 112px);
+  aspect-ratio: 1;
   flex-direction: column;
 }
 
@@ -1952,6 +1782,10 @@ select:focus-visible,
 }
 
 .asset-grid.compact-layout .asset-thumb img {
+  /* 脱离文档流：留在流里时 height:100% 会退化成 auto，竖图会把这一行撑到
+     一倍半高再被卡片裁掉，同一行三张图的缩放比例就对不上了 */
+  position: absolute;
+  inset: 0;
   object-fit: cover;
 }
 
@@ -2441,4 +2275,161 @@ select:focus-visible,
     animation-duration: .01ms !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* 提示词卡片的高级选项：迭代步数与引导系数 */
+.prompt-advanced {
+  min-height: 0;
+  flex: 0 0 auto;
+  margin-top: 9px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.prompt-advanced summary {
+  padding: 7px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.advanced-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 10px 9px;
+}
+
+.advanced-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.advanced-name {
+  color: var(--muted);
+  cursor: help;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.advanced-value {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.advanced-slider {
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+/* 调试面板：只有开了调试模式、且这个节点刚跑过才会出现 */
+.prompt-debug {
+  min-height: 0;
+  /* 不参与压缩：details 被压矮时内层不会跟着缩（Chromium 的 slot 挡在中间），
+     底部的复制按钮会被 overflow: hidden 切掉。让上面的文本框让位更稳 */
+  flex: 0 0 auto;
+  margin-top: 9px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.prompt-debug summary {
+  padding: 7px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+/* 流水想多长有多长，卡片高度是固定的，所以让它自己滚，别去撑卡片 */
+.debug-body {
+  max-height: 168px;
+  padding: 0 10px 9px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  user-select: text;
+}
+
+.debug-run + .debug-run {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.debug-run-head {
+  color: var(--text);
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.debug-stages {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.debug-error {
+  margin-top: 3px;
+  color: var(--danger);
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.debug-row {
+  display: flex;
+  margin-top: 4px;
+  gap: 6px;
+}
+
+.debug-key {
+  min-width: 74px;
+  flex: 0 0 74px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.debug-value {
+  flex: 1 1 auto;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.debug-copy {
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-solid);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.debug-copy:hover {
+  border-color: var(--line-2);
+  color: var(--text);
 }

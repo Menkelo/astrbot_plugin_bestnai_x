@@ -50,9 +50,6 @@
             <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
               <i data-lucide="scan"></i>
             </button>
-            <button class="tool-btn icon-only" id="genSettingsBtn" type="button" title="生图参数" aria-label="生图参数" aria-haspopup="dialog" aria-expanded="false" aria-controls="genSettingsPanel">
-              <i data-lucide="sliders-horizontal"></i>
-            </button>
             <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
               <i data-lucide="upload"></i>
             </button>
@@ -130,23 +127,6 @@
         <button id="cancelNewProjectBtn" class="project-menu-icon" type="button" title="取消" aria-label="取消"><i data-lucide="x"></i></button>
       </div>
       <div id="projectList" class="project-list"></div>
-    </div>
-    <div id="genSettingsPanel" class="gen-settings-panel" role="dialog" aria-label="生图参数" hidden>
-      <div class="gen-settings-head">
-        <strong>生图参数</strong>
-        <span>本画布全局生效</span>
-      </div>
-      <label class="gen-settings-row" for="genStepsInput">
-        <span class="gen-settings-label">步数</span>
-        <input id="genStepsInput" type="number" inputmode="numeric" step="1" />
-        <span id="genStepsHint" class="gen-settings-hint"></span>
-      </label>
-      <label class="gen-settings-row" for="genScaleInput">
-        <span class="gen-settings-label">引导系数</span>
-        <input id="genScaleInput" type="number" inputmode="decimal" step="0.1" />
-        <span id="genScaleHint" class="gen-settings-hint"></span>
-      </label>
-      <button id="genSettingsResetBtn" class="gen-settings-reset" type="button">恢复默认</button>
     </div>
     <div id="canvasContextMenu" class="canvas-context-menu" role="menu" aria-label="添加节点" hidden>
       <button id="contextAddImageBtn" type="button" role="menuitem"><i data-lucide="image-plus"></i><span>图片</span></button>

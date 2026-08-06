@@ -30,13 +30,6 @@ const els = {
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
   canvasMark: document.querySelector(".canvas-mark"),
-  genSettingsBtn: document.getElementById("genSettingsBtn"),
-  genSettingsPanel: document.getElementById("genSettingsPanel"),
-  genStepsInput: document.getElementById("genStepsInput"),
-  genScaleInput: document.getElementById("genScaleInput"),
-  genStepsHint: document.getElementById("genStepsHint"),
-  genScaleHint: document.getElementById("genScaleHint"),
-  genSettingsResetBtn: document.getElementById("genSettingsResetBtn"),
   connectionIndicator: document.getElementById("connectionIndicator"),
   undoBtn: document.getElementById("undoBtn"),
   redoBtn: document.getElementById("redoBtn"),
@@ -77,11 +70,10 @@ const state = {
     defaultArtist: "",
     retagEnabled: false,
     retagConfigured: false,
-    steps: { default: 28, min: 1, max: 50 },
+    debugMode: false,
+    steps: { default: 28, min: 1, max: 28 },
     scale: { default: 7, min: 1, max: 10 },
   },
-  // 步数与引导系数是画布全局设置，空值表示沿用后端默认
-  generation: { steps: null, scale: null },
   nodes: [],
   connections: [],
   viewport: { x: 160, y: 120, scale: 1 },
@@ -95,6 +87,8 @@ const state = {
   history: [],
   future: [],
   restoring: false,
+  composing: false,
+  renderPending: false,
   connectionDrag: null,
   minimapTransform: null,
   pendingUploadPoint: null,
@@ -614,96 +608,6 @@ function loadPromptDefaults(preferences = {}) {
     ratio: hasOptionValue(state.config.ratios, persisted.ratio) ? persisted.ratio : fallbackRatio,
     artist: normalizedArtistSelection(persisted.artist),
   };
-  state.generation = {
-    steps: clampGenValue(preferences.steps, state.config.steps, true),
-    scale: clampGenValue(preferences.scale, state.config.scale, false),
-  };
-  renderGenSettings();
-}
-
-// 空值表示"沿用后端默认"，所以不能简单地 || 成一个数字
-function clampGenValue(raw, bounds, isInt) {
-  const text = String(raw ?? "").trim();
-  if (!text) return null;
-  const parsed = isInt ? parseInt(text, 10) : parseFloat(text);
-  if (!Number.isFinite(parsed)) return null;
-  const min = Number(bounds?.min);
-  const max = Number(bounds?.max);
-  const lo = Number.isFinite(min) ? min : parsed;
-  const hi = Number.isFinite(max) ? max : parsed;
-  const clamped = Math.min(hi, Math.max(lo, parsed));
-  return isInt ? Math.round(clamped) : Math.round(clamped * 10) / 10;
-}
-
-function renderGenSettings() {
-  const steps = state.config.steps || {};
-  const scale = state.config.scale || {};
-  if (els.genStepsInput) {
-    els.genStepsInput.min = steps.min ?? 1;
-    els.genStepsInput.max = steps.max ?? 50;
-    els.genStepsInput.placeholder = `默认 ${steps.default ?? 28}`;
-    els.genStepsInput.value = state.generation.steps == null ? "" : state.generation.steps;
-  }
-  if (els.genScaleInput) {
-    els.genScaleInput.min = scale.min ?? 1;
-    els.genScaleInput.max = scale.max ?? 10;
-    els.genScaleInput.placeholder = `默认 ${scale.default ?? 7}`;
-    els.genScaleInput.value = state.generation.scale == null ? "" : state.generation.scale;
-  }
-  if (els.genStepsHint) {
-    els.genStepsHint.textContent = `${steps.min ?? 1}–${steps.max ?? 50}，留空用默认 ${steps.default ?? 28}`;
-  }
-  if (els.genScaleHint) {
-    els.genScaleHint.textContent = `${scale.min ?? 1}–${scale.max ?? 10}，留空用默认 ${scale.default ?? 7}`;
-  }
-}
-
-function setGenSettingsPanel(open) {
-  if (!els.genSettingsPanel || !els.genSettingsBtn) return;
-  els.genSettingsPanel.hidden = !open;
-  els.genSettingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
-  if (!open) return;
-  renderGenSettings();
-  const rect = els.genSettingsBtn.getBoundingClientRect();
-  const width = els.genSettingsPanel.offsetWidth || 268;
-  els.genSettingsPanel.style.top = `${rect.bottom + 8}px`;
-  els.genSettingsPanel.style.left = `${Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width))}px`;
-}
-
-function commitGenSetting(key, input, isInt) {
-  const bounds = state.config[key] || {};
-  const next = clampGenValue(input.value, bounds, isInt);
-  if (state.generation[key] === next) {
-    renderGenSettings();
-    return;
-  }
-  state.generation[key] = next;
-  renderGenSettings();
-  persistCanvasPreferences();
-}
-
-function setupGenSettings() {
-  if (!els.genSettingsBtn || !els.genSettingsPanel) return;
-  els.genSettingsBtn.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setGenSettingsPanel(els.genSettingsPanel.hidden);
-  });
-  els.genSettingsPanel.addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", () => setGenSettingsPanel(false));
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !els.genSettingsPanel.hidden) setGenSettingsPanel(false);
-  });
-  window.addEventListener("resize", () => {
-    if (!els.genSettingsPanel.hidden) setGenSettingsPanel(true);
-  });
-  els.genStepsInput.addEventListener("change", () => commitGenSetting("steps", els.genStepsInput, true));
-  els.genScaleInput.addEventListener("change", () => commitGenSetting("scale", els.genScaleInput, false));
-  els.genSettingsResetBtn.addEventListener("click", () => {
-    state.generation = { steps: null, scale: null };
-    renderGenSettings();
-    persistCanvasPreferences();
-    toast("已恢复默认生图参数");
-  });
 }
 
 function persistCanvasPreferences() {
@@ -712,8 +616,6 @@ function persistCanvasPreferences() {
     lastCanvasId: canvasId,
     ratio: state.promptDefaults.ratio || "",
     artist: state.promptDefaults.artist || "",
-    steps: state.generation.steps == null ? "" : String(state.generation.steps),
-    scale: state.generation.scale == null ? "" : String(state.generation.scale),
   };
   state.preferencesSaveChain = state.preferencesSaveChain
     .catch(() => undefined)
@@ -925,20 +827,6 @@ function bringNodeToFront(id, element = null) {
   scheduleSave(800);
 }
 
-function fitExpandedPromptNode(element, node) {
-  element.style.height = "auto";
-  window.requestAnimationFrame(() => {
-    if (!element.isConnected || !element.classList.contains("translated-expanded")) return;
-    const naturalHeight = Math.ceil(element.scrollHeight);
-    const nextHeight = clamp(naturalHeight, 300, 800);
-    const changed = node.height !== nextHeight;
-    node.height = nextHeight;
-    element.style.height = `${nextHeight}px`;
-    scheduleCanvasProjection();
-    if (changed) scheduleSave(800);
-  });
-}
-
 function renderPromptNode(node) {
   const element = makeNodeShell(node, node.title || "提示词节点");
   element.style.height = `${node.height || 360}px`;
@@ -974,94 +862,6 @@ function renderPromptNode(node) {
     }
   });
 
-  const translatedPanel = document.createElement("details");
-  translatedPanel.className = "translated-prompt-panel";
-  translatedPanel.open = !!node.meta?.translatedPromptExpanded;
-  element.classList.toggle("translated-expanded", translatedPanel.open);
-  const savedPromptEditorHeight = Number(node.meta?.promptEditorHeight || 0);
-  if (
-    translatedPanel.open
-    && node.meta?.promptEditorHeightUnit === "css"
-    && savedPromptEditorHeight > 0
-  ) {
-    element.style.setProperty("--prompt-editor-height", `${savedPromptEditorHeight}px`);
-  }
-  const translatedSummary = document.createElement("summary");
-  translatedSummary.textContent = "英文 tags";
-  const translatedPrompt = document.createElement("textarea");
-  translatedPrompt.className = "translated-prompt-text";
-  translatedPrompt.readOnly = true;
-  translatedPrompt.placeholder = "生成或反推后会在这里保存英文 tags";
-  translatedPrompt.value = node.meta?.translatedPrompt || node.meta?.retagPrompt || "";
-  translatedPanel.append(translatedSummary, translatedPrompt);
-  const lockPromptEditorHeight = () => {
-    if (translatedPanel.open) return;
-    const promptEditorHeight = prompt.offsetHeight;
-    if (promptEditorHeight <= 0) return;
-    element.style.setProperty("--prompt-editor-height", `${promptEditorHeight}px`);
-    node.meta = {
-      ...(node.meta || {}),
-      promptEditorHeight,
-      promptEditorHeightUnit: "css",
-    };
-  };
-  translatedSummary.addEventListener("pointerdown", lockPromptEditorHeight);
-  translatedSummary.addEventListener("click", lockPromptEditorHeight);
-  translatedPanel.addEventListener("toggle", () => {
-    const expanded = translatedPanel.open;
-    if (!!node.meta?.translatedPromptExpanded === expanded) return;
-    pushHistory();
-    element.classList.toggle("translated-expanded", expanded);
-    const previousMeta = node.meta || {};
-    node.meta = { ...previousMeta, translatedPromptExpanded: expanded };
-    if (expanded) {
-      const collapsedHeight = node.height || element.offsetHeight || 360;
-      node.meta.promptCollapsedHeight = collapsedHeight;
-      fitExpandedPromptNode(element, node);
-    } else {
-      const collapsedHeight = Number(previousMeta.promptCollapsedHeight || 360);
-      node.height = clamp(collapsedHeight, 300, 800);
-      element.style.height = `${node.height}px`;
-      element.style.removeProperty("--prompt-editor-height");
-    }
-    requestAnimationFrame(() => {
-      renderConnections();
-      drawMinimap();
-    });
-    scheduleSave();
-  });
-
-  const characterRow = document.createElement("div");
-  characterRow.className = "character-keep-row";
-  characterRow.hidden = !sourceImage;
-  const characterLabel = document.createElement("label");
-  characterLabel.className = "raw-toggle character-toggle";
-  characterLabel.dataset.tooltip = "连接原图反推时保持角色身份。填写名字会优先使用该角色的标准 tags；留空则由识图模型判断角色，无法确认时保留显著外观特征。";
-  const characterKeep = document.createElement("input");
-  characterKeep.type = "checkbox";
-  characterKeep.checked = !!node.meta?.characterKeep;
-  characterLabel.append(characterKeep, document.createTextNode("角色保持"));
-  const characterName = document.createElement("input");
-  characterName.type = "text";
-  characterName.className = "character-name-input";
-  characterName.maxLength = 120;
-  characterName.placeholder = "角色名（可选）";
-  characterName.value = node.meta?.characterName || "";
-  characterName.disabled = !characterKeep.checked;
-  characterKeep.addEventListener("change", () => {
-    node.meta = { ...(node.meta || {}), characterKeep: characterKeep.checked };
-    clearRetagCache(node);
-    characterName.disabled = !characterKeep.checked;
-    if (characterKeep.checked) characterName.focus();
-    scheduleSave();
-  });
-  characterName.addEventListener("input", () => {
-    node.meta = { ...(node.meta || {}), characterName: characterName.value };
-    clearRetagCache(node);
-    scheduleSave();
-  });
-  characterRow.append(characterLabel, characterName);
-
   const options = document.createElement("div");
   options.className = "prompt-options";
   const ratioField = makeSelectField("画幅", state.config.ratios, node.ratio, (value) => {
@@ -1076,6 +876,8 @@ function renderPromptNode(node) {
     scheduleSave();
   });
   options.append(ratioField, artistField);
+
+  const advanced = makeAdvancedPanel(node, element);
 
   const footer = document.createElement("div");
   footer.className = "node-footer";
@@ -1123,16 +925,227 @@ function renderPromptNode(node) {
   outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
-  body.append(prompt, translatedPanel, characterRow, options, footer, status);
+  body.append(prompt, options, advanced, footer, status);
+  const debugPanel = makeDebugPanel(node, element);
+  if (debugPanel) body.appendChild(debugPanel);
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
   attachNodeResize(resizeHandle, element, node);
   element.appendChild(resizeHandle);
-  if (translatedPanel.open) {
-    fitExpandedPromptNode(element, node);
-  }
   return element;
+}
+
+const ADVANCED_FIELDS = [
+  {
+    key: "steps",
+    label: "迭代步数",
+    hint: "表示图像生成时的迭代步数，数值越大图像越清晰，但生成时间也越长。",
+    step: 1,
+    integer: true,
+  },
+  {
+    key: "scale",
+    label: "引导系数",
+    hint: "表示图像生成时对提示词的遵循程度，数值越高生成内容越贴合提示词，但可能降低创意多样性。",
+    step: 0.1,
+    integer: false,
+  },
+];
+
+function makeAdvancedPanel(node, host) {
+  const panel = document.createElement("details");
+  panel.className = "prompt-advanced";
+  panel.open = !!node.meta?.advancedOpen;
+  // 展开后内容比矮卡片高，靠这个 class 抬高卡片下限，避免底部被裁掉
+  host.classList.toggle("advanced-open", panel.open);
+
+  const summary = document.createElement("summary");
+  summary.textContent = "高级选项";
+  panel.appendChild(summary);
+
+  panel.addEventListener("toggle", () => {
+    host.classList.toggle("advanced-open", panel.open);
+    if (!!node.meta?.advancedOpen === panel.open) return;
+    node.meta = { ...(node.meta || {}), advancedOpen: panel.open };
+    scheduleSave();
+  });
+
+  ADVANCED_FIELDS.forEach((field) => {
+    const bounds = state.config[field.key] || {};
+    const min = Number(bounds.min ?? (field.integer ? 1 : 1));
+    const max = Number(bounds.max ?? (field.integer ? 28 : 10));
+    const fallback = Number(bounds.default ?? (field.integer ? 28 : 7));
+    const stored = node.meta?.[field.key];
+    const raw = Number.isFinite(Number(stored)) && Number(stored) > 0
+      ? Number(stored)
+      : fallback;
+    // 反推复用的原图元数据可能带 >28 步，夹回区间，否则读数显示 50 而滑块停在 28
+    const current = Math.min(max, Math.max(min, raw));
+
+    const row = document.createElement("div");
+    row.className = "advanced-row";
+    row.title = field.hint;
+
+    const head = document.createElement("div");
+    head.className = "advanced-head";
+    const name = document.createElement("span");
+    name.className = "advanced-name";
+    name.textContent = field.label;
+    // 悬停提示挂在整行和标签上，鼠标停在哪儿都能看到
+    name.title = field.hint;
+    const value = document.createElement("output");
+    value.className = "advanced-value";
+    value.textContent = field.integer ? String(current) : current.toFixed(1);
+    head.append(name, value);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.className = "advanced-slider";
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(field.step);
+    slider.value = String(current);
+    slider.title = field.hint;
+    slider.setAttribute("aria-label", field.label);
+
+    const commit = (persist) => {
+      const raw = Number(slider.value);
+      const next = field.integer ? Math.round(raw) : Math.round(raw * 10) / 10;
+      value.textContent = field.integer ? String(next) : next.toFixed(1);
+      node.meta = { ...(node.meta || {}), [field.key]: next };
+      if (persist) scheduleSave();
+    };
+
+    // 拖动时只更新读数，松手才落盘，避免每移动一格就写一次
+    slider.addEventListener("input", () => commit(false));
+    slider.addEventListener("change", () => commit(true));
+    slider.addEventListener("pointerdown", (event) => event.stopPropagation());
+
+    row.append(head, slider);
+    panel.appendChild(row);
+  });
+
+  return panel;
+}
+
+const DEBUG_SECTIONS = [
+  { key: "retag", label: "反推" },
+  { key: "generate", label: "生图" },
+];
+
+function formatDebugMs(ms) {
+  const value = Number(ms) || 0;
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${value}ms`;
+}
+
+function formatDebugValue(value) {
+  if (value === null || value === undefined) return "(无)";
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, item]) => `${key}=${formatDebugValue(item)}`)
+      .join("  ");
+  }
+  return String(value);
+}
+
+function debugPlainText(runs) {
+  const lines = [];
+  runs.forEach(({ label, run }) => {
+    lines.push(`${label} 总耗时 ${run.totalMs}ms`);
+    (run.stages || []).forEach((stage) => {
+      lines.push(`  · ${stage.name} ${stage.ms}ms${stage.error ? ` · 失败：${stage.error}` : ""}`);
+    });
+    Object.entries(run.notes || {}).forEach(([key, value]) => {
+      lines.push(`  ${key}: ${formatDebugValue(value)}`);
+    });
+    lines.push("");
+  });
+  return lines.join("\n").trim();
+}
+
+/** 调试模式专用：把这个节点最近一次运行的流水摊开。没跑过就不渲染。 */
+function makeDebugPanel(node, host) {
+  const runs = DEBUG_SECTIONS
+    .map((section) => ({ label: section.label, run: node.meta?.debug?.[section.key] }))
+    .filter((item) => item.run && typeof item.run === "object");
+
+  if (!state.config.debugMode || !runs.length) return null;
+
+  const panel = document.createElement("details");
+  panel.className = "prompt-debug";
+  // 特意开着：会打开调试开关的人就是来看这个的
+  panel.open = node.debugOpen !== false;
+  host.classList.toggle("debug-open", panel.open);
+
+  const total = runs.reduce((sum, item) => sum + (Number(item.run.totalMs) || 0), 0);
+  const summary = document.createElement("summary");
+  summary.textContent = `调试信息 · ${formatDebugMs(total)}`;
+  panel.appendChild(summary);
+
+  panel.addEventListener("toggle", () => {
+    // 这份流水本来就不落盘，展开状态跟着它一起活在内存里就行
+    node.debugOpen = panel.open;
+    host.classList.toggle("debug-open", panel.open);
+  });
+
+  const body = document.createElement("div");
+  body.className = "debug-body";
+
+  runs.forEach(({ label, run }) => {
+    const section = document.createElement("section");
+    section.className = "debug-run";
+
+    const head = document.createElement("div");
+    head.className = "debug-run-head";
+    head.textContent = `${label} · ${formatDebugMs(run.totalMs)}`;
+    section.appendChild(head);
+
+    const stages = (run.stages || [])
+      .map((stage) => `${stage.name} ${formatDebugMs(stage.ms)}`)
+      .join(" · ");
+    if (stages) {
+      const line = document.createElement("div");
+      line.className = "debug-stages";
+      line.textContent = stages;
+      section.appendChild(line);
+    }
+
+    (run.stages || []).filter((stage) => stage.error).forEach((stage) => {
+      const line = document.createElement("div");
+      line.className = "debug-error";
+      line.textContent = `${stage.name} 失败：${stage.error}`;
+      section.appendChild(line);
+    });
+
+    Object.entries(run.notes || {}).forEach(([key, value]) => {
+      const row = document.createElement("div");
+      row.className = "debug-row";
+      const name = document.createElement("span");
+      name.className = "debug-key";
+      name.textContent = key;
+      const text = document.createElement("span");
+      text.className = "debug-value";
+      text.textContent = formatDebugValue(value);
+      row.append(name, text);
+      section.appendChild(row);
+    });
+
+    body.appendChild(section);
+  });
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "debug-copy";
+  copy.textContent = "复制全部";
+  copy.addEventListener("click", (event) => {
+    event.stopPropagation();
+    copyPlainText(debugPlainText(runs), "复制调试信息");
+  });
+  body.appendChild(copy);
+
+  panel.appendChild(body);
+  return panel;
 }
 
 function makeSelectField(label, items, value, onChange) {
@@ -1259,7 +1272,42 @@ function renderNoteNode(node) {
   return element;
 }
 
+// 可编辑字段用 class 定位，节点重建后靠它把焦点找回来
+const EDITABLE_FIELD_CLASSES = ["prompt-text", "note-text"];
+
+function captureEditingFocus() {
+  const active = document.activeElement;
+  const host = active?.closest?.("[data-node-id]");
+  if (!host) return null;
+  const field = EDITABLE_FIELD_CLASSES.find((name) => active.classList?.contains(name));
+  if (!field) return null;
+  return {
+    nodeId: host.dataset.nodeId,
+    field,
+    start: active.selectionStart,
+    end: active.selectionEnd,
+    scrollTop: active.scrollTop,
+  };
+}
+
+function restoreEditingFocus(snapshot) {
+  if (!snapshot?.nodeId) return;
+  const host = els.nodeLayer.querySelector(`[data-node-id="${CSS.escape(snapshot.nodeId)}"]`);
+  const field = host?.querySelector(`.${snapshot.field}`);
+  if (!field) return;
+  field.focus({ preventScroll: true });
+  try {
+    field.setSelectionRange(snapshot.start, snapshot.end);
+  } catch (_) {
+    // 某些输入类型不支持选区，忽略即可
+  }
+  field.scrollTop = snapshot.scrollTop;
+}
+
 function renderNodes() {
+  // 生成完成等异步流程会触发重渲染。整层 replaceChildren 会把正在输入的
+  // 焦点和光标一起清掉，所以先记下来再还原。
+  const editing = captureEditingFocus();
   els.nodeLayer.replaceChildren();
   state.nodes.forEach((node) => {
     let element;
@@ -1270,6 +1318,7 @@ function renderNodes() {
   });
   els.empty.classList.toggle("hidden", state.nodes.length > 0);
   refreshIcons(els.nodeLayer);
+  restoreEditingFocus(editing);
 }
 
 function connectionPath(x1, y1, x2, y2) {
@@ -1576,6 +1625,13 @@ function scheduleConnectionRender() {
 }
 
 function renderAll() {
+  // 中文/日文输入法组字期间重建 DOM 会直接把未上屏的内容打断，
+  // 光标恢复也救不回来，所以整个渲染推迟到组字结束。
+  if (state.composing) {
+    state.renderPending = true;
+    return;
+  }
+  state.renderPending = false;
   renderViewport();
   renderNodes();
   requestAnimationFrame(() => {
@@ -1584,6 +1640,20 @@ function renderAll() {
   });
   updateHistoryButtons();
   updateSelectionControls();
+}
+
+function setupCompositionGuard() {
+  els.nodeLayer.addEventListener("compositionstart", () => {
+    state.composing = true;
+  });
+  const finish = () => {
+    if (!state.composing) return;
+    state.composing = false;
+    if (state.renderPending) renderAll();
+  };
+  els.nodeLayer.addEventListener("compositionend", finish);
+  // 组字中途节点被移除时不会有 compositionend，兜一下底
+  els.nodeLayer.addEventListener("focusout", finish);
 }
 
 function attachNodeDrag(handle, element, node) {
@@ -1914,8 +1984,8 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
       cachedTranslation: node.meta?.translationResult || "",
-      steps: state.generation.steps,
-      scale: state.generation.scale,
+      steps: node.meta?.steps,
+      scale: node.meta?.scale,
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       seed: node.meta?.retagSeed || undefined,
     });
@@ -1928,6 +1998,7 @@ async function generateFromNode(id, { retagged = false, promptOverride = "" } = 
       translationSource: result.meta?.translationSource || "",
       translationResult: result.meta?.translationResult || "",
     };
+    recordRunDebug(node, "generate", result.meta?.debug);
     const createdIds = [];
     assets.forEach((asset) => {
       const sourceWidth = asset.width || result.meta?.width;
@@ -2002,8 +2073,6 @@ function clearRetagCache(node) {
   const {
     retagAssetId: _retagAssetId,
     retagRatio: _retagRatio,
-    retagCharacterKeep: _retagCharacterKeep,
-    retagCharacterName: _retagCharacterName,
     retagBasePrompt: _retagBasePrompt,
     retagPrompt: _retagPrompt,
     retagMergedPrompt: _retagMergedPrompt,
@@ -2016,13 +2085,9 @@ function clearRetagCache(node) {
 function cachedRetagResult(node, sourceImage) {
   if (!node || !sourceImage?.assetId) return null;
   const meta = node.meta || {};
-  const keepCharacter = !!meta.characterKeep;
-  const characterName = keepCharacter ? String(meta.characterName || "").trim() : "";
   if (
     !meta.retagPrompt
     || meta.retagAssetId !== sourceImage.assetId
-    || !!meta.retagCharacterKeep !== keepCharacter
-    || String(meta.retagCharacterName || "") !== characterName
   ) return null;
   return {
     prompt: String(meta.retagPrompt).trim(),
@@ -2031,9 +2096,23 @@ function cachedRetagResult(node, sourceImage) {
 }
 
 function runPromptNode(id) {
+  // 每次手动运行都从空白开始记，否则上一轮的反推流水会跟这一轮的生图混在一起
+  const node = findNode(id);
+  if (node && state.config.debugMode && node.meta?.debug) {
+    const { debug: _debug, ...meta } = node.meta;
+    node.meta = meta;
+  }
   return sourceImageForPrompt(id)
     ? retagFromNode(id, true)
     : generateFromNode(id);
+}
+
+function recordRunDebug(node, stage, payload) {
+  if (!state.config.debugMode) return;
+  node.meta = {
+    ...(node.meta || {}),
+    debug: { ...(node.meta?.debug || {}), [stage]: payload || null },
+  };
 }
 
 async function retagFromNode(id, generateAfter = false) {
@@ -2058,21 +2137,15 @@ async function retagFromNode(id, generateAfter = false) {
   node.error = "";
   node.statusText = cachedRetag
     ? "正在复用已保存的反推结果…"
-    : (node.meta?.characterKeep
-      ? "正在识别并保持角色身份…"
-      : "正在反推原图提示词…");
+    : "正在反推原图提示词…";
   renderAll();
 
   let succeeded = false;
   try {
     const basePrompt = node.prompt?.trim() || "";
-    const keepCharacter = !!node.meta?.characterKeep;
-    const characterName = keepCharacter ? String(node.meta?.characterName || "").trim() : "";
     const result = cachedRetag || await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
       userHint: basePrompt,
-      keepCharacter,
-      characterName,
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
@@ -2086,12 +2159,11 @@ async function retagFromNode(id, generateAfter = false) {
       retagMergedPrompt: mergedPrompt,
       retagAssetId: sourceImage.assetId,
       retagRatio: result.ratio || "",
-      retagCharacterKeep: keepCharacter,
-      retagCharacterName: characterName,
       retagSeed: Number(result.seed) || 0,
       retagFromMetadata: !!result.fromMetadata,
       translatedPrompt: retagPrompt,
     };
+    recordRunDebug(node, "retag", result.debug);
     node.statusText = result.fromMetadata
       ? `已读取原图内嵌参数 · 种子 ${result.seed}`
       : "已合并新提示词与原图 tags";
@@ -2354,8 +2426,6 @@ function renderAssetLibrary() {
   els.assetEmpty.querySelector("span").textContent = "暂无图片素材";
 
   if (items.length) renderAssetBatch(items, 0);
-  updateAssetGridMetrics();
-  window.requestAnimationFrame(updateAssetGridMetrics);
   refreshIcons(els.assetPanel);
 }
 
@@ -2406,15 +2476,6 @@ function alignAssetPanel() {
   } else {
     els.assetPanel.style.bottom = "12px";
   }
-}
-
-function updateAssetGridMetrics() {
-  if (!els.assetPanel.classList.contains("open")) return;
-  const styles = window.getComputedStyle(els.assetGrid);
-  const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
-  const columnGap = parseFloat(styles.columnGap) || 0;
-  const tileSize = Math.max(64, Math.floor((els.assetGrid.clientWidth - horizontalPadding - columnGap * 2) / 3));
-  els.assetGrid.style.setProperty("--asset-card-height", `${tileSize}px`);
 }
 
 function renderImageAssetCard(item, container = els.assetGrid) {
@@ -2977,7 +3038,7 @@ function nodeEditorOwnsWheel(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   if (!targetElement) return false;
   if (targetElement.closest(".asset-panel, .image-viewer-details")) return true;
-  const editor = targetElement.closest(".prompt-text, .translated-prompt-text, .note-text");
+  const editor = targetElement.closest(".prompt-text, .note-text");
   return !!editor?.closest(".node.selected");
 }
 
@@ -3019,8 +3080,8 @@ function clearDropOverlay() {
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   return !!(
-    targetElement?.closest(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")
-    || document.activeElement?.closest?.(".prompt-text, .translated-prompt-text, .character-name-input, .image-viewer-copy-text, .clipboard-copy-buffer")
+    targetElement?.closest(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")
+    || document.activeElement?.closest?.(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")
   );
 }
 
@@ -3254,10 +3315,19 @@ async function copyViewerText(targetId, label) {
     toast("没有可复制的内容", "error");
     return;
   }
+  await copyPlainText(text, label, () => els.imageViewer.focus({ preventScroll: true }));
+}
+
+async function copyPlainText(text, label, refocus) {
+  const value = String(text || "").trim();
+  if (!value) {
+    toast("没有可复制的内容", "error");
+    return;
+  }
   try {
     const buffer = document.createElement("textarea");
     buffer.className = "clipboard-copy-buffer";
-    buffer.value = text;
+    buffer.value = value;
     buffer.style.position = "fixed";
     buffer.style.opacity = "0";
     document.body.appendChild(buffer);
@@ -3268,11 +3338,11 @@ async function copyViewerText(targetId, label) {
       copied = document.execCommand("copy");
     } finally {
       buffer.remove();
-      els.imageViewer.focus({ preventScroll: true });
+      refocus?.();
     }
     if (!copied) {
       if (!navigator.clipboard?.writeText) throw new Error("浏览器拒绝复制");
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(value);
     }
     toast(`${label || "内容"}成功`);
   } catch (_) {
@@ -3340,10 +3410,7 @@ window.addEventListener("resize", () => {
   drawMinimap();
   alignToastRegion();
   if (!els.projectMenu.hidden) alignProjectMenu();
-  if (els.assetPanel.classList.contains("open")) {
-    alignAssetPanel();
-    updateAssetGridMetrics();
-  }
+  if (els.assetPanel.classList.contains("open")) alignAssetPanel();
 });
 window.addEventListener("online", checkConnection);
 window.addEventListener("offline", () => setConnectionState("offline"));
@@ -3372,7 +3439,7 @@ window.addEventListener("beforeunload", (event) => {
 
 refreshIcons();
 setupLogoEasterEgg();
-setupGenSettings();
+setupCompositionGuard();
 loadInitialState().catch((error) => {
   setConnectionState("offline");
   toast(error.message, "error");

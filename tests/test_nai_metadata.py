@@ -125,7 +125,7 @@ class PromptWeightTest(unittest.TestCase):
     def test_wraps_with_novelai_numeric_syntax(self) -> None:
         self.assertEqual(
             apply_prompt_weight("1girl, blue hair", 1.3),
-            "1.3::1girl, blue hair::",
+            "1.3::1girl, blue hair ::",
         )
 
     def test_weight_of_one_is_left_alone(self) -> None:
@@ -141,15 +141,21 @@ class PromptWeightTest(unittest.TestCase):
 
     def test_already_weighted_text_is_not_double_wrapped(self) -> None:
         self.assertEqual(
-            apply_prompt_weight("1.5::1girl::", 1.3),
-            "1.5::1girl::",
+            apply_prompt_weight("1.5::1girl ::", 1.3),
+            "1.5::1girl ::",
         )
 
     def test_trailing_comma_is_trimmed(self) -> None:
-        self.assertEqual(apply_prompt_weight("1girl,", 1.3), "1.3::1girl::")
+        self.assertEqual(apply_prompt_weight("1girl,", 1.3), "1.3::1girl ::")
 
     def test_integer_weight_has_no_trailing_zero(self) -> None:
-        self.assertEqual(apply_prompt_weight("1girl", 2.0), "2::1girl::")
+        self.assertEqual(apply_prompt_weight("1girl", 2.0), "2::1girl ::")
+
+    def test_trailing_number_is_separated_from_closing_marker(self) -> None:
+        # `year 2025::` 会被解析成"权重 2025 的新段落"，收尾 :: 前必须有空格
+        result = apply_prompt_weight("1girl, year 2025", 1.3)
+        self.assertEqual(result, "1.3::1girl, year 2025 ::")
+        self.assertNotRegex(result, r"\d::$")
 
     def test_invalid_weight_returns_plain_text(self) -> None:
         self.assertEqual(apply_prompt_weight("1girl", "abc"), "1girl")

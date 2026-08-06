@@ -190,6 +190,9 @@ class PluginConfig:
     danbooru_api_url: str = ""
     retag_show_source: bool = False
 
+    # 排查生图 / 反推问题时打开：接口多返回一段各阶段耗时与提示词流水，后端日志同步打全
+    debug_mode: bool = False
+
     raw_config: dict = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -315,6 +318,7 @@ class PluginConfig:
             # Danbooru 检索服务内嵌，不开放配置
             danbooru_api_url=DEFAULT_DANBOORU_API_URL,
             retag_show_source=False,
+            debug_mode=bool(config.get("debug_mode", False)),
             raw_config=config,
         )
 

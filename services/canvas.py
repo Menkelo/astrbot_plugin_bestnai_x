@@ -25,7 +25,7 @@ GenerateCallback = Callable[
     Awaitable[Tuple[List[Tuple[str, bytes]], Dict[str, Any]]],
 ]
 ConfigCallback = Callable[[], Dict[str, Any]]
-RetagCallback = Callable[[str, str, bool, str], Awaitable[Dict[str, Any]]]
+RetagCallback = Callable[[str, str], Awaitable[Dict[str, Any]]]
 
 MAX_NODES = 160
 MAX_CONNECTIONS = 320
@@ -191,9 +191,6 @@ class CanvasStore:
             "lastCanvasId": last_canvas_id,
             "ratio": _short_text(payload.get("ratio"), 32),
             "artist": _short_text(payload.get("artist"), 120),
-            # 步数与引导系数是画布全局设置，留空表示沿用后端默认值
-            "steps": _short_text(payload.get("steps"), 8),
-            "scale": _short_text(payload.get("scale"), 8),
         }
 
     def save_preferences(self, payload: Any) -> Dict[str, str]:
@@ -209,9 +206,6 @@ class CanvasStore:
                 current["ratio"] = _short_text(payload.get("ratio"), 32)
             if "artist" in payload:
                 current["artist"] = _short_text(payload.get("artist"), 120)
-            for key in ("steps", "scale"):
-                if key in payload:
-                    current[key] = _short_text(payload.get(key), 8)
             self._write_json(self.preferences_path, current)
             return current
 
@@ -447,28 +441,19 @@ class CanvasStore:
                     "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
                     "translationSource": _short_text(raw_meta.get("translationSource"), 6000),
                     "translationResult": _short_text(raw_meta.get("translationResult"), 6000),
-                    "translatedPromptExpanded": bool(
-                        raw_meta.get("translatedPromptExpanded", False)
-                    ),
-                    "promptCollapsedHeight": int(
-                        _bounded_number(raw_meta.get("promptCollapsedHeight"), 0, 0, 800)
-                    ),
                     "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
                     "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
                     "retagMergedPrompt": _short_text(raw_meta.get("retagMergedPrompt"), 6000),
                     "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
                     "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
-                    "retagCharacterKeep": bool(raw_meta.get("retagCharacterKeep", False)),
-                    "retagCharacterName": _short_text(raw_meta.get("retagCharacterName"), 120),
                     "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, 2_147_483_647)),
                     "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
                     "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, 2_147_483_647)),
                     "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
                     "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                     "retagged": bool(raw_meta.get("retagged", False)),
-                    "characterKeep": bool(raw_meta.get("characterKeep", False)),
-                    "characterName": _short_text(raw_meta.get("characterName"), 120),
                     "userResized": bool(raw_meta.get("userResized", False)),
+                    "advancedOpen": bool(raw_meta.get("advancedOpen", False)),
                 },
             }
             nodes.append(node)
@@ -1074,20 +1059,13 @@ class CanvasService:
 
         asset_id = str(payload.get("assetId") or "")
         user_hint = _short_text(payload.get("userHint"), 6000).strip()
-        keep_character = bool(payload.get("keepCharacter", False))
-        character_name = _short_text(payload.get("characterName"), 120).strip()
 
         try:
             if self.retag_callback is None:
                 raise ValueError("画布图片反推服务不可用")
 
             asset_path, _ = self.store.get_asset(asset_id)
-            result = await self.retag_callback(
-                str(asset_path),
-                user_hint,
-                keep_character,
-                character_name if keep_character else "",
-            )
+            result = await self.retag_callback(str(asset_path), user_hint)
             return json_response(result)
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)
