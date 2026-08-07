@@ -742,7 +742,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertLess(
             image_branch.index("yield event.plain_result(retag_progress)"),
-            image_branch.index("retag_prompt = await self.image_retagger.retag"),
+            image_branch.index("retag_result = await self.image_retagger.retag_details"),
         )
 
 

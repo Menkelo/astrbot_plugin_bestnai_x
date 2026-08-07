@@ -59,6 +59,7 @@ from .services.prompt_builder import (
     PromptBuilder,
     save_image_to_temp,
 )
+from .services.prompt_merge import merge_retag_prompt
 from .services.nai_metadata import read_image_generation_info
 from .services.runtime_state import RuntimeStateService
 
@@ -94,42 +95,22 @@ CANVAS_RATIO_PRESETS: Dict[str, Tuple[int, int]] = {
 }
 
 
-def _prompt_token_key(token: str) -> str:
-    """Return a comparison key while ignoring one NovelAI weight wrapper."""
-    value = normalize_prompt_ascii(token).strip(" ,")
-    weighted = re.match(r"^-?\d+(?:\.\d+)?::\s*(.*?)\s*::$", value)
-    if weighted:
-        value = weighted.group(1).strip()
-    return re.sub(r"\s+", " ", value).casefold()
-
-
 def _merge_canvas_retag_prompt(
     translated_user_prompt: str,
     retag_prompt: str,
+    *,
+    original_user_prompt: str = "",
+    source_character: str = "",
+    source_series: str = "",
 ) -> str:
-    """Combine translated user text and image tags exactly once.
-
-    Older cached retag responses can contain the user's tags (sometimes already
-    weighted). Strip those duplicates and preserve the first occurrence order.
-    """
-    user = normalize_prompt_ascii(translated_user_prompt)
-    retag = normalize_prompt_ascii(retag_prompt)
-    if not retag:
-        return user
-
-    user_tokens = [part.strip() for part in user.split(",") if part.strip()]
-    user_keys = {_prompt_token_key(part) for part in user_tokens if _prompt_token_key(part)}
-    seen = set(user_keys)
-    remaining = []
-    for part in (item.strip() for item in retag.split(",")):
-        key = _prompt_token_key(part)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        remaining.append(part)
-
-    weighted_user = apply_prompt_weight(user) if user else ""
-    return ", ".join(part for part in (weighted_user, ", ".join(remaining)) if part)
+    return merge_retag_prompt(
+        translated_user_prompt,
+        retag_prompt,
+        original_user_prompt=original_user_prompt,
+        source_character=source_character,
+        source_series=source_series,
+        weight_user=True,
+    )
 
 
 def _parse_size(size_str: str) -> Tuple[int, int]:
@@ -337,6 +318,8 @@ class BestNAIPlugin(Star):
                 trace,
                 {
                     "prompt": image_tags,
+                    "character": "",
+                    "series": "",
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
@@ -361,15 +344,17 @@ class BestNAIPlugin(Star):
             },
         )
 
-        # The vision/tagger provider is the only retag request. It receives the
-        # original hint so it can use it while extracting visual tags.
+        # The vision/tagger provider describes only the source image. User edits
+        # are merged later by the shared category-aware prompt overlay.
         try:
-            prompt = await trace.timed(
+            retag_result = await trace.timed(
                 "反推",
-                self.image_retagger.retag(image_path, debug=debug),
+                self.image_retagger.retag_details(image_path, debug=debug),
             )
         except ImageRetagError as exc:
             raise ValueError(str(exc)) from exc
+
+        prompt = str(retag_result.get("prompt") or "").strip()
 
         if not prompt:
             raise ValueError("图片反推结果为空")
@@ -390,6 +375,8 @@ class BestNAIPlugin(Star):
             trace,
             {
                 "prompt": prompt,
+                "character": str(retag_result.get("character") or ""),
+                "series": str(retag_result.get("series") or ""),
                 "ratio": ratio,
                 "seed": source_seed,
                 "fromMetadata": False,
@@ -446,6 +433,8 @@ class BestNAIPlugin(Star):
     ) -> Tuple[List[Tuple[str, bytes]], Dict[str, object]]:
         prompt = str(payload.get("prompt") or "").strip()
         retag_prompt = str(payload.get("retagPrompt") or "").strip()
+        retag_character = str(payload.get("retagCharacter") or "").strip()
+        retag_series = str(payload.get("retagSeries") or "").strip()
         ratio = str(payload.get("ratio") or self.default_ratio).strip()
         artist_name = str(payload.get("artist") or "").strip()
         raw_mode = bool(payload.get("raw", False))
@@ -524,6 +513,9 @@ class BestNAIPlugin(Star):
             working_prompt = _merge_canvas_retag_prompt(
                 translated_user_prompt,
                 retag_prompt,
+                original_user_prompt=prompt,
+                source_character=retag_character,
+                source_series=retag_series,
             )
             trace.note("合并后提示词", working_prompt)
 
@@ -1881,10 +1873,8 @@ class BestNAIPlugin(Star):
             yield event.plain_result(retag_progress)
 
             try:
-                retag_prompt = await self.image_retagger.retag(
-                    image_src,
-                    user_hint=prompt,
-                )
+                retag_result = await self.image_retagger.retag_details(image_src)
+                retag_prompt = str(retag_result.get("prompt") or "").strip()
 
             except ImageRetagError as e:
                 yield event.plain_result(f"❌ 图片反推失败：{e}")
@@ -1905,6 +1895,8 @@ class BestNAIPlugin(Star):
                 desc_part, _, artist_name = self._extract_artist_slot_from_prompt(
                     ratio_prompt
                 )
+
+                user_prompt_for_merge = desc_part
 
                 if desc_part and has_chinese(desc_part):
                     tr_cfg = self.plugin_config.translator
@@ -1933,34 +1925,31 @@ class BestNAIPlugin(Star):
                         else:
                             show_messages.append(f"🔎 翻译结果：\n{translated}")
 
-                    parts = []
-
-                    if prompt_has_explicit_ratio(
-                        prompt,
-                        self._short_ratio_aliases(),
-                        self.ratio_presets,
-                        self._normalize_ratio_label,
-                    ) and ratio_name:
-                        parts.append(ratio_name)
-
-                    if artist_name and not raw_mode:
-                        parts.append(artist_name)
-
-                    # 只给描述加权：比例和画师名要留给下游正则解析，
-                    # 一旦被包进 1.3::…:: 里就匹配不到了
-                    parts.append(apply_prompt_weight(translated))
-
-                    merged_user_prompt = " ".join(parts)
+                    user_prompt_for_merge = translated
                 else:
-                    merged_user_prompt = self._weighted_user_prompt(
-                        prompt,
-                        ratio_name,
-                        desc_part,
-                        artist_name,
-                        raw_mode,
-                    )
+                    user_prompt_for_merge = user_prompt_for_merge or ""
 
-                merged_prompt = f"{merged_user_prompt}, {retag_prompt}"
+                merged_overlay = merge_retag_prompt(
+                    user_prompt_for_merge,
+                    retag_prompt,
+                    original_user_prompt=prompt,
+                    source_character=str(retag_result.get("character") or ""),
+                    source_series=str(retag_result.get("series") or ""),
+                    weight_user=True,
+                )
+                controls = []
+                if prompt_has_explicit_ratio(
+                    prompt,
+                    self._short_ratio_aliases(),
+                    self.ratio_presets,
+                    self._normalize_ratio_label,
+                ) and ratio_name:
+                    controls.append(ratio_name)
+                if artist_name and not raw_mode:
+                    controls.append(artist_name)
+                merged_prompt = ", ".join(
+                    part for part in (*controls, merged_overlay) if part
+                )
             else:
                 merged_prompt = retag_prompt
 

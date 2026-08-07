@@ -422,6 +422,19 @@ class ImageRetagger:
         user_hint: str = "",
         debug: bool = False,
     ) -> str:
+        result = await self.retag_details(
+            image_path_or_url,
+            user_hint=user_hint,
+            debug=debug,
+        )
+        return str(result.get("prompt") or "")
+
+    async def retag_details(
+        self,
+        image_path_or_url: str,
+        user_hint: str = "",
+        debug: bool = False,
+    ) -> Dict[str, str]:
         provider_id = getattr(self.config, "provider_id", "") or ""
 
         if not provider_id:
@@ -482,9 +495,6 @@ class ImageRetagger:
             "Convert this image into NovelAI / Danbooru image generation tags. "
             "Return the JSON object described in the system prompt."
         )
-
-        if user_hint:
-            user_text += f"\nAdditional user hint to merge into the tag result: {user_hint}"
 
         payload: Dict[str, Any] = {
             "model": model,
@@ -580,4 +590,8 @@ class ImageRetagger:
 
         logger.info(f"[BestNAI/ImageRetag] tags={prompt[:500]}")
 
-        return prompt
+        return {
+            "prompt": prompt,
+            "character": character,
+            "series": series,
+        }

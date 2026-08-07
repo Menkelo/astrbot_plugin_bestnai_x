@@ -1919,6 +1919,8 @@ async function generateFromNode(id, {
     const result = await bridge.apiPost("canvas/generate", {
       prompt: workingPrompt,
       retagPrompt: requestRetagPrompt,
+      retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
+      retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
       ratio: node.ratio,
       artist: node.artist,
       raw: !!node.raw,
@@ -2008,6 +2010,8 @@ function clearRetagCache(node) {
     retagRatio: _retagRatio,
     retagBasePrompt: _retagBasePrompt,
     retagPrompt: _retagPrompt,
+    retagCharacter: _retagCharacter,
+    retagSeries: _retagSeries,
     retagSeed: _retagSeed,
     retagFromMetadata: _retagFromMetadata,
     translatedPrompt: _translatedPrompt,
@@ -2029,6 +2033,8 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
   return {
     prompt: String(meta.retagPrompt).trim(),
     ratio: String(meta.retagRatio || "").trim(),
+    character: String(meta.retagCharacter || "").trim(),
+    series: String(meta.retagSeries || "").trim(),
   };
 }
 
@@ -2092,6 +2098,8 @@ async function retagFromNode(id, generateAfter = false) {
       ...(node.meta || {}),
       retagBasePrompt: basePrompt,
       retagPrompt,
+      retagCharacter: String(result?.character || "").trim(),
+      retagSeries: String(result?.series || "").trim(),
       retagAssetId: sourceImage.assetId,
       retagRatio: result.ratio || "",
       retagSeed: Number(result.seed) || 0,

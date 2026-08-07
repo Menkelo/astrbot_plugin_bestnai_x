@@ -26,7 +26,7 @@ class RetagTranslationTest(unittest.TestCase):
         self.retag = self.main[start:end]
 
     def test_canvas_retag_does_not_send_hint_to_vision_model(self) -> None:
-        self.assertIn("self.image_retagger.retag(image_path, debug=debug)", self.retag)
+        self.assertIn("self.image_retagger.retag_details(image_path, debug=debug)", self.retag)
         self.assertNotIn("user_hint=user_hint", self.retag)
         self.assertNotIn("apply_prompt_weight(user_hint)", self.retag)
 
@@ -40,7 +40,7 @@ class RetagTranslationTest(unittest.TestCase):
 
     def test_retag_uses_one_tagging_request(self) -> None:
         self.assertNotIn("asyncio.gather(", self.retag)
-        self.assertIn("self.image_retagger.retag(", self.retag)
+        self.assertIn("self.image_retagger.retag_details(", self.retag)
         self.assertNotIn("self._translate_canvas_hint(user_hint)", self.retag)
 
     def test_canvas_trace_marks_hint_as_generation_only(self) -> None:
