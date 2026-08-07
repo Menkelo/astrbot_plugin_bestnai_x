@@ -1373,10 +1373,18 @@ class BestNAIPlugin(Star):
         raw_mode: bool,
         progress_verb: str,
         session_id: str = "",
+        fallback_ratio: str = "",
     ) -> str:
         clean_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
         artist_prompt_override = ""
         artist_slot_name = ""
+        user_specified_ratio = prompt_has_explicit_ratio(
+            prompt,
+            self._short_ratio_aliases(),
+            self.ratio_presets,
+            self._normalize_ratio_label,
+        )
+        artist_has_ratio = False
 
         if not raw_mode:
             clean_prompt, artist_prompt_override, artist_slot_name = (
@@ -1386,23 +1394,18 @@ class BestNAIPlugin(Star):
                 artist_prompt_override,
                 session_id,
             )
+            artist_has_ratio = bool(artist_prompt) and prompt_has_explicit_ratio(
+                artist_prompt,
+                self._short_ratio_aliases(),
+                self.ratio_presets,
+                self._normalize_ratio_label,
+            )
 
-            if (
-                artist_prompt
-                and not prompt_has_explicit_ratio(
-                    prompt,
-                    self._short_ratio_aliases(),
-                    self.ratio_presets,
-                    self._normalize_ratio_label,
-                )
-                and prompt_has_explicit_ratio(
-                    artist_prompt,
-                    self._short_ratio_aliases(),
-                    self.ratio_presets,
-                    self._normalize_ratio_label,
-                )
-            ):
+            if not user_specified_ratio and artist_has_ratio:
                 _, ratio_name = self._extract_ratio_from_prompt(artist_prompt)
+
+        if not user_specified_ratio and not artist_has_ratio and fallback_ratio:
+            ratio_name = fallback_ratio
 
         gen_config = self.prompt_builder.build_generation_config(ratio_name)
         return self._format_generation_progress(
@@ -1527,6 +1530,7 @@ class BestNAIPlugin(Star):
         progress_verb: str = "生图",
         followup_messages: Optional[List[str]] = None,
         fallback_ratio: str = "",
+        user_ratio_prompt: Optional[str] = None,
     ) -> AsyncGenerator:
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
@@ -1560,7 +1564,22 @@ class BestNAIPlugin(Star):
             )
             return
 
-        clean_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
+        ratio_intent_prompt = prompt if user_ratio_prompt is None else user_ratio_prompt
+        user_specified_ratio = prompt_has_explicit_ratio(
+            ratio_intent_prompt,
+            self._short_ratio_aliases(),
+            self.ratio_presets,
+            self._normalize_ratio_label,
+        )
+
+        # QQ 图片反推会把视觉 tags 拼到生成提示词中。视觉 tags 里的
+        # portrait / landscape / 1:1 等普通描述不能被当成用户手写比例，
+        # 否则会错误覆盖按原图尺寸推断出的比例。
+        if user_ratio_prompt is not None and not user_specified_ratio:
+            clean_prompt = prompt
+            ratio_name = self.default_ratio
+        else:
+            clean_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
 
         artist_prompt_override = ""
         artist_slot_name = ""
@@ -1572,13 +1591,6 @@ class BestNAIPlugin(Star):
 
         effective_artist_prompt = ""
         artist_ratio_adopted = False
-
-        user_specified_ratio = prompt_has_explicit_ratio(
-            prompt,
-            self._short_ratio_aliases(),
-            self.ratio_presets,
-            self._normalize_ratio_label,
-        )
 
         artist_prompt_for_ratio = ""
 
@@ -1829,24 +1841,6 @@ class BestNAIPlugin(Star):
                 )
                 return
 
-            try:
-                retag_progress = self._progress_message_for_prompt(
-                    prompt,
-                    raw_mode,
-                    "反推",
-                    self._session_id(event),
-                )
-            except Exception as e:
-                yield event.plain_result(
-                    f"❌ 无效比例/尺寸：{prompt}\n"
-                    "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1、5:4、4:5、7:4、4:7、12:5、5:12、21:9、9:21，也可输入横屏、竖屏、方图\n"
-                    "也可以直接使用 1024x1024"
-                )
-                logger.warning(f"[BestNAI] 反推进度解析失败 prompt={prompt}: {e}")
-                return
-
-            yield event.plain_result(retag_progress)
-
             inferred_ratio = ""
 
             if not prompt_has_explicit_ratio(
@@ -1866,6 +1860,25 @@ class BestNAIPlugin(Star):
                 except Exception as e:
                     logger.warning(f"[BestNAI/ImageRetag] 读取输入图片比例失败，使用默认比例: {e}")
                     inferred_ratio = ""
+
+            try:
+                retag_progress = self._progress_message_for_prompt(
+                    prompt,
+                    raw_mode,
+                    "反推",
+                    self._session_id(event),
+                    fallback_ratio=inferred_ratio,
+                )
+            except Exception as e:
+                yield event.plain_result(
+                    f"❌ 无效比例/尺寸：{prompt}\n"
+                    "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1、5:4、4:5、7:4、4:7、12:5、5:12、21:9、9:21，也可输入横屏、竖屏、方图\n"
+                    "也可以直接使用 1024x1024"
+                )
+                logger.warning(f"[BestNAI] 反推进度解析失败 prompt={prompt}: {e}")
+                return
+
+            yield event.plain_result(retag_progress)
 
             try:
                 retag_prompt = await self.image_retagger.retag(
@@ -1961,6 +1974,7 @@ class BestNAIPlugin(Star):
                 progress_verb="反推",
                 followup_messages=show_messages,
                 fallback_ratio=inferred_ratio,
+                user_ratio_prompt=prompt,
             ):
                 yield result
 

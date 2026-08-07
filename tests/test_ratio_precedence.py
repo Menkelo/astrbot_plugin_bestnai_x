@@ -18,6 +18,7 @@ from astrbot_plugin_bestnai_x.services.image_ratio import (
     RATIO_SOURCE_IMAGE,
     RATIO_SOURCE_USER,
     choose_ratio_source,
+    infer_ratio_label_from_size,
 )
 
 
@@ -100,11 +101,42 @@ class RetagRatioWiringTest(unittest.TestCase):
         self.assertIn("fallback_ratio: str = \"\"", self.main)
         self.assertIn("fallback_ratio=inferred_ratio", self.main)
 
+    def test_retag_ratio_detection_only_uses_the_original_user_prompt(self) -> None:
+        self.assertIn("user_ratio_prompt: Optional[str] = None", self.main)
+        self.assertIn("user_ratio_prompt=prompt", self.main)
+        self.assertIn(
+            "ratio_intent_prompt = prompt if user_ratio_prompt is None else user_ratio_prompt",
+            self.main,
+        )
+
+    def test_retag_progress_uses_the_inferred_image_ratio(self) -> None:
+        self.assertIn("fallback_ratio=inferred_ratio", self.main)
+        progress_call = self.main.index("retag_progress = self._progress_message_for_prompt(")
+        inference_call = self.main.index("img_w, img_h = await read_image_size_any(image_src)")
+        self.assertLess(inference_call, progress_call)
+
     def test_precedence_helper_is_used(self) -> None:
         self.assertIn("ratio_source = choose_ratio_source(", self.main)
         self.assertIn("user_specified=user_specified_ratio", self.main)
         self.assertIn("artist_has_ratio=artist_has_ratio", self.main)
         self.assertIn("has_inferred_ratio=bool(fallback_ratio)", self.main)
+
+
+class InferRatioFromImageSizeTest(unittest.TestCase):
+    def test_common_qq_image_shapes_map_to_nearest_supported_ratio(self) -> None:
+        cases = {
+            (832, 1216): "2:3",
+            (1216, 832): "3:2",
+            (1080, 1920): "9:16",
+            (1920, 1080): "16:9",
+            (1080, 1080): "1:1",
+            (2520, 1080): "21:9",
+            (1080, 2520): "9:21",
+        }
+
+        for size, expected in cases.items():
+            with self.subTest(size=size):
+                self.assertEqual(infer_ratio_label_from_size(*size), expected)
 
 
 if __name__ == "__main__":

@@ -737,8 +737,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("yield event.plain_result(retag_progress)", image_branch)
         self.assertIn("show_progress=False", image_branch)
         self.assertLess(
-            image_branch.index("yield event.plain_result(retag_progress)"),
             image_branch.index("img_w, img_h = await read_image_size_any"),
+            image_branch.index("yield event.plain_result(retag_progress)"),
         )
         self.assertLess(
             image_branch.index("yield event.plain_result(retag_progress)"),
