@@ -113,6 +113,14 @@ def infer_ratio_label_from_size(width: int, height: int) -> str:
         "3:2": 3 / 2,
         "2:3": 2 / 3,
         "1:1": 1.0,
+        "5:4": 5 / 4,
+        "4:5": 4 / 5,
+        "7:4": 7 / 4,
+        "4:7": 4 / 7,
+        "12:5": 12 / 5,
+        "5:12": 5 / 12,
+        "21:9": 21 / 9,
+        "9:21": 9 / 21,
     }
 
     best = min(candidates.items(), key=lambda item: abs(item[1] - target))
@@ -141,7 +149,7 @@ def prompt_has_explicit_ratio(
         return True
 
     if re.search(
-        r"(^|[\s,，;；])(?:16:9|9:16|4:3|3:4|3:2|2:3|1:1)(?=$|[\s,，;；])",
+        r"(^|[\s,，;；])(?:16:9|9:16|4:3|3:4|3:2|2:3|1:1|5:4|4:5|7:4|4:7|12:5|5:12|21:9|9:21)(?=$|[\s,，;；])",
         text,
     ):
         return True

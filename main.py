@@ -73,6 +73,26 @@ MAX_STEPS = 28
 MIN_SCALE = 1.0
 MAX_SCALE = 10.0
 
+# NovelAI 4.5-compatible canvas presets. Every dimension is a 64 multiple and
+# stays below the plugin's ~1.1 MP safety limit.
+CANVAS_RATIO_PRESETS: Dict[str, Tuple[int, int]] = {
+    "16:9": (1216, 704),
+    "9:16": (704, 1216),
+    "4:3": (1024, 768),
+    "3:4": (768, 1024),
+    "3:2": (1216, 832),
+    "2:3": (832, 1216),
+    "1:1": (1024, 1024),
+    "5:4": (960, 768),
+    "4:5": (768, 960),
+    "7:4": (1344, 768),
+    "4:7": (768, 1344),
+    "12:5": (1536, 640),
+    "5:12": (640, 1536),
+    "21:9": (1344, 576),
+    "9:21": (576, 1344),
+}
+
 
 def _prompt_token_key(token: str) -> str:
     """Return a comparison key while ignoring one NovelAI weight wrapper."""
@@ -218,7 +238,7 @@ class BestNAIPlugin(Star):
         self._ensure_image_provider_ready()
 
         ratios = []
-        for name in ("16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:1"):
+        for name in CANVAS_RATIO_PRESETS:
             width, height = self.ratio_presets[name]
             ratios.append(
                 {
@@ -820,15 +840,7 @@ class BestNAIPlugin(Star):
         self._resolve_image_provider()
 
     def _load_ratio_presets(self) -> Dict[str, Tuple[int, int]]:
-        base_presets: Dict[str, Tuple[int, int]] = {
-            "16:9": (1216, 704),
-            "9:16": (704, 1216),
-            "4:3": (1024, 768),
-            "3:4": (768, 1024),
-            "3:2": (1216, 832),
-            "2:3": (832, 1216),
-            "1:1": (1024, 1024),
-        }
+        base_presets = CANVAS_RATIO_PRESETS
 
         presets: Dict[str, Tuple[int, int]] = {}
 
@@ -933,15 +945,7 @@ class BestNAIPlugin(Star):
         target_ratio = width / height
         target_area = width * height
 
-        candidates = {
-            "16:9": (1216, 704),
-            "9:16": (704, 1216),
-            "4:3": (1024, 768),
-            "3:4": (768, 1024),
-            "3:2": (1216, 832),
-            "2:3": (832, 1216),
-            "1:1": (1024, 1024),
-        }
+        candidates = CANVAS_RATIO_PRESETS
 
         def score(item):
             _, (cw, ch) = item
@@ -1000,6 +1004,14 @@ class BestNAIPlugin(Star):
             "3:2",
             "2:3",
             "1:1",
+            "5:4",
+            "4:5",
+            "7:4",
+            "4:7",
+            "12:5",
+            "5:12",
+            "21:9",
+            "9:21",
         ]
 
     def _ratio_alias_pattern(self) -> re.Pattern:
@@ -1260,28 +1272,12 @@ class BestNAIPlugin(Star):
         value = (ratio_name_or_size or "").strip()
         normalized = self._normalize_ratio_label(value)
 
-        valid_ratios = {
-            "16:9",
-            "9:16",
-            "4:3",
-            "3:4",
-            "3:2",
-            "2:3",
-            "1:1",
-        }
+        valid_ratios = set(CANVAS_RATIO_PRESETS)
 
         if normalized in valid_ratios:
             return normalized
 
-        size_to_ratio = {
-            (1216, 704): "16:9",
-            (704, 1216): "9:16",
-            (1024, 768): "4:3",
-            (768, 1024): "3:4",
-            (1216, 832): "3:2",
-            (832, 1216): "2:3",
-            (1024, 1024): "1:1",
-        }
+        size_to_ratio = {size: name for name, size in CANVAS_RATIO_PRESETS.items()}
 
         size_key = (int(width), int(height))
 
@@ -1660,7 +1656,7 @@ class BestNAIPlugin(Star):
         except Exception as e:
             yield event.plain_result(
                 f"❌ 无效比例/尺寸：{ratio_name}\n"
-                "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1，也可输入横屏、竖屏、方图\n"
+                "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1、5:4、4:5、7:4、4:7、12:5、5:12、21:9、9:21，也可输入横屏、竖屏、方图\n"
                 "也可以直接使用 1024x1024"
             )
             logger.warning(f"[BestNAI] 解析比例失败 ratio={ratio_name}: {e}")
@@ -1843,7 +1839,7 @@ class BestNAIPlugin(Star):
             except Exception as e:
                 yield event.plain_result(
                     f"❌ 无效比例/尺寸：{prompt}\n"
-                    "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1，也可输入横屏、竖屏、方图\n"
+                    "可用比例：16:9、9:16、4:3、3:4、3:2、2:3、1:1、5:4、4:5、7:4、4:7、12:5、5:12、21:9、9:21，也可输入横屏、竖屏、方图\n"
                     "也可以直接使用 1024x1024"
                 )
                 logger.warning(f"[BestNAI] 反推进度解析失败 prompt={prompt}: {e}")
