@@ -4,10 +4,7 @@
 - 使用 LLM 将中文描述转换为 NovelAI / Danbooru 英文 tag。
 - 支持 AstrBot 供应商对接。
 - 优先使用 translator_provider_id 对应供应商。
-- 兼容 OpenAI API 格式。
-- 兼容 Gemini 官方 generativelanguage.googleapis.com。
 - 翻译失败自动重试，默认最多 3 次。
-- 保留旧 translator_base_url / translator_api_key / translator_model 作为 fallback。
 - 支持 Danbooru 在线 tag 候选检索注入。
 """
 
@@ -15,11 +12,16 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
+from .provider_utils import (
+    ProviderRoutingError,
+    call_provider,
+    provider_model_of,
+    response_text,
+)
 from .prompt_tokens import (
     expand_prompt_tokens,
     rebuild_weighted_token,
@@ -643,17 +645,6 @@ def apply_character_candidate(
     return ", ".join(ordered)
 
 
-@dataclass
-class ResolvedProvider:
-    """解析后的翻译供应商配置。"""
-
-    name: str
-    api_type: str
-    base_url: str
-    api_key: str
-    model: str
-
-
 class DanbooruTagRetriever:
     """Danbooru 在线 tag 候选检索器。"""
 
@@ -806,7 +797,6 @@ class PromptTranslator:
     def __init__(self, config, context: Any = None):
         self.config = config
         self.context = context
-        self.timeout = 60
         # translate() 失败时不抛异常，把最后一次异常留在这里，供上层拼失败原因
         self.last_error: Optional[Exception] = None
         self.last_character_tag = ""
@@ -876,102 +866,8 @@ class PromptTranslator:
 
         return text
 
-    def _resolve_provider(self) -> ResolvedProvider:
-        """解析翻译供应商。
-
-        优先级：
-        1. translator_provider_id 对应 AstrBot 供应商。
-        2. 旧配置 translator_base_url / translator_api_key / translator_model。
-        """
-
-        provider_id = getattr(self.config, "provider_id", "") or ""
-
-        if provider_id and self.context is not None:
-            provider = self.context.get_provider_by_id(provider_id)
-
-            if not provider:
-                raise TranslatorError(f"找不到翻译供应商 ID: {provider_id}")
-
-            p_conf = getattr(provider, "provider_config", {}) or {}
-
-            base_url = (
-                getattr(provider, "api_base", "")
-                or p_conf.get("api_base")
-                or p_conf.get("api_base_url")
-                or p_conf.get("base_url")
-                or "https://generativelanguage.googleapis.com"
-            )
-            base_url = str(base_url).rstrip("/")
-
-            api_key = ""
-
-            for k in ("key", "keys", "api_key", "access_token"):
-                val = p_conf.get(k)
-
-                if isinstance(val, str) and val.strip():
-                    api_key = val.strip()
-                    break
-
-                if isinstance(val, list) and val:
-                    for item in val:
-                        if isinstance(item, str) and item.strip():
-                            api_key = item.strip()
-                            break
-
-                    if api_key:
-                        break
-
-            model = (
-                getattr(provider, "model", "")
-                or p_conf.get("model")
-                or getattr(self.config, "model", "")
-                or "gpt-4o-mini"
-            )
-            model = str(model).strip()
-
-            api_type = "openai"
-
-            if "generativelanguage.googleapis.com" in base_url:
-                api_type = "gemini"
-            elif "aiplatform.googleapis.com" in base_url:
-                api_type = "vertex"
-            else:
-                api_type = "openai"
-
-            if not api_key and api_type != "vertex":
-                raise TranslatorError(f"翻译供应商 {provider_id} 缺少 API Key")
-
-            return ResolvedProvider(
-                name=provider_id,
-                api_type=api_type,
-                base_url=base_url,
-                api_key=api_key,
-                model=model,
-            )
-
-        base_url = getattr(self.config, "base_url", "") or ""
-        api_key = getattr(self.config, "api_key", "") or ""
-        model = getattr(self.config, "model", "") or "gpt-4o-mini"
-
-        if not base_url or not api_key:
-            raise TranslatorError("翻译器未配置 provider_id，也未配置 base_url/api_key")
-
-        base_url = base_url.rstrip("/")
-
-        api_type = "gemini" if "generativelanguage.googleapis.com" in base_url else "openai"
-
-        return ResolvedProvider(
-            name="manual_translator",
-            api_type=api_type,
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
-        )
-
     async def _call_llm(self, text: str, danbooru_api_url: str = "") -> str:
         """调用 LLM。"""
-
-        provider = self._resolve_provider()
 
         system_prompt = (
             self.config.system_prompt.strip()
@@ -1013,31 +909,42 @@ class PromptTranslator:
         if tag_candidates_block:
             final_system_prompt = f"{system_prompt}\n\n{tag_candidates_block}"
 
+        configured_provider_id = str(
+            getattr(self.config, "provider_id", "") or ""
+        ).strip()
+        if not configured_provider_id:
+            raise TranslatorError("翻译器未选择 AstrBot 提供商")
+
+        # AstrBot owns endpoint construction, authentication, proxy handling,
+        # model selection and request formatting.  Never reconstruct /v1 or a
+        # provider-specific POST endpoint inside this plugin.
+        try:
+            provider_id, provider_obj, response = await call_provider(
+                self.context,
+                configured_provider_id,
+                prompt=text,
+                system_prompt=final_system_prompt,
+                temperature=0.2,
+                max_tokens=2000,
+            )
+        except ProviderRoutingError as exc:
+            raise TranslatorError(str(exc)) from exc
+        except Exception as exc:
+            raise TranslatorError(f"调用翻译提供商失败：{exc}") from exc
+
+        translated = self._clean_result(response_text(response))
+        if not translated:
+            raise TranslatorError(f"翻译提供商 {provider_id} 返回空内容")
+
         try:
             from astrbot.api import logger
 
             logger.info(
-                f"[BestNAI] 使用翻译供应商：{provider.name} "
-                f"type={provider.api_type}, model={provider.model}"
+                f"[BestNAI] 使用 AstrBot 翻译供应商：{provider_id}，"
+                f"model={provider_model_of(provider_obj) or '(当前模型)'}"
             )
         except Exception:
             pass
-
-        if provider.api_type == "gemini":
-            translated = await self._call_gemini(provider, final_system_prompt, text)
-
-        elif provider.api_type == "vertex":
-            raise TranslatorError(
-                "当前 BestNAI 翻译器暂不直接支持 Vertex 供应商。"
-                "请使用 OpenAI 兼容供应商或 Gemini API 供应商。"
-            )
-
-        else:
-            translated = await self._call_openai_compatible(
-                provider,
-                final_system_prompt,
-                text,
-            )
 
         character_tag, series_tag = resolve_character_candidate(text, results)
         self.last_character_tag = character_tag
@@ -1048,146 +955,6 @@ class PromptTranslator:
             series_tag,
             results,
         )
-
-    async def _call_openai_compatible(
-        self,
-        provider: ResolvedProvider,
-        system_prompt: str,
-        text: str,
-    ) -> str:
-        """调用 OpenAI 兼容接口。"""
-
-        base = provider.base_url.rstrip("/")
-
-        if base.endswith("/v1"):
-            url = f"{base}/chat/completions"
-        else:
-            url = f"{base}/v1/chat/completions"
-
-        payload = {
-            "model": provider.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": text,
-                },
-            ],
-            "temperature": 0.2,
-            "max_tokens": 2000,
-            "stream": False,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {provider.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self.timeout)
-        ) as session:
-            async with session.post(url, json=payload, headers=headers) as resp:
-                body = await resp.text()
-
-                if resp.status != 200:
-                    raise TranslatorError(
-                        f"OpenAI 兼容翻译接口返回 {resp.status}: {body[:300]}"
-                    )
-
-                try:
-                    data = await resp.json(content_type=None)
-                    result = data["choices"][0]["message"]["content"].strip()
-                except Exception as e:
-                    raise TranslatorError(f"解析 OpenAI 兼容翻译响应失败: {e}") from e
-
-                return self._clean_result(result)
-
-    async def _call_gemini(
-        self,
-        provider: ResolvedProvider,
-        system_prompt: str,
-        text: str,
-    ) -> str:
-        """调用 Gemini 官方 API。
-
-        支持：
-        - https://generativelanguage.googleapis.com
-        - https://generativelanguage.googleapis.com/v1beta
-        - https://generativelanguage.googleapis.com/v1
-        """
-
-        base = provider.base_url.rstrip("/")
-
-        if base.endswith("/v1beta") or base.endswith("/v1"):
-            url = f"{base}/models/{provider.model}:generateContent"
-        else:
-            url = f"{base}/v1beta/models/{provider.model}:generateContent"
-
-        user_text = (
-            f"{system_prompt}\n\n"
-            f"用户输入：{text}\n\n"
-            f"请只输出最终英文 Danbooru tag 串，不要解释。"
-        )
-
-        payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": user_text,
-                        }
-                    ],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 2000,
-            },
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-            # 放在请求头而不是 URL query，避免 API Key 随异常消息进日志
-            "x-goog-api-key": provider.api_key,
-        }
-
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self.timeout)
-        ) as session:
-            async with session.post(url, json=payload, headers=headers) as resp:
-                body = await resp.text()
-
-                if resp.status != 200:
-                    raise TranslatorError(
-                        f"Gemini 翻译接口返回 {resp.status}: {body[:300]}"
-                    )
-
-                try:
-                    data = await resp.json(content_type=None)
-                    candidates = data.get("candidates", [])
-
-                    if not candidates:
-                        raise TranslatorError("Gemini 返回 candidates 为空")
-
-                    parts = candidates[0].get("content", {}).get("parts", [])
-
-                    result = "\n".join(
-                        p.get("text", "") for p in parts if isinstance(p, dict)
-                    ).strip()
-
-                    if not result:
-                        raise TranslatorError("Gemini 返回文本为空")
-
-                    return self._clean_result(result)
-
-                except TranslatorError:
-                    raise
-                except Exception as e:
-                    raise TranslatorError(f"解析 Gemini 翻译响应失败: {e}") from e
 
     def _clean_result(self, result: str) -> str:
         """清理模型输出。"""

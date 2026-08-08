@@ -767,12 +767,20 @@ function duplicateNode(id) {
   scheduleSave();
 }
 
-function selectNode(id, additive = false) {
+function selectNode(id, mode = false) {
   if (!findNode(id)) return;
-  if (additive) {
+  // ``true`` is kept as a backwards-compatible shorthand for toggle mode.
+  // New call sites use named modes so Shift (add) and Ctrl/Cmd (toggle) do
+  // not accidentally share the same behavior.
+  const options = typeof mode === "boolean" ? { toggle: mode } : (mode || {});
+  if (options.toggle) {
     const next = new Set(selectedNodeIds());
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelection([...next], next.has(id) ? id : "");
+  } else if (options.additive) {
+    const next = new Set(selectedNodeIds());
+    next.add(id);
+    setSelection([...next], id);
   } else {
     if (state.selectedIds.length === 1 && isNodeSelected(id)) return;
     setSelection([id], id);
@@ -830,7 +838,8 @@ function makeNodeShell(node, label) {
   element.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     bringNodeToFront(node.id, element);
-    if (event.ctrlKey || event.metaKey || event.shiftKey) selectNode(node.id, true);
+    if (event.ctrlKey || event.metaKey) selectNode(node.id, { toggle: true });
+    else if (event.shiftKey) selectNode(node.id, { additive: true });
     else if (!isNodeSelected(node.id)) selectNode(node.id);
   });
   attachNodeDrag(handle, element, node);
@@ -1640,9 +1649,11 @@ function attachNodeDrag(handle, element, node) {
     event.preventDefault();
     event.stopPropagation();
 
-    if (event.ctrlKey || event.metaKey || event.shiftKey) {
-      selectNode(node.id, true);
+    if (event.ctrlKey || event.metaKey) {
+      selectNode(node.id, { toggle: true });
       if (!isNodeSelected(node.id)) return;
+    } else if (event.shiftKey) {
+      selectNode(node.id, { additive: true });
     } else if (!isNodeSelected(node.id)) {
       selectNode(node.id);
     }
@@ -2663,7 +2674,10 @@ function alignAssetPanel() {
   }
   els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
   const bottomOffsets = [12];
-  if (!state.assetPanelExpanded && minimapRect.height > 0) {
+  // The expanded library may fill the board, but the fixed navigation HUD
+  // must remain reachable. Reserve both the minimap and diagnostics bar in
+  // every desktop layout instead of letting the panel cover either one.
+  if (minimapRect.height > 0) {
     bottomOffsets.push(viewportRect.bottom - minimapRect.top + gap);
   }
   if (debugRect.height > 0) {
@@ -3201,7 +3215,9 @@ els.viewport.addEventListener("pointerdown", (event) => {
   const middlePan = event.pointerType === "mouse" && event.button === 1;
   if (
     (event.button !== 0 && !middlePan)
-    || (!middlePan && event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel"))
+    || (!middlePan && event.target.closest(
+      ".node, button, .link-hit, .link-delete, .minimap, .asset-panel, .debug-bar",
+    ))
   ) return;
 
   if (middlePan) event.preventDefault();
@@ -3320,8 +3336,16 @@ els.debugBar?.addEventListener("wheel", (event) => {
   event.stopPropagation();
 }, { passive: true });
 
+// The diagnostics HUD is an interactive surface of its own. Keep pointer
+// gestures (including text drag-selection) from reaching the canvas' CAD
+// selection/pan handlers.
+els.debugBar?.addEventListener("pointerdown", (event) => event.stopPropagation());
+els.debugBar?.addEventListener("dblclick", (event) => event.stopPropagation());
+
 els.viewport.addEventListener("dblclick", (event) => {
-  if (event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")) return;
+  if (event.target.closest(
+    ".node, button, .link-hit, .link-delete, .minimap, .asset-panel, .debug-bar",
+  )) return;
   event.preventDefault();
   addNode(createPromptNode(clientToWorld(event.clientX, event.clientY)));
 });
@@ -3329,7 +3353,7 @@ els.viewport.addEventListener("dblclick", (event) => {
 els.viewport.addEventListener("contextmenu", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest(
-    "textarea, input, select, [contenteditable='true'], .topbar, .asset-panel, .image-viewer, .project-menu, .minimap",
+    "textarea, input, select, [contenteditable='true'], .topbar, .asset-panel, .debug-bar, .image-viewer, .project-menu, .minimap",
   )) return;
   event.preventDefault();
   event.stopPropagation();
@@ -3350,11 +3374,22 @@ function clearDropOverlay() {
 
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
+  const selection = window.getSelection?.();
+  const selectionNodes = selection
+    ? [selection.anchorNode, selection.focusNode]
+    : [];
+  const selectionInTextSurface = selectionNodes.some((node) => {
+    const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    return element?.closest?.(
+      ".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer, .debug-body",
+    );
+  });
   return !!(
-    targetElement?.closest(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")
+    targetElement?.closest(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")
     || targetElement?.closest(".debug-body")
-    || document.activeElement?.closest?.(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")
+    || document.activeElement?.closest?.(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")
     || document.activeElement?.closest?.(".debug-body")
+    || selectionInTextSurface
   );
 }
 

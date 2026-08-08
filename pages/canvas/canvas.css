@@ -1835,7 +1835,8 @@ select:focus-visible,
      一倍半高再被卡片裁掉，同一行三张图的缩放比例就对不上了 */
   position: absolute;
   inset: 0;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--soft-2);
 }
 
 .asset-thumb-loading {
@@ -2165,11 +2166,10 @@ select:focus-visible,
 
   .toolbar {
     grid-area: tools;
-    display: grid;
-    /* Ten visible actions must stay on one row on phones. The toolbar remains
-       horizontally scrollable on narrower devices instead of wrapping the
-       destructive action into a second, space-consuming line. */
-    grid-template-columns: repeat(10, minmax(28px, 1fr));
+    display: flex;
+    /* Keep every action on one predictable row. Narrow phones can scroll the
+       toolbar horizontally, but the destructive action must never form an
+       accidental second row. */
     width: 100%;
     max-width: none;
     min-width: 0;
@@ -2190,7 +2190,10 @@ select:focus-visible,
 
   .toolbar-items,
   .toolbar-fixed {
-    display: contents;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0;
   }
 
   .toolbar-project-switcher {
@@ -2222,12 +2225,12 @@ select:focus-visible,
   .tool-btn,
   .tool-btn.icon-only,
   .toolbar-items .tool-btn {
-    width: 32px;
+    width: clamp(28px, 8vw, 32px);
     height: 32px;
     max-width: 100%;
     min-width: 28px;
     padding: 0;
-    justify-self: center;
+    flex: 0 0 clamp(28px, 8vw, 32px);
   }
 
   .minimap,
@@ -2340,6 +2343,8 @@ select:focus-visible,
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  cursor: text;
+  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -2424,7 +2429,11 @@ select:focus-visible,
   width: auto;
   max-height: calc(100% - 110px);
   min-height: 0;
-  flex-direction: column;
+  /* Keep the summary toggle pinned to the HUD's bottom baseline.  The
+     diagnostics body is the first visual item above it and therefore grows
+     upward when opened instead of pushing the toggle away from its resting
+     position. */
+  flex-direction: column-reverse;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2476,7 +2485,7 @@ select:focus-visible,
 .debug-bar-body {
   min-height: 0;
   border: 1px solid var(--line);
-  border-width: 1px 0 0;
+  border-width: 0 0 1px;
   padding: 10px 12px 12px;
   overflow: hidden;
 }

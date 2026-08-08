@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import types
 import unittest
@@ -137,6 +138,32 @@ class InferRatioFromImageSizeTest(unittest.TestCase):
         for size, expected in cases.items():
             with self.subTest(size=size):
                 self.assertEqual(infer_ratio_label_from_size(*size), expected)
+
+
+class RatioSchemaTest(unittest.TestCase):
+    def test_default_ratio_dropdown_exposes_every_supported_preset(self) -> None:
+        schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
+        options = schema["generation_config"]["items"]["default_ratio"]["options"]
+
+        expected = {
+            "16:9 (1216×704)",
+            "9:16 (704×1216)",
+            "4:3 (1024×768)",
+            "3:4 (768×1024)",
+            "3:2 (1216×832)",
+            "2:3 (832×1216)",
+            "1:1 (1024×1024)",
+            "5:4 (960×768)",
+            "4:5 (768×960)",
+            "7:4 (1344×768)",
+            "4:7 (768×1344)",
+            "12:5 (1536×640)",
+            "5:12 (640×1536)",
+            "21:9 (1344×576)",
+            "9:21 (576×1344)",
+        }
+
+        self.assertEqual(set(options), expected)
 
 
 if __name__ == "__main__":

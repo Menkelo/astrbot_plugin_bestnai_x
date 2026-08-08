@@ -124,9 +124,6 @@ class GenerationConfig:
 class TranslatorConfig:
     enabled: bool = False
     provider_id: str = ""
-    base_url: str = ""
-    api_key: str = ""
-    model: str = "gpt-4o-mini"
     show_progress: bool = False
     show_result: bool = False
     system_prompt: str = ""
@@ -134,9 +131,7 @@ class TranslatorConfig:
     max_retries: int = 3
 
     def is_configured(self) -> bool:
-        if self.provider_id:
-            return True
-        return bool(self.base_url and self.api_key)
+        return bool(self.provider_id)
 
 
 @dataclass
@@ -282,9 +277,6 @@ class PluginConfig:
                     )
                 ),
                 provider_id=translator_provider_id,
-                base_url="",
-                api_key="",
-                model="gpt-4o-mini",
                 show_progress=False,
                 show_result=bool(tr_conf.get("show_result", False)),
                 system_prompt="",

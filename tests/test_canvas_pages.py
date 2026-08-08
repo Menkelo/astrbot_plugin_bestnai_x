@@ -40,13 +40,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
-            'targetElement?.closest(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
+            'targetElement?.closest(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
             editor,
         )
         self.assertIn(
-            'document.activeElement?.closest?.(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
+            'document.activeElement?.closest?.(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
             editor,
         )
+        self.assertIn("selectionInTextSurface", editor)
+        self.assertIn('targetElement?.closest(".debug-body")', editor)
         self.assertIn(".prompt-text {", styles)
         self.assertIn("user-select: none;", styles)
 
@@ -64,7 +66,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         self.assertIn(
-            'event.target.closest(".node, button, .link-hit, .link-delete, .minimap, .asset-panel")',
+            '".node, button, .link-hit, .link-delete, .minimap, .asset-panel, .debug-bar",',
             editor,
         )
 
@@ -76,12 +78,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const middlePan = event.pointerType === \"mouse\" && event.button === 1", editor)
         self.assertIn("const toggle = !!(event.ctrlKey || event.metaKey)", editor)
         self.assertIn("const additive = !!event.shiftKey", editor)
+        self.assertIn("selectNode(node.id, { toggle: true })", editor)
+        self.assertIn("selectNode(node.id, { additive: true })", editor)
         self.assertIn("finishBoxSelection(startWorld, endEvent", editor)
         self.assertIn(".selection-box.crossing", styles)
 
     def test_mobile_toolbar_keeps_clear_action_on_the_same_row(self) -> None:
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
-        self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", styles)
+        mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
+            "@media (prefers-reduced-motion", 1
+        )[0]
+        self.assertIn("display: flex;", mobile)
+        self.assertIn("flex: 0 0 clamp(28px, 8vw, 32px);", mobile)
+        self.assertNotIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", mobile)
 
     def test_editor_persists_resized_notes_prompts_and_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -270,7 +279,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('card.addEventListener("click", () => addImageAssetToCanvas(item))', editor)
         self.assertIn('thumb.style.aspectRatio = `${item.width} / ${item.height}`', editor)
         self.assertIn("renderImageAssetCard(item, els.assetGrid)", editor)
-        self.assertIn("object-fit: contain;", styles)
+        compact_thumb = styles.split(
+            ".asset-grid.compact-layout .asset-thumb img {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("position: absolute;", compact_thumb)
+        self.assertIn("object-fit: contain;", compact_thumb)
         self.assertIn("object-fit: cover;", styles)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", styles)
         # 卡片按面板实宽计算固定高度，网格行保持 auto，让懒加载提示不会占满整张卡片。
@@ -300,6 +313,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('els.assetPanel.style.width = `${right - left}px`', editor)
         self.assertIn("topbarRect.bottom - viewportRect.top + gap", editor)
         self.assertIn("viewportRect.bottom - minimapRect.top + gap", editor)
+        align_body = editor.split("function alignAssetPanel()", 1)[1].split(
+            "function updateAssetGridMetrics", 1
+        )[0]
+        self.assertIn("if (minimapRect.height > 0)", align_body)
+        self.assertNotIn("!state.assetPanelExpanded && minimapRect.height", align_body)
         self.assertIn("max-width: calc(100vw - 24px);", styles)
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetSelectModeBtn"', html)
@@ -527,8 +545,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("overflow-x: auto;", mobile_styles)
         self.assertIn("-webkit-overflow-scrolling: touch;", mobile_styles)
         self.assertIn("grid-template-columns: repeat(9, minmax(28px, 1fr));", mobile_styles)
-        self.assertIn("display: contents;", mobile_styles)
-        self.assertIn("justify-self: center;", mobile_styles)
+        self.assertIn("flex: 0 0 auto;", mobile_styles)
+        self.assertIn("flex: 0 0 clamp(28px, 8vw, 32px);", mobile_styles)
+        self.assertNotIn("display: contents;", mobile_styles)
+        self.assertNotIn("justify-self: center;", mobile_styles)
         self.assertIn("place-items: center;", mobile_styles)
         landscape_styles = styles.split(
             "@media (orientation: landscape) and (max-height: 620px) and (max-width: 1400px) {",
@@ -587,9 +607,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("event.stopPropagation();", editor.split(
             'els.debugBar?.addEventListener("wheel"', 1
         )[1].split("});", 1)[0])
+        self.assertIn(
+            'els.debugBar?.addEventListener("pointerdown", (event) => event.stopPropagation())',
+            editor,
+        )
         debug_body = styles.split(".debug-body {", 1)[1].split("}", 1)[0]
         self.assertIn("overflow-y: auto;", debug_body)
         self.assertIn("overscroll-behavior: contain;", debug_body)
+        self.assertIn("-webkit-user-select: text;", debug_body)
+        self.assertIn("user-select: text;", debug_body)
 
     def test_retag_cache_is_independent_of_handwritten_overlay(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -607,9 +633,18 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("The seed belongs to the source image", editor)
 
     def test_debug_bar_shares_minimap_bottom_baseline(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         debug = styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
         self.assertIn("bottom: 22px;", debug)
+        self.assertIn("flex-direction: column-reverse;", debug)
+        body = styles.split(".debug-bar-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("border-width: 0 0 1px;", body)
+        render = editor.split("function renderDebugBar() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("els.debugBar.hidden = false;", render)
+        self.assertIn('"调试信息 · 等待下一次画布请求"', render)
 
     def test_source_image_seed_and_tags_are_recovered_for_library_round_trip(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
