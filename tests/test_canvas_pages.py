@@ -236,6 +236,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("retagTagGroups: normalizeRetagTagGroups(result?.tagGroups)", editor)
         self.assertIn("retagTagGroups: _retagTagGroups", editor)
         self.assertIn("retagLayerModes: _retagLayerModes", editor)
+        self.assertIn("retagLayerExpanded: open", editor)
+        self.assertIn("setOpen(node.meta?.retagLayerExpanded === true)", editor)
+        self.assertNotIn("expandedRetagLayers", editor)
         self.assertIn('closest(".asset-panel, .image-viewer-details, .debug-bar, .retag-layer-card")', editor)
 
         card = styles.split(".retag-layer-card {", 1)[1].split("}", 1)[0]
@@ -247,6 +250,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('raw_meta.get("retagTagGroups")', service)
         self.assertIn('raw_meta.get("retagLayerModes")', service)
+        self.assertIn('raw_meta.get("retagLayerExpanded", False)', service)
         self.assertIn('payload.get("retagPreserveCategories")', main)
         self.assertIn('payload.get("retagDropCategories")', main)
         self.assertIn("preserve_categories=retag_preserve_categories", main)
@@ -330,7 +334,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("object-position: center;", compact_thumb)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", styles)
         # 卡片按面板实宽计算固定高度，网格行保持 auto，让懒加载提示不会占满整张卡片。
-        self.assertIn("padding: 0 3px;", styles)
+        asset_grid = styles.split(".asset-grid {", 1)[1].split("}", 1)[0]
+        self.assertIn("padding: 8px;", asset_grid)
+        self.assertIn("border-radius: var(--asset-panel-inner-radius);", asset_grid)
+        self.assertIn("scrollbar-gutter: stable both-edges;", asset_grid)
+        asset_empty = styles.split(".asset-empty {", 1)[1].split("}", 1)[0]
+        self.assertIn("padding: 8px;", asset_empty)
+        self.assertIn("border-radius: var(--asset-panel-inner-radius);", asset_empty)
         self.assertIn("grid-auto-rows: auto;", styles)
         self.assertIn("height: var(--asset-card-height, 112px);", styles)
         self.assertIn("function updateAssetGridMetrics()", editor)
@@ -708,32 +718,39 @@ class CanvasPageBridgeTest(unittest.TestCase):
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('id="minimapToggleBtn"', html)
-        self.assertIn('data-lucide="map"', html)
+        self.assertIn('class="minimap-toggle-btn"', html)
+        self.assertIn('data-lucide="chevron-down"', html)
+        self.assertLess(html.index('id="minimap"'), html.index('id="minimapToggleBtn"'))
         self.assertIn('const MINIMAP_VISIBLE_KEY = "bestnaiCanvasMinimapVisible"', editor)
         self.assertIn('document.body.classList.toggle("minimap-hidden", !visible)', editor)
         self.assertIn('localStorage.setItem(MINIMAP_VISIBLE_KEY', editor)
+        self.assertIn('visible ? "收起缩略图" : "展开缩略图"', editor)
         self.assertIn("if (!state.minimapVisible || window.matchMedia", editor)
         self.assertIn("body.minimap-hidden .minimap", styles)
-        self.assertIn("body.minimap-hidden .minimap-arrange-btn", styles)
+        collapsed_arrange = styles.split("body.minimap-hidden .minimap-arrange-btn {", 1)[1].split("}", 1)[0]
+        self.assertIn("bottom: 62px;", collapsed_arrange)
+        self.assertNotIn("display: none;", collapsed_arrange)
         mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
             "@media (prefers-reduced-motion", 1
         )[0]
-        self.assertIn("#minimapToggleBtn", mobile)
+        self.assertIn(".minimap-toggle-btn", mobile)
 
     def test_debug_bar_groups_prompt_merge_details(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("function makeDebugMergeSummary(details)", editor)
-        self.assertIn('"提示词冲突处理"', editor)
-        self.assertIn('appendDebugTagGroup(section, "新增提示词", details.added', editor)
-        self.assertIn('appendDebugTagGroup(section, "删除冲突", details.removed', editor)
-        self.assertIn('appendDebugTagGroup(section, "保留原图", details.retained', editor)
-        self.assertIn('appendDebugTagGroup(section, "重复去重", details.duplicates', editor)
-        self.assertIn('["added", "新增", details.added]', editor)
-        self.assertIn('["removed", "删除", details.removed]', editor)
-        self.assertIn('["retained", "保留", details.retained]', editor)
-        self.assertIn('["duplicates", "去重", details.duplicates]', editor)
+        self.assertIn('"提示词冲突处理 / Prompt merge"', editor)
+        self.assertIn('appendDebugTagGroup(section, "新增提示词 / Added", details.added', editor)
+        self.assertIn('appendDebugTagGroup(section, "删除冲突 / Removed", details.removed', editor)
+        self.assertIn('appendDebugTagGroup(section, "保留原图 / Retained", details.retained', editor)
+        self.assertIn('appendDebugTagGroup(section, "重复去重 / Deduplicated", details.duplicates', editor)
+        self.assertIn('["added", "新增 / Added", details.added]', editor)
+        self.assertIn('["removed", "删除 / Removed", details.removed]', editor)
+        self.assertIn('["retained", "保留 / Retained", details.retained]', editor)
+        self.assertIn('["duplicates", "去重 / Deduplicated", details.duplicates]', editor)
+        self.assertIn('identity: "角色 / Identity"', editor)
+        self.assertIn('clothing: "服装 / Clothing"', editor)
         self.assertIn("item.className = `debug-merge-count is-${tone}`", editor)
         self.assertIn(".debug-merge-summary {", styles)
         self.assertIn(".debug-merge-category-row {", styles)
@@ -748,10 +765,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
             with self.subTest(tone=tone):
                 self.assertIn(f".debug-merge-count.is-{tone} {{", styles)
                 self.assertIn(f".debug-merge-group.is-{tone} .debug-merge-tag", styles)
+                self.assertNotIn(f".debug-merge-group.is-{tone} .debug-merge-group-label", styles)
 
     def test_debug_bar_follows_prompt_selection_without_full_render(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        selection = editor.split("function setSelection", 1)[1].split(
+        selection = editor.split("function setSelection(ids", 1)[1].split(
             "\nfunction ", 1
         )[0]
         render = editor.split("function renderDebugBar() {", 1)[1].split(
@@ -800,7 +818,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         toolbar = html.split('id="quickToolbar"', 1)[1].split("</nav>", 1)[0]
-        items = toolbar.split('class="toolbar-items"', 1)[1].split("</div>", 1)[0]
+        items = toolbar.split('class="toolbar-items toolbar-create-tools"', 1)[1].split("</div>", 1)[0]
 
         # 工具栏只留图标，文字标签靠 title / aria-label 提供
         self.assertNotIn("<span>", items)
@@ -808,12 +826,27 @@ class CanvasPageBridgeTest(unittest.TestCase):
             ("addImageBtn", "上传图片"),
             ("addPromptBtn", "添加提示词节点"),
             ("addNoteBtn", "添加备注节点"),
-            ("assetLibraryBtn", "素材库"),
         ):
             with self.subTest(button=button_id):
                 self.assertIn(f'id="{button_id}"', items)
                 self.assertIn(f'aria-label="{label}"', items)
-        self.assertEqual(items.count("icon-only"), 4)
+        self.assertEqual(items.count("icon-only"), 3)
+        self.assertNotIn('id="assetLibraryBtn"', items)
+        self.assertIn('class="toolbar-group toolbar-history-group"', toolbar)
+        self.assertIn('class="toolbar-group toolbar-workspace-group"', toolbar)
+        self.assertIn('class="toolbar-group toolbar-system-group"', toolbar)
+        self.assertLess(toolbar.index('id="undoBtn"'), toolbar.index('id="assetLibraryBtn"'))
+        self.assertLess(toolbar.index('id="assetLibraryBtn"'), toolbar.index('id="debugModeBtn"'))
+
+        create_styles = styles.split(".toolbar-create-tools {", 1)[1].split("}", 1)[0]
+        self.assertIn("display: none;", create_styles)
+        mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
+            "@media (prefers-reduced-motion", 1
+        )[0]
+        mobile_create = mobile.split(".toolbar-create-tools {", 1)[1].split("}", 1)[0]
+        self.assertIn("display: flex;", mobile_create)
+        toolbar_styles = styles.split(".toolbar {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow: visible;", toolbar_styles)
 
         # 图标固定 16px 且不参与压缩，最小按钮 28px 也放得下
         icon_styles = styles.split(".tool-btn svg {", 1)[1].split("}", 1)[0]
@@ -983,6 +1016,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="nodeContextSaveImage"', html)
         self.assertIn('id="nodeContextDownloadImage"', html)
         self.assertEqual(html.count("data-image-only"), 2)
+        node_menu = html.split('id="nodeContextMenu"', 1)[1].split("</div>", 1)[0]
+        self.assertLess(node_menu.index('id="nodeContextSaveImage"'), node_menu.index('id="nodeContextDownloadImage"'))
+        self.assertLess(node_menu.index('id="nodeContextDownloadImage"'), node_menu.index('id="nodeContextDuplicate"'))
+        self.assertLess(node_menu.index('id="nodeContextDuplicate"'), node_menu.index('id="nodeContextDelete"'))
         self.assertIn('const imageNode = node.type === "image"', editor)
         self.assertIn('querySelectorAll("[data-image-only]")', editor)
         self.assertIn('duplicateNode(node.id)', editor)
@@ -991,6 +1028,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('await downloadImage(node)', editor)
         self.assertIn(".canvas-context-menu button.danger {", styles)
         self.assertIn(".canvas-context-menu button:disabled {", styles)
+
+        self.assertIn('id="selectionContextMenu"', html)
+        self.assertIn('id="selectionContextArrange"', html)
+        self.assertIn('id="selectionContextDelete"', html)
+        self.assertIn('<span>整理选中</span>', html)
+        self.assertIn('<span>删除选中</span>', html)
+        context_menu = editor.split(
+            'els.viewport.addEventListener("contextmenu"', 1
+        )[1].split("function dataTransferHasFiles", 1)[0]
+        self.assertIn("if (selectedNodeIds().length >= 2)", context_menu)
+        self.assertIn("setSelectionContextMenu(true, event.clientX, event.clientY)", context_menu)
+        self.assertLess(
+            context_menu.index("if (selectedNodeIds().length >= 2)"),
+            context_menu.index('const nodeElement = target?.closest(".node")'),
+        )
 
     def test_character_preservation_is_removed(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")

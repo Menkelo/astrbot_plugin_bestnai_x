@@ -70,6 +70,7 @@ class CanvasStoreTest(unittest.TestCase):
                         "retagSeedArtist": "default",
                         "retagSeedRaw": False,
                         "retagFromCanvasCache": True,
+                        "retagLayerExpanded": True,
                         "retagTagGroups": {
                             "identity": ["hatsune_miku", "vocaloid"],
                             "hair": ["aqua_hair"],
@@ -139,6 +140,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertFalse(loaded["nodes"][0]["meta"]["retagSeedRaw"])
         self.assertNotIn("retagMode", loaded["nodes"][0])
         self.assertTrue(loaded["nodes"][0]["meta"]["retagFromCanvasCache"])
+        self.assertTrue(loaded["nodes"][0]["meta"]["retagLayerExpanded"])
         self.assertEqual(
             loaded["nodes"][0]["meta"]["retagTagGroups"]["identity"],
             ["hatsune_miku", "vocaloid"],
@@ -184,6 +186,7 @@ class CanvasStoreTest(unittest.TestCase):
                         "id": "prompt_layers",
                         "type": "prompt",
                         "meta": {
+                            "retagLayerExpanded": True,
                             "retagTagGroups": {
                                 "hair": [*tags, "x" * 500],
                                 "clothing": ["tag_0", "white_dress"],
@@ -203,6 +206,7 @@ class CanvasStoreTest(unittest.TestCase):
         )
         meta = workspace["nodes"][0]["meta"]
 
+        self.assertTrue(meta["retagLayerExpanded"])
         self.assertEqual(len(meta["retagTagGroups"]["hair"]), 64)
         self.assertNotIn("not_allowed", meta["retagTagGroups"])
         self.assertEqual(meta["retagTagGroups"]["clothing"], ["white_dress"])

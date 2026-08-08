@@ -470,20 +470,24 @@ select:focus-visible,
   min-width: 0;
   margin-left: auto;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .toolbar-items,
-.toolbar-fixed {
+.toolbar-fixed,
+.toolbar-group {
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow: visible;
 }
 
 .toolbar-items {
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+}
+
+.toolbar-create-tools {
+  display: none;
 }
 
 .toolbar-items::-webkit-scrollbar {
@@ -491,6 +495,7 @@ select:focus-visible,
 }
 
 .toolbar-fixed {
+  min-width: max-content;
   flex: 0 0 auto;
 }
 
@@ -511,6 +516,7 @@ select:focus-visible,
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--card-solid);
@@ -568,7 +574,7 @@ select:focus-visible,
   background-color: var(--page);
   background-image: radial-gradient(var(--grid) 1px, transparent 1px);
   background-position: 0 0;
-  background-size: 24px 24px;
+  background-size: 32px 32px;
   cursor: grab;
   touch-action: none;
 }
@@ -1712,6 +1718,35 @@ select:focus-visible,
   pointer-events: none;
 }
 
+.minimap-toggle-btn {
+  position: absolute;
+  z-index: 26;
+  right: 30px;
+  bottom: 30px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .12);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .14s var(--ease), background .14s var(--ease), transform .14s var(--ease);
+}
+
+.minimap-toggle-btn:hover {
+  background: #fff;
+  color: var(--strong);
+  transform: translateY(-1px);
+}
+
+.minimap-toggle-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
 .minimap-arrange-btn {
   position: absolute;
   z-index: 25;
@@ -1733,7 +1768,7 @@ select:focus-visible,
   font-weight: 850;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .14s var(--ease), color .14s var(--ease), transform .14s var(--ease);
+  transition: bottom .14s var(--ease), opacity .14s var(--ease), color .14s var(--ease), transform .14s var(--ease);
 }
 
 .minimap-arrange-btn.visible {
@@ -1754,9 +1789,18 @@ select:focus-visible,
 
 body.asset-library-open .minimap,
 body.asset-library-open .minimap-arrange-btn,
-body.minimap-hidden .minimap,
-body.minimap-hidden .minimap-arrange-btn {
+body.asset-library-open .minimap-toggle-btn,
+body.minimap-hidden .minimap {
   display: none;
+}
+
+body.minimap-hidden .minimap-toggle-btn {
+  right: 22px;
+  bottom: 22px;
+}
+
+body.minimap-hidden .minimap-arrange-btn {
+  bottom: 62px;
 }
 
 body.asset-library-open,
@@ -1764,7 +1808,13 @@ body.minimap-hidden {
   --debug-bar-right: 18px;
 }
 
+body.minimap-hidden.multi-selection-active:not(.asset-library-open) {
+  --debug-bar-right: 146px;
+}
+
 .asset-panel {
+  --asset-panel-radius: 16px;
+  --asset-panel-inner-radius: 12px;
   position: absolute;
   z-index: 41;
   top: 82px;
@@ -1779,7 +1829,7 @@ body.minimap-hidden {
   padding: 10px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--asset-panel-radius);
   background: var(--panel);
   box-shadow: 0 22px 58px var(--shadow);
   color: var(--text);
@@ -1799,7 +1849,8 @@ body.minimap-hidden {
 }
 
 .asset-panel.expanded {
-  border-radius: 20px;
+  --asset-panel-radius: 20px;
+  --asset-panel-inner-radius: 14px;
   background: rgba(255, 255, 255, .98);
   backdrop-filter: blur(20px);
 }
@@ -1916,10 +1967,14 @@ body.minimap-hidden {
   flex: 1;
   align-content: start;
   gap: 8px;
-  /* 左右都留 3px：只留右边的话滚动条那侧会比左边宽一截，三列看着就偏了 */
-  padding: 0 3px;
+  padding: 8px;
   overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--asset-panel-inner-radius);
+  background: rgba(248, 250, 252, .78);
+  background: color-mix(in srgb, var(--soft-2) 64%, transparent);
   overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
 }
 
@@ -2139,6 +2194,12 @@ body.minimap-hidden {
   justify-content: center;
   flex-direction: column;
   gap: 8px;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--asset-panel-inner-radius);
+  background: rgba(248, 250, 252, .78);
+  background: color-mix(in srgb, var(--soft-2) 64%, transparent);
   color: var(--faint);
   font-size: 11px;
   font-weight: 800;
@@ -2331,7 +2392,8 @@ body.minimap-hidden {
   }
 
   .toolbar-items,
-  .toolbar-fixed {
+  .toolbar-fixed,
+  .toolbar-group {
     flex: 0 0 auto;
     gap: clamp(2px, .5vw, 6px);
   }
@@ -2420,11 +2482,16 @@ body.minimap-hidden {
   }
 
   .toolbar-items,
-  .toolbar-fixed {
+  .toolbar-fixed,
+  .toolbar-group {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
     gap: 0;
+  }
+
+  .toolbar-create-tools {
+    display: flex;
   }
 
   .toolbar-project-switcher {
@@ -2466,7 +2533,7 @@ body.minimap-hidden {
 
   .minimap,
   .minimap-arrange-btn,
-  #minimapToggleBtn {
+  .minimap-toggle-btn {
     display: none;
   }
 
@@ -2706,18 +2773,10 @@ body.minimap-hidden {
   color: #1d4ed8;
 }
 
-.debug-merge-group.is-added .debug-merge-group-label {
-  color: #1d4ed8;
-}
-
 .debug-merge-group.is-removed .debug-merge-tag,
 .debug-merge-category-block.is-conflicts .debug-merge-tag {
   border-color: #fecaca;
   background: #fff1f2;
-  color: #b91c1c;
-}
-
-.debug-merge-group.is-removed .debug-merge-group-label {
   color: #b91c1c;
 }
 
@@ -2727,17 +2786,9 @@ body.minimap-hidden {
   color: #15803d;
 }
 
-.debug-merge-group.is-retained .debug-merge-group-label {
-  color: #15803d;
-}
-
 .debug-merge-group.is-duplicates .debug-merge-tag {
   border-color: #fde68a;
   background: #fffbeb;
-  color: #a16207;
-}
-
-.debug-merge-group.is-duplicates .debug-merge-group-label {
   color: #a16207;
 }
 
@@ -2749,7 +2800,7 @@ body.minimap-hidden {
 
 .debug-merge-category-row {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
+  grid-template-columns: 116px minmax(0, 1fr);
   gap: 6px;
   align-items: start;
   margin-top: 4px;
@@ -2896,6 +2947,6 @@ body.minimap-hidden {
   }
 
   .debug-merge-category-row {
-    grid-template-columns: 62px minmax(0, 1fr);
+    grid-template-columns: 102px minmax(0, 1fr);
   }
 }

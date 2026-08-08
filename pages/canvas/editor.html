@@ -25,7 +25,7 @@
         </section>
 
         <nav id="quickToolbar" class="toolbar" aria-label="画布工具">
-          <div class="toolbar-items">
+          <div class="toolbar-items toolbar-create-tools" aria-label="创建节点">
             <button class="tool-btn icon-only" id="addImageBtn" type="button" title="上传图片" aria-label="上传图片">
               <i data-lucide="image-plus"></i>
             </button>
@@ -35,36 +35,40 @@
             <button class="tool-btn icon-only" id="addNoteBtn" type="button" title="添加备注节点" aria-label="添加备注节点">
               <i data-lucide="notebook-pen"></i>
             </button>
-            <button class="tool-btn icon-only" id="assetLibraryBtn" type="button" title="素材库" aria-label="素材库">
-              <i data-lucide="library"></i>
-            </button>
           </div>
-          <span class="toolbar-divider" aria-hidden="true"></span>
           <div class="toolbar-fixed">
-            <button class="tool-btn icon-only" id="undoBtn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销">
-              <i data-lucide="undo-2"></i>
-            </button>
-            <button class="tool-btn icon-only" id="redoBtn" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做">
-              <i data-lucide="redo-2"></i>
-            </button>
-            <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
-              <i data-lucide="scan"></i>
-            </button>
-            <button class="tool-btn icon-only" id="minimapToggleBtn" type="button" title="隐藏缩略图" aria-label="隐藏缩略图" aria-pressed="true">
-              <i data-lucide="map"></i>
-            </button>
-            <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
-              <i data-lucide="upload"></i>
-            </button>
-            <button class="tool-btn icon-only" id="exportBtn" type="button" title="导出工作区" aria-label="导出工作区">
-              <i data-lucide="download"></i>
-            </button>
-            <button class="tool-btn icon-only" id="debugModeBtn" type="button" title="调试模式" aria-label="调试模式" aria-pressed="false">
-              <i data-lucide="bug"></i>
-            </button>
-            <button class="tool-btn icon-only danger" id="clearBtn" type="button" title="清空画布" aria-label="清空画布">
-              <i data-lucide="trash-2"></i>
-            </button>
+            <div class="toolbar-group toolbar-history-group" aria-label="历史与视图">
+              <button class="tool-btn icon-only" id="undoBtn" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销">
+                <i data-lucide="undo-2"></i>
+              </button>
+              <button class="tool-btn icon-only" id="redoBtn" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做">
+                <i data-lucide="redo-2"></i>
+              </button>
+              <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
+                <i data-lucide="scan"></i>
+              </button>
+            </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <div class="toolbar-group toolbar-workspace-group" aria-label="素材与工作区">
+              <button class="tool-btn icon-only" id="assetLibraryBtn" type="button" title="素材库" aria-label="素材库">
+                <i data-lucide="library"></i>
+              </button>
+              <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
+                <i data-lucide="upload"></i>
+              </button>
+              <button class="tool-btn icon-only" id="exportBtn" type="button" title="导出工作区" aria-label="导出工作区">
+                <i data-lucide="download"></i>
+              </button>
+            </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <div class="toolbar-group toolbar-system-group" aria-label="调试与清理">
+              <button class="tool-btn icon-only" id="debugModeBtn" type="button" title="调试模式" aria-label="调试模式" aria-pressed="false">
+                <i data-lucide="bug"></i>
+              </button>
+              <button class="tool-btn icon-only danger" id="clearBtn" type="button" title="清空画布" aria-label="清空画布">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
           </div>
         </nav>
         <div class="mobile-asset-library-switcher">
@@ -105,6 +109,9 @@
             <div id="minimapViewport" class="minimap-viewport"></div>
           </div>
         </div>
+        <button id="minimapToggleBtn" class="minimap-toggle-btn" type="button" title="收起缩略图" aria-label="收起缩略图" aria-pressed="true">
+          <i data-lucide="chevron-down"></i>
+        </button>
         <aside id="debugBar" class="debug-bar" hidden aria-label="调试信息">
           <button id="debugBarToggle" class="debug-bar-toggle" type="button" aria-expanded="false">
             <i data-lucide="bug"></i><span id="debugBarSummary">调试信息</span><i data-lucide="chevron-up" class="debug-bar-chevron"></i>
@@ -147,10 +154,14 @@
       <button id="contextAddNoteBtn" type="button" role="menuitem"><i data-lucide="notebook-pen"></i><span>备注</span></button>
     </div>
     <div id="nodeContextMenu" class="canvas-context-menu node-context-menu" role="menu" aria-label="节点操作" hidden>
-      <button id="nodeContextDuplicate" type="button" role="menuitem"><i data-lucide="copy"></i><span>复制节点</span></button>
       <button id="nodeContextSaveImage" type="button" role="menuitem" data-image-only hidden><i data-lucide="bookmark-plus"></i><span>收录到素材库</span></button>
       <button id="nodeContextDownloadImage" type="button" role="menuitem" data-image-only hidden><i data-lucide="download"></i><span>下载图片</span></button>
+      <button id="nodeContextDuplicate" type="button" role="menuitem"><i data-lucide="copy"></i><span>复制节点</span></button>
       <button id="nodeContextDelete" class="danger" type="button" role="menuitem"><i data-lucide="trash-2"></i><span>删除节点</span></button>
+    </div>
+    <div id="selectionContextMenu" class="canvas-context-menu selection-context-menu" role="menu" aria-label="多选节点操作" hidden>
+      <button id="selectionContextArrange" type="button" role="menuitem"><i data-lucide="layout-grid"></i><span>整理选中</span></button>
+      <button id="selectionContextDelete" class="danger" type="button" role="menuitem"><i data-lucide="trash-2"></i><span>删除选中</span></button>
     </div>
     <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
     <input id="workspaceInput" type="file" accept="application/json,.json" hidden />

@@ -67,6 +67,7 @@ const els = {
   newProjectInput: document.getElementById("newProjectInput"),
   canvasContextMenu: document.getElementById("canvasContextMenu"),
   nodeContextMenu: document.getElementById("nodeContextMenu"),
+  selectionContextMenu: document.getElementById("selectionContextMenu"),
 };
 
 const MINIMAP_VISIBLE_KEY = "bestnaiCanvasMinimapVisible";
@@ -118,7 +119,6 @@ const state = {
   })(),
   debugBarOpen: false,
   lastDebugNodeId: "",
-  expandedRetagLayers: new Set(),
   preferencesSaveChain: Promise.resolve(),
   contextMenuPoint: null,
   contextMenuNodeId: "",
@@ -140,9 +140,11 @@ function updateMinimapVisibility({ redraw = false } = {}) {
   els.minimapToggleBtn?.classList.toggle("active", visible);
   els.minimapToggleBtn?.setAttribute("aria-pressed", String(visible));
   if (els.minimapToggleBtn) {
-    const label = visible ? "隐藏缩略图" : "显示缩略图";
+    const label = visible ? "收起缩略图" : "展开缩略图";
     els.minimapToggleBtn.title = label;
     els.minimapToggleBtn.setAttribute("aria-label", label);
+    els.minimapToggleBtn.replaceChildren(icon(visible ? "chevron-down" : "chevron-up"));
+    refreshIcons(els.minimapToggleBtn);
   }
   if (!visible) state.minimapTransform = null;
   else if (redraw) window.requestAnimationFrame(drawMinimap);
@@ -256,6 +258,7 @@ function startHealthMonitor() {
 
 function setProjectMenu(open) {
   const next = !!open;
+  setSelectionContextMenu(false);
   if (next) {
     setCanvasContextMenu(false);
     setNodeContextMenu(false);
@@ -274,7 +277,10 @@ function setProjectMenu(open) {
 
 function setCanvasContextMenu(open, clientX = 0, clientY = 0) {
   const next = !!open;
-  if (next) setNodeContextMenu(false);
+  if (next) {
+    setNodeContextMenu(false);
+    setSelectionContextMenu(false);
+  }
   els.canvasContextMenu.hidden = !next;
   if (!next) {
     state.contextMenuPoint = null;
@@ -289,7 +295,10 @@ function setCanvasContextMenu(open, clientX = 0, clientY = 0) {
 
 function setNodeContextMenu(open, node = null, clientX = 0, clientY = 0) {
   const next = !!open && !!node;
-  if (next) setCanvasContextMenu(false);
+  if (next) {
+    setCanvasContextMenu(false);
+    setSelectionContextMenu(false);
+  }
   els.nodeContextMenu.hidden = !next;
   if (!next) {
     state.contextMenuNodeId = "";
@@ -312,6 +321,22 @@ function setNodeContextMenu(open, node = null, clientX = 0, clientY = 0) {
   const height = els.nodeContextMenu.offsetHeight;
   els.nodeContextMenu.style.left = `${clamp(clientX, margin, window.innerWidth - width - margin)}px`;
   els.nodeContextMenu.style.top = `${clamp(clientY, margin, window.innerHeight - height - margin)}px`;
+}
+
+function setSelectionContextMenu(open, clientX = 0, clientY = 0) {
+  const next = !!open && selectedNodeIds().length >= 2;
+  if (next) {
+    setCanvasContextMenu(false);
+    setNodeContextMenu(false);
+  }
+  els.selectionContextMenu.hidden = !next;
+  if (!next) return;
+
+  const margin = 12;
+  const width = els.selectionContextMenu.offsetWidth;
+  const height = els.selectionContextMenu.offsetHeight;
+  els.selectionContextMenu.style.left = `${clamp(clientX, margin, window.innerWidth - width - margin)}px`;
+  els.selectionContextMenu.style.top = `${clamp(clientY, margin, window.innerHeight - height - margin)}px`;
 }
 
 function alignedPanelEdges() {
@@ -436,7 +461,6 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
     : [];
   state.connections = Array.isArray(workspace?.connections) ? workspace.connections : [];
   state.lastDebugNodeId = "";
-  state.expandedRetagLayers.clear();
   state.viewport = workspace?.viewport || { x: 160, y: 120, scale: 1 };
   state.selectedId = "";
   state.selectedIds = [];
@@ -747,6 +771,7 @@ function isNodeSelected(id) {
 }
 
 function setSelection(ids, primaryId = "") {
+  setSelectionContextMenu(false);
   state.selectedIds = [...new Set(ids)].filter((id) => !!findNode(id));
   state.selectedId = state.selectedIds.includes(primaryId)
     ? primaryId
@@ -764,7 +789,9 @@ function clearSelection() {
 }
 
 function updateSelectionControls() {
-  els.arrangeSelectionBtn.classList.toggle("visible", selectedNodeIds().length >= 2);
+  const multiSelected = selectedNodeIds().length >= 2;
+  els.arrangeSelectionBtn.classList.toggle("visible", multiSelected);
+  document.body.classList.toggle("multi-selection-active", multiSelected);
 }
 
 function deleteNodes(ids) {
@@ -772,7 +799,7 @@ function deleteNodes(ids) {
   if (!deleteIds.size) return;
   pushHistory();
   if (deleteIds.has(state.contextMenuNodeId)) setNodeContextMenu(false);
-  deleteIds.forEach((id) => state.expandedRetagLayers.delete(id));
+  setSelectionContextMenu(false);
   // Removing an image also removes its source-specific retag state from any
   // prompt that survives the deletion. Otherwise the orphaned prompt can
   // reuse tags/seed from an image that is no longer connected to it.
@@ -1038,33 +1065,33 @@ function renderPromptNode(node) {
 }
 
 const DEBUG_SECTIONS = [
-  { key: "retag", label: "反推" },
-  { key: "generate", label: "生图" },
+  { key: "retag", label: "反推 / Retag" },
+  { key: "generate", label: "生图 / Generate" },
 ];
 
 const DEBUG_MERGE_NOTE_KEYS = ["提示词冲突处理", "mergeDetails", "promptMerge"];
 const DEBUG_CATEGORY_LABELS = {
-  identity: "角色 / 主体",
-  subject: "主体数量",
-  hair: "发型",
-  eyes: "眼睛",
-  skin: "皮肤 / 妆容",
-  traits: "身体特征",
-  accessory: "配饰",
-  clothing: "服装",
-  legwear: "腿部穿着",
-  footwear: "鞋子",
-  handwear: "手套",
-  pose: "姿势",
-  gaze: "视线",
-  gesture: "手势 / 动作",
-  expression: "表情",
-  composition: "构图",
-  background: "背景",
-  atmosphere: "氛围 / 天气",
-  lighting: "光照",
-  style: "风格",
-  other: "其他细节",
+  identity: "角色 / Identity",
+  subject: "主体数量 / Subjects",
+  hair: "发型 / Hair",
+  eyes: "眼睛 / Eyes",
+  skin: "皮肤妆容 / Skin",
+  traits: "身体特征 / Traits",
+  accessory: "配饰 / Accessories",
+  clothing: "服装 / Clothing",
+  legwear: "腿部穿着 / Legwear",
+  footwear: "鞋子 / Footwear",
+  handwear: "手套 / Handwear",
+  pose: "姿势 / Pose",
+  gaze: "视线 / Gaze",
+  gesture: "动作手势 / Gesture",
+  expression: "表情 / Expression",
+  composition: "构图 / Composition",
+  background: "背景 / Background",
+  atmosphere: "氛围天气 / Atmosphere",
+  lighting: "光照 / Lighting",
+  style: "风格 / Style",
+  other: "其他细节 / Other",
 };
 
 const RETAG_LAYER_CATEGORY_ORDER = Object.freeze([
@@ -1255,13 +1282,13 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
     const open = !card.classList.contains("open");
-    if (open) state.expandedRetagLayers.add(node.id);
-    else state.expandedRetagLayers.delete(node.id);
+    node.meta = { ...(node.meta || {}), retagLayerExpanded: open };
     setOpen(open);
+    scheduleSave();
   });
   body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
   refreshSummary();
-  setOpen(state.expandedRetagLayers.has(node.id));
+  setOpen(node.meta?.retagLayerExpanded === true);
   card.append(toggle, body);
   return card;
 }
@@ -1381,16 +1408,16 @@ function makeDebugMergeSummary(details) {
 
   const head = document.createElement("div");
   head.className = "debug-merge-head";
-  head.textContent = "提示词冲突处理";
+  head.textContent = "提示词冲突处理 / Prompt merge";
   section.appendChild(head);
 
   const counts = document.createElement("div");
   counts.className = "debug-merge-counts";
   [
-    ["added", "新增", details.added],
-    ["removed", "删除", details.removed],
-    ["retained", "保留", details.retained],
-    ["duplicates", "去重", details.duplicates],
+    ["added", "新增 / Added", details.added],
+    ["removed", "删除 / Removed", details.removed],
+    ["retained", "保留 / Retained", details.retained],
+    ["duplicates", "去重 / Deduplicated", details.duplicates],
   ].forEach(([tone, label, values]) => {
     const item = document.createElement("span");
     item.className = `debug-merge-count is-${tone}`;
@@ -1399,49 +1426,49 @@ function makeDebugMergeSummary(details) {
   });
   section.appendChild(counts);
 
-  appendDebugTagGroup(section, "新增提示词", details.added, "is-added");
-  appendDebugTagGroup(section, "删除冲突", details.removed, "is-removed");
-  appendDebugTagGroup(section, "保留原图", details.retained, "is-retained");
-  appendDebugTagGroup(section, "重复去重", details.duplicates, "is-duplicates");
+  appendDebugTagGroup(section, "新增提示词 / Added", details.added, "is-added");
+  appendDebugTagGroup(section, "删除冲突 / Removed", details.removed, "is-removed");
+  appendDebugTagGroup(section, "保留原图 / Retained", details.retained, "is-retained");
+  appendDebugTagGroup(section, "重复去重 / Deduplicated", details.duplicates, "is-duplicates");
   appendDebugTagGroup(
     section,
-    "锁定图层",
+    "锁定图层 / Locked layers",
     debugLayerCategoryLabels(details.preserveCategories),
     "is-retained",
   );
   appendDebugTagGroup(
     section,
-    "移除图层",
+    "移除图层 / Removed layers",
     debugLayerCategoryLabels(details.dropCategories),
     "is-removed",
   );
-  appendDebugCategoryGroups(section, "覆盖分类", details.overrides, "is-overrides");
-  appendDebugCategoryGroups(section, "冲突分类", details.conflicts, "is-conflicts");
+  appendDebugCategoryGroups(section, "覆盖分类 / Overridden", details.overrides, "is-overrides");
+  appendDebugCategoryGroups(section, "冲突分类 / Conflicts", details.conflicts, "is-conflicts");
   return section;
 }
 
 function debugMergePlainText(details) {
   if (!details || typeof details !== "object") return [];
-  const lines = ["  提示词冲突处理"];
+  const lines = ["  提示词冲突处理 / Prompt merge"];
   [
-    ["新增", details.added],
-    ["删除冲突", details.removed],
-    ["保留原图", details.retained],
-    ["重复已去重", details.duplicates],
+    ["新增提示词 / Added", details.added],
+    ["删除冲突 / Removed", details.removed],
+    ["保留原图 / Retained", details.retained],
+    ["重复去重 / Deduplicated", details.duplicates],
   ].forEach(([label, values]) => {
     const tags = debugMergeValues(values);
     if (tags.length) lines.push(`    ${label}: ${tags.join(", ")}`);
   });
   [
-    ["锁定图层", details.preserveCategories],
-    ["移除图层", details.dropCategories],
+    ["锁定图层 / Locked layers", details.preserveCategories],
+    ["移除图层 / Removed layers", details.dropCategories],
   ].forEach(([label, values]) => {
     const categories = debugLayerCategoryLabels(values);
     if (categories.length) lines.push(`    ${label}: ${categories.join(", ")}`);
   });
   [
-    ["覆盖分类", details.overrides],
-    ["冲突分类", details.conflicts],
+    ["覆盖分类 / Overridden", details.overrides],
+    ["冲突分类 / Conflicts", details.conflicts],
   ].forEach(([label, groups]) => {
     if (!groups || typeof groups !== "object" || Array.isArray(groups)) return;
     Object.entries(groups).forEach(([category, values]) => {
@@ -2661,7 +2688,6 @@ function clearRetagCache(node) {
     ...meta
   } = node.meta || {};
   node.meta = meta;
-  state.expandedRetagLayers.delete(node?.id);
 }
 
 function clearTranslationCache(node) {
@@ -2840,7 +2866,6 @@ async function retagFromNode(id, generateAfter = false) {
       retagTagGroups: normalizeRetagTagGroups(result?.tagGroups),
       translatedPrompt: retagPrompt,
     };
-    state.expandedRetagLayers.add(node.id);
     // Keep the source image self-describing after the first retag.  This is
     // important for uploaded/re-encoded images whose PNG metadata is absent:
     // saving that image to the library and placing it back later must still
@@ -3075,6 +3100,7 @@ function setAssetPanelExpanded(expanded, { realign = true } = {}) {
 }
 
 function setAssetPanel(open) {
+  setSelectionContextMenu(false);
   if (open) {
     setCanvasContextMenu(false);
     setNodeContextMenu(false);
@@ -3766,6 +3792,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
   if (event.pointerType !== "touch") focusCanvasSurface();
   setCanvasContextMenu(false);
   setNodeContextMenu(false);
+  setSelectionContextMenu(false);
   if (middlePan) setProjectMenu(false);
 
   if (event.pointerType === "touch") {
@@ -3896,12 +3923,22 @@ els.viewport.addEventListener("dblclick", (event) => {
 
 els.viewport.addEventListener("contextmenu", (event) => {
   const target = event.target instanceof Element ? event.target : null;
-  // Text controls keep the browser's native edit/copy menu. Other interactive
-  // surfaces inside the board own the click and must never open the blank-
-  // canvas creation menu.
+  // Text controls keep the browser's native edit/copy menu.
+  if (target?.closest("textarea, input, select, [contenteditable='true']")) return;
+  // Overlay surfaces own their own interaction and are not blank canvas.
   if (target?.closest(
-    "textarea, input, select, [contenteditable='true'], .topbar, .asset-panel, .debug-bar, .image-viewer, .project-menu, .minimap",
+    ".topbar, .asset-panel, .debug-bar, .image-viewer, .project-menu, .minimap, .minimap-toggle-btn",
   )) return;
+  // A multi-selection is one editing target. Right-clicking either a selected
+  // node or blank canvas must keep that selection intact and expose only the
+  // operations that apply to the whole set.
+  if (selectedNodeIds().length >= 2) {
+    event.preventDefault();
+    event.stopPropagation();
+    setProjectMenu(false);
+    setSelectionContextMenu(true, event.clientX, event.clientY);
+    return;
+  }
   const nodeElement = target?.closest(".node");
   if (nodeElement) {
     const node = findNode(nodeElement.dataset.nodeId);
@@ -4086,6 +4123,15 @@ document.getElementById("nodeContextDownloadImage").addEventListener("click", as
   setNodeContextMenu(false);
   if (node?.type === "image") await downloadImage(node);
 });
+document.getElementById("selectionContextArrange").addEventListener("click", () => {
+  setSelectionContextMenu(false);
+  arrangeSelectedNodes();
+});
+document.getElementById("selectionContextDelete").addEventListener("click", () => {
+  const ids = selectedNodeIds();
+  setSelectionContextMenu(false);
+  deleteNodes(ids);
+});
 document.getElementById("fitBtn").addEventListener("click", fitView);
 els.minimapToggleBtn?.addEventListener("click", () => {
   state.minimapVisible = !state.minimapVisible;
@@ -4141,6 +4187,9 @@ document.addEventListener("pointerdown", (event) => {
   }
   if (!els.nodeContextMenu.hidden && !event.target.closest(".node-context-menu")) {
     setNodeContextMenu(false);
+  }
+  if (!els.selectionContextMenu.hidden && !event.target.closest(".selection-context-menu")) {
+    setSelectionContextMenu(false);
   }
 });
 document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
@@ -4286,6 +4335,10 @@ document.addEventListener("keydown", (event) => {
       setNodeContextMenu(false);
       return;
     }
+    if (!els.selectionContextMenu.hidden) {
+      setSelectionContextMenu(false);
+      return;
+    }
     if (!els.projectMenu.hidden) {
       setProjectMenu(false);
       return;
@@ -4337,6 +4390,7 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("resize", () => {
   setCanvasContextMenu(false);
   setNodeContextMenu(false);
+  setSelectionContextMenu(false);
   drawMinimap();
   alignToastRegion();
   // The embedded page can receive its first resize after initialization

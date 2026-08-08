@@ -626,6 +626,7 @@ class CanvasStore:
                 "retagSeedRaw": bool(raw_meta.get("retagSeedRaw", False)),
                 "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
                 "retagFromCanvasCache": bool(raw_meta.get("retagFromCanvasCache", False)),
+                "retagLayerExpanded": bool(raw_meta.get("retagLayerExpanded", False)),
                 "seed": normalize_nai_seed(raw_meta.get("seed")) or 0,
                 "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
                 "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
