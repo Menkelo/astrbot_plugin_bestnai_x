@@ -38,6 +38,16 @@ MAX_WORKSPACE_BYTES = 2 * 1024 * 1024
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_IMAGE_PIXELS = 30_000_000
 
+# Debug traces are user-facing diagnostics, not arbitrary workspace data.  Keep
+# a bounded, JSON-safe subset when a workspace is persisted so a malformed
+# client payload cannot make saves enormous (or inject fields that the canvas
+# renderer never expects).
+MAX_DEBUG_STAGES = 32
+MAX_DEBUG_NOTES = 64
+MAX_DEBUG_DEPTH = 4
+MAX_DEBUG_KEY_LENGTH = 120
+MAX_DEBUG_VALUE_LENGTH = 2000
+
 # 刚生成、还没被放进节点的图片不能马上回收，
 # 否则前端拿到 assetId 却还没保存工作区时会被误删。
 ASSET_GC_GRACE_SECONDS = 3600
@@ -77,6 +87,72 @@ def _bounded_number(
 
 def _short_text(value: Any, limit: int) -> str:
     return str(value or "")[:limit]
+
+
+def _sanitize_debug_value(value: Any, depth: int = 0) -> Any:
+    """Return a small JSON-safe representation of a debug note value."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        # Python integers are unbounded; cap them to a sensible JSON number so
+        # a hostile payload cannot create a huge decimal string.
+        return max(-1_000_000_000_000, min(1_000_000_000_000, value))
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0
+
+    if depth >= MAX_DEBUG_DEPTH:
+        return _short_text(value, MAX_DEBUG_VALUE_LENGTH)
+
+    if isinstance(value, dict):
+        result: Dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= MAX_DEBUG_NOTES:
+                break
+            result[_short_text(key, MAX_DEBUG_KEY_LENGTH)] = _sanitize_debug_value(item, depth + 1)
+        return result
+
+    if isinstance(value, (list, tuple)):
+        return [
+            _sanitize_debug_value(item, depth + 1)
+            for item in list(value)[:MAX_DEBUG_NOTES]
+        ]
+
+    return _short_text(value, MAX_DEBUG_VALUE_LENGTH)
+
+
+def _sanitize_debug_trace(value: Any) -> Dict[str, Any] | None:
+    """Keep the stable DebugTrace shape while dropping untrusted extras."""
+    if not isinstance(value, dict):
+        return None
+
+    stages: List[Dict[str, Any]] = []
+    raw_stages = value.get("stages", [])
+    if isinstance(raw_stages, list):
+        for raw_stage in raw_stages[:MAX_DEBUG_STAGES]:
+            if not isinstance(raw_stage, dict):
+                continue
+            stage = {
+                "name": _short_text(raw_stage.get("name"), MAX_DEBUG_KEY_LENGTH),
+                "ms": int(_bounded_number(raw_stage.get("ms"), 0, 0, 86_400_000)),
+            }
+            if raw_stage.get("error") not in (None, ""):
+                stage["error"] = _short_text(raw_stage.get("error"), MAX_DEBUG_VALUE_LENGTH)
+            stages.append(stage)
+
+    notes: Dict[str, Any] = {}
+    raw_notes = value.get("notes", {})
+    if isinstance(raw_notes, dict):
+        for index, (key, item) in enumerate(raw_notes.items()):
+            if index >= MAX_DEBUG_NOTES:
+                break
+            notes[_short_text(key, MAX_DEBUG_KEY_LENGTH)] = _sanitize_debug_value(item)
+
+    return {
+        "scope": _short_text(value.get("scope"), MAX_DEBUG_KEY_LENGTH),
+        "totalMs": int(_bounded_number(value.get("totalMs"), 0, 0, 86_400_000)),
+        "stages": stages,
+        "notes": notes,
+    }
 
 
 class CanvasStore:
@@ -420,6 +496,41 @@ class CanvasStore:
             if not isinstance(raw_meta, dict):
                 raw_meta = {}
 
+            meta = {
+                "prompt": _short_text(raw_meta.get("prompt"), 6000),
+                "ratio": _short_text(raw_meta.get("ratio"), 32),
+                "width": int(_bounded_number(raw_meta.get("width"), 0, 0, 20_000)),
+                "height": int(_bounded_number(raw_meta.get("height"), 0, 0, 20_000)),
+                "finalPrompt": _short_text(raw_meta.get("finalPrompt"), 6000),
+                "tags": _short_text(raw_meta.get("tags"), 6000),
+                "artist": _short_text(raw_meta.get("artist"), 120),
+                "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
+                "translationSource": _short_text(raw_meta.get("translationSource"), 6000),
+                "translationResult": _short_text(raw_meta.get("translationResult"), 6000),
+                "translationCharacter": _short_text(raw_meta.get("translationCharacter"), 240),
+                "translationSeries": _short_text(raw_meta.get("translationSeries"), 240),
+                "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
+                "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
+                "retagCharacter": _short_text(raw_meta.get("retagCharacter"), 240),
+                "retagSeries": _short_text(raw_meta.get("retagSeries"), 240),
+                "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
+                "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
+                "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, MAX_SEED)),
+                "retagSeedPrompt": _short_text(raw_meta.get("retagSeedPrompt"), 6000),
+                "retagSeedRatio": _short_text(raw_meta.get("retagSeedRatio"), 32),
+                "retagSeedArtist": _short_text(raw_meta.get("retagSeedArtist"), 120),
+                "retagSeedRaw": bool(raw_meta.get("retagSeedRaw", False)),
+                "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
+                "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, MAX_SEED)),
+                "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
+                "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
+                "retagged": bool(raw_meta.get("retagged", False)),
+                "userResized": bool(raw_meta.get("userResized", False)),
+            }
+            debug = _sanitize_debug_trace(raw_meta.get("debug"))
+            if debug is not None:
+                meta["debug"] = debug
+
             node = {
                 "id": node_id,
                 "type": node_type,
@@ -435,37 +546,7 @@ class CanvasStore:
                 "raw": bool(raw_node.get("raw", False)),
                 "assetId": asset_id,
                 "createdAt": _short_text(raw_node.get("createdAt"), 64),
-                "meta": {
-                    "prompt": _short_text(raw_meta.get("prompt"), 6000),
-                    "ratio": _short_text(raw_meta.get("ratio"), 32),
-                    "width": int(_bounded_number(raw_meta.get("width"), 0, 0, 20_000)),
-                    "height": int(_bounded_number(raw_meta.get("height"), 0, 0, 20_000)),
-                    "finalPrompt": _short_text(raw_meta.get("finalPrompt"), 6000),
-                    "tags": _short_text(raw_meta.get("tags"), 6000),
-                    "artist": _short_text(raw_meta.get("artist"), 120),
-                    "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
-                    "translationSource": _short_text(raw_meta.get("translationSource"), 6000),
-                    "translationResult": _short_text(raw_meta.get("translationResult"), 6000),
-                    "translationCharacter": _short_text(raw_meta.get("translationCharacter"), 240),
-                    "translationSeries": _short_text(raw_meta.get("translationSeries"), 240),
-                    "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
-                    "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
-                    "retagCharacter": _short_text(raw_meta.get("retagCharacter"), 240),
-                    "retagSeries": _short_text(raw_meta.get("retagSeries"), 240),
-                    "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
-                    "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
-                    "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, MAX_SEED)),
-                    "retagSeedPrompt": _short_text(raw_meta.get("retagSeedPrompt"), 6000),
-                    "retagSeedRatio": _short_text(raw_meta.get("retagSeedRatio"), 32),
-                    "retagSeedArtist": _short_text(raw_meta.get("retagSeedArtist"), 120),
-                    "retagSeedRaw": bool(raw_meta.get("retagSeedRaw", False)),
-                    "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
-                    "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, MAX_SEED)),
-                    "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
-                    "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
-                    "retagged": bool(raw_meta.get("retagged", False)),
-                    "userResized": bool(raw_meta.get("userResized", False)),
-                },
+                "meta": meta,
             }
             nodes.append(node)
 
@@ -744,6 +825,8 @@ class CanvasStore:
             library = self._library()
             existing = next((item for item in library["images"] if item.get("id") == asset_id), None)
             entry = existing or {"id": asset_id, "createdAt": self._timestamp()}
+            incoming_seed = int(_bounded_number(seed, 0, 0, MAX_SEED))
+            previous_seed = int(_bounded_number(entry.get("seed"), 0, 0, MAX_SEED))
             entry.update(
                 {
                     "name": _short_text(name, 160).strip() or entry.get("name") or f"图片 {asset_id[:8]}",
@@ -755,7 +838,10 @@ class CanvasStore:
                     "tags": _short_text(tags, 6000),
                     "artist": _short_text(artist, 120),
                     "ratio": _short_text(ratio, 32),
-                    "seed": int(_bounded_number(seed, entry.get("seed", 0), 0, MAX_SEED)),
+                    # Zero is the canvas sentinel for “no known NovelAI seed”.
+                    # Never let a later save erase a valid seed already stored
+                    # for the same asset.
+                    "seed": incoming_seed or previous_seed,
                 }
             )
             if existing is None:

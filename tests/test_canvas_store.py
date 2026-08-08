@@ -139,6 +139,43 @@ class CanvasStoreTest(unittest.TestCase):
         with self.assertRaises(CanvasValidationError):
             self.store.sanitize_workspace({"nodes": [node, node], "connections": []})
 
+    def test_debug_trace_survives_round_trip_and_is_bounded(self) -> None:
+        long_value = "x" * 5000
+        payload = {
+            "nodes": [
+                {
+                    "id": "prompt_debug",
+                    "type": "prompt",
+                    "meta": {
+                        "debug": {
+                            "scope": "canvas.generate",
+                            "totalMs": 123,
+                            "stages": [
+                                {"name": "翻译", "ms": 40, "error": long_value},
+                                {"name": "生成", "ms": 83},
+                            ],
+                            "notes": {"最终提示词": long_value, "nested": {"keep": True}},
+                            "untrusted": "must be dropped",
+                        },
+                    },
+                },
+            ],
+            "connections": [],
+        }
+
+        saved = self.store.save_workspace(payload)
+        loaded = self.store.load_workspace()
+        debug = loaded["nodes"][0]["meta"]["debug"]
+
+        self.assertEqual(debug["scope"], "canvas.generate")
+        self.assertEqual(debug["totalMs"], 123)
+        self.assertEqual(debug["stages"][1]["name"], "生成")
+        self.assertLessEqual(len(debug["stages"][0]["error"]), 2000)
+        self.assertLessEqual(len(debug["notes"]["最终提示词"]), 2000)
+        self.assertEqual(debug["notes"]["nested"], {"keep": True})
+        self.assertNotIn("untrusted", debug)
+        self.assertEqual(saved["nodes"][0]["meta"]["debug"], debug)
+
     def test_valid_png_asset_is_stored_and_returned(self) -> None:
         buffer = BytesIO()
         Image.new("RGB", (32, 24), (32, 120, 84)).save(buffer, format="PNG")
@@ -230,6 +267,10 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(library["images"][0]["ratio"], "3:2")
         self.assertEqual(library["images"][0]["artist"], "里番")
         self.assertEqual(library["images"][0]["seed"], 987654321)
+        # Re-saving the same asset without metadata must not erase the seed
+        # that was already collected from the NovelAI image.
+        self.store.add_image_to_library(image, "再次收录", "generated", seed=0)
+        self.assertEqual(self.store.list_library()["images"][0]["seed"], 987654321)
         self.assertEqual(library["prompts"][0]["prompt"], "1girl, backlight")
 
         self.store.remove_image_from_library(image["id"])

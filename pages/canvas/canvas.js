@@ -859,6 +859,7 @@ function renderPromptNode(node) {
   prompt.addEventListener("input", () => {
     node.prompt = prompt.value;
     node.error = "";
+    clearDebugTrace(node);
     if (node.meta?.translatedPrompt || node.meta?.retagPrompt || node.meta?.retagSeed) {
       clearRetagCache(node);
     }
@@ -875,12 +876,14 @@ function renderPromptNode(node) {
   options.className = "prompt-options";
   const ratioField = makeSelectField("画幅", state.config.ratios, node.ratio, (value) => {
     node.ratio = value;
+    clearDebugTrace(node);
     rememberPromptDefaults({ ratio: value });
     scheduleSave();
   });
   const artistOptions = canvasArtistOptions();
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
     node.artist = value;
+    clearDebugTrace(node);
     rememberPromptDefaults({ artist: value });
     scheduleSave();
   });
@@ -896,6 +899,7 @@ function renderPromptNode(node) {
   raw.checked = !!node.raw;
   raw.addEventListener("change", () => {
     node.raw = raw.checked;
+    clearDebugTrace(node);
     scheduleSave();
   });
   rawLabel.append(raw, document.createTextNode("原始提示词"));
@@ -2097,6 +2101,12 @@ function clearRetagSeed(node) {
   node.meta = meta;
 }
 
+function clearDebugTrace(node) {
+  if (!node?.meta?.debug) return;
+  const { debug: _debug, ...meta } = node.meta;
+  node.meta = meta;
+}
+
 function reusableRetagSeed(node) {
   const meta = node?.meta || {};
   const seed = Number(meta.retagSeed) || 0;
@@ -2141,10 +2151,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
 function runPromptNode(id) {
   // 每次手动运行都从空白开始记，否则上一轮的反推流水会跟这一轮的生图混在一起
   const node = findNode(id);
-  if (node && debugModeEnabled() && node.meta?.debug) {
-    const { debug: _debug, ...meta } = node.meta;
-    node.meta = meta;
-  }
+  clearDebugTrace(node);
   return sourceImageForPrompt(id)
     ? retagFromNode(id, true)
     : generateFromNode(id);
@@ -2808,8 +2815,17 @@ async function saveImageToLibrary(node) {
   }
 }
 
+function isSupportedImageFile(file) {
+  const type = String(file?.type || "").toLowerCase();
+  if (type.startsWith("image/")) return true;
+  // Desktop drag-and-drop providers occasionally omit MIME metadata.  The
+  // backend still verifies the actual bytes, so an extension fallback keeps
+  // those legitimate image drops usable without weakening server validation.
+  return /\.(?:png|jpe?g|webp|gif)$/i.test(String(file?.name || ""));
+}
+
 async function uploadFiles(files, point = worldCenter()) {
-  const images = [...files].filter((file) => file.type.startsWith("image/"));
+  const images = [...files].filter(isSupportedImageFile);
   if (!images.length) {
     toast("请选择 PNG、JPEG、WebP 或 GIF 图片", "error");
     return;
@@ -3215,7 +3231,10 @@ els.viewport.addEventListener("dblclick", (event) => {
 });
 
 els.viewport.addEventListener("contextmenu", (event) => {
-  if (event.target.closest("textarea, input, select, [contenteditable='true']")) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest(
+    "textarea, input, select, [contenteditable='true'], .topbar, .asset-panel, .image-viewer, .project-menu, .minimap",
+  )) return;
   event.preventDefault();
   event.stopPropagation();
   setProjectMenu(false);
@@ -3236,7 +3255,9 @@ function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   return !!(
     targetElement?.closest(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")
+    || targetElement?.closest(".debug-body")
     || document.activeElement?.closest?.(".prompt-text, .image-viewer-copy-text, .clipboard-copy-buffer")
+    || document.activeElement?.closest?.(".debug-body")
   );
 }
 
