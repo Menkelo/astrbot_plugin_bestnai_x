@@ -52,6 +52,34 @@ MAX_DEBUG_DEPTH = 4
 MAX_DEBUG_KEY_LENGTH = 120
 MAX_DEBUG_VALUE_LENGTH = 2000
 
+RETAG_LAYER_CATEGORIES = (
+    "identity",
+    "subject",
+    "expression",
+    "hair",
+    "eyes",
+    "skin",
+    "traits",
+    "accessory",
+    "clothing",
+    "legwear",
+    "footwear",
+    "handwear",
+    "pose",
+    "gaze",
+    "gesture",
+    "composition",
+    "background",
+    "atmosphere",
+    "lighting",
+    "style",
+    "other",
+)
+RETAG_LAYER_MODES = frozenset({"auto", "preserve", "drop"})
+MAX_RETAG_TAGS_PER_GROUP = 64
+MAX_RETAG_TAGS_TOTAL = 320
+MAX_RETAG_TAG_LENGTH = 160
+
 # 刚生成、还没被放进节点的图片不能马上回收，
 # 否则前端拿到 assetId 却还没保存工作区时会被误删。
 ASSET_GC_GRACE_SECONDS = 3600
@@ -91,6 +119,46 @@ def _bounded_number(
 
 def _short_text(value: Any, limit: int) -> str:
     return str(value or "")[:limit]
+
+
+def _sanitize_retag_tag_groups(value: Any) -> Dict[str, List[str]]:
+    if not isinstance(value, dict):
+        return {}
+
+    groups: Dict[str, List[str]] = {}
+    total = 0
+    seen: Set[str] = set()
+    for category in RETAG_LAYER_CATEGORIES:
+        raw_tags = value.get(category)
+        if not isinstance(raw_tags, list):
+            continue
+        tags: List[str] = []
+        for raw_tag in raw_tags:
+            if total >= MAX_RETAG_TAGS_TOTAL or len(tags) >= MAX_RETAG_TAGS_PER_GROUP:
+                break
+            tag = _short_text(raw_tag, MAX_RETAG_TAG_LENGTH).strip(" ,;\n\t")
+            key = tag.casefold()
+            if not tag or key in seen:
+                continue
+            seen.add(key)
+            tags.append(tag)
+            total += 1
+        if tags:
+            groups[category] = tags
+        if total >= MAX_RETAG_TAGS_TOTAL:
+            break
+    return groups
+
+
+def _sanitize_retag_layer_modes(value: Any) -> Dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: Dict[str, str] = {}
+    for category in RETAG_LAYER_CATEGORIES:
+        mode = str(value.get(category) or "").strip().casefold()
+        if mode in RETAG_LAYER_MODES:
+            result[category] = mode
+    return result
 
 
 def _sanitize_debug_value(value: Any, depth: int = 0) -> Any:
@@ -567,6 +635,12 @@ class CanvasStore:
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:
                 meta["debug"] = debug
+            retag_tag_groups = _sanitize_retag_tag_groups(raw_meta.get("retagTagGroups"))
+            if retag_tag_groups:
+                meta["retagTagGroups"] = retag_tag_groups
+            retag_layer_modes = _sanitize_retag_layer_modes(raw_meta.get("retagLayerModes"))
+            if retag_layer_modes:
+                meta["retagLayerModes"] = retag_layer_modes
 
             node = {
                 "id": node_id,
@@ -580,12 +654,6 @@ class CanvasStore:
                 "note": _short_text(raw_node.get("note"), 6000),
                 "ratio": _short_text(raw_node.get("ratio"), 32),
                 "artist": _short_text(raw_node.get("artist"), 120),
-                "retagMode": (
-                    "replicate"
-                    if str(raw_node.get("retagMode") or "").strip().casefold()
-                    == "replicate"
-                    else "edit"
-                ),
                 "raw": bool(raw_node.get("raw", False)),
                 "assetId": asset_id,
                 "createdAt": _short_text(raw_node.get("createdAt"), 64),

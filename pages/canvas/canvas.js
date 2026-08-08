@@ -26,6 +26,7 @@ const els = {
   minimap: document.getElementById("minimap"),
   minimapContent: document.getElementById("minimapContent"),
   minimapViewport: document.getElementById("minimapViewport"),
+  minimapToggleBtn: document.getElementById("minimapToggleBtn"),
   pluginDisplayName: document.getElementById("pluginDisplayName"),
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
@@ -65,7 +66,10 @@ const els = {
   newProjectRow: document.getElementById("newProjectRow"),
   newProjectInput: document.getElementById("newProjectInput"),
   canvasContextMenu: document.getElementById("canvasContextMenu"),
+  nodeContextMenu: document.getElementById("nodeContextMenu"),
 };
+
+const MINIMAP_VISIBLE_KEY = "bestnaiCanvasMinimapVisible";
 
 const state = {
   config: {
@@ -114,15 +118,36 @@ const state = {
   })(),
   debugBarOpen: false,
   lastDebugNodeId: "",
+  expandedRetagLayers: new Set(),
   preferencesSaveChain: Promise.resolve(),
   contextMenuPoint: null,
+  contextMenuNodeId: "",
   viewerLibraryAsset: null,
+  minimapVisible: (() => {
+    try { return localStorage.getItem(MINIMAP_VISIBLE_KEY) !== "0"; }
+    catch (_) { return true; }
+  })(),
 };
 
 const MAX_HISTORY = 40;
 function debugModeEnabled() {
   return !!state.debugEnabled;
 }
+
+function updateMinimapVisibility({ redraw = false } = {}) {
+  const visible = !!state.minimapVisible;
+  document.body.classList.toggle("minimap-hidden", !visible);
+  els.minimapToggleBtn?.classList.toggle("active", visible);
+  els.minimapToggleBtn?.setAttribute("aria-pressed", String(visible));
+  if (els.minimapToggleBtn) {
+    const label = visible ? "隐藏缩略图" : "显示缩略图";
+    els.minimapToggleBtn.title = label;
+    els.minimapToggleBtn.setAttribute("aria-label", label);
+  }
+  if (!visible) state.minimapTransform = null;
+  else if (redraw) window.requestAnimationFrame(drawMinimap);
+}
+
 const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
 const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults";
 const ASSET_RENDER_BATCH = 48;
@@ -231,7 +256,10 @@ function startHealthMonitor() {
 
 function setProjectMenu(open) {
   const next = !!open;
-  if (next) setCanvasContextMenu(false);
+  if (next) {
+    setCanvasContextMenu(false);
+    setNodeContextMenu(false);
+  }
   if (next && els.assetPanel.classList.contains("open")) setAssetPanel(false);
   els.projectMenu.hidden = !next;
   els.projectMenuBtn.setAttribute("aria-expanded", String(next));
@@ -246,6 +274,7 @@ function setProjectMenu(open) {
 
 function setCanvasContextMenu(open, clientX = 0, clientY = 0) {
   const next = !!open;
+  if (next) setNodeContextMenu(false);
   els.canvasContextMenu.hidden = !next;
   if (!next) {
     state.contextMenuPoint = null;
@@ -256,6 +285,33 @@ function setCanvasContextMenu(open, clientX = 0, clientY = 0) {
   const height = els.canvasContextMenu.offsetHeight;
   els.canvasContextMenu.style.left = `${clamp(clientX, margin, window.innerWidth - width - margin)}px`;
   els.canvasContextMenu.style.top = `${clamp(clientY, margin, window.innerHeight - height - margin)}px`;
+}
+
+function setNodeContextMenu(open, node = null, clientX = 0, clientY = 0) {
+  const next = !!open && !!node;
+  if (next) setCanvasContextMenu(false);
+  els.nodeContextMenu.hidden = !next;
+  if (!next) {
+    state.contextMenuNodeId = "";
+    return;
+  }
+
+  state.contextMenuNodeId = node.id;
+  const imageNode = node.type === "image";
+  els.nodeContextMenu.querySelectorAll("[data-image-only]").forEach((item) => {
+    item.hidden = !imageNode;
+  });
+  const download = document.getElementById("nodeContextDownloadImage");
+  const downloadLocked = imageNode && canvasGenerationActive();
+  download.disabled = downloadLocked;
+  download.title = downloadLocked ? "生图期间暂不可下载" : "下载图片";
+  download.setAttribute("aria-disabled", String(downloadLocked));
+
+  const margin = 12;
+  const width = els.nodeContextMenu.offsetWidth;
+  const height = els.nodeContextMenu.offsetHeight;
+  els.nodeContextMenu.style.left = `${clamp(clientX, margin, window.innerWidth - width - margin)}px`;
+  els.nodeContextMenu.style.top = `${clamp(clientY, margin, window.innerHeight - height - margin)}px`;
 }
 
 function alignedPanelEdges() {
@@ -368,6 +424,7 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
   closeImageViewer();
   if (els.assetPanel.classList.contains("open")) setAssetPanel(false);
   setCanvasContextMenu(false);
+  setNodeContextMenu(false);
   if (saveCurrent && canvasId) await flushWorkspace();
 
   const workspace = await bridge.apiGet("canvas/workspace", { id: canvas.id });
@@ -379,6 +436,7 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
     : [];
   state.connections = Array.isArray(workspace?.connections) ? workspace.connections : [];
   state.lastDebugNodeId = "";
+  state.expandedRetagLayers.clear();
   state.viewport = workspace?.viewport || { x: 160, y: 120, scale: 1 };
   state.selectedId = "";
   state.selectedIds = [];
@@ -461,7 +519,6 @@ function serializableWorkspace() {
       note: node.note || "",
       ratio: node.ratio || "",
       artist: node.artist || "",
-      retagMode: node.retagMode || "edit",
       raw: !!node.raw,
       assetId: node.assetId || "",
       createdAt: node.createdAt || "",
@@ -572,7 +629,6 @@ function createPromptNode(point = null) {
     prompt: "",
     ratio: state.promptDefaults.ratio || state.config.defaultRatio || "2:3",
     artist: state.promptDefaults.artist,
-    retagMode: "edit",
     raw: false,
     createdAt: new Date().toISOString(),
   };
@@ -715,6 +771,8 @@ function deleteNodes(ids) {
   const deleteIds = new Set(ids.filter((id) => !!findNode(id)));
   if (!deleteIds.size) return;
   pushHistory();
+  if (deleteIds.has(state.contextMenuNodeId)) setNodeContextMenu(false);
+  deleteIds.forEach((id) => state.expandedRetagLayers.delete(id));
   // Removing an image also removes its source-specific retag state from any
   // prompt that survives the deletion. Otherwise the orphaned prompt can
   // reuse tags/seed from an image that is no longer connected to it.
@@ -921,24 +979,6 @@ function renderPromptNode(node) {
     scheduleSave();
   });
   options.append(ratioField, artistField);
-  if (sourceImage) {
-    const retagModeField = makeSelectField(
-      "反推模式",
-      [
-        { value: "edit", label: "改图（覆盖冲突）" },
-        { value: "replicate", label: "复刻（保留原图）" },
-      ],
-      node.retagMode === "replicate" ? "replicate" : "edit",
-      (value) => {
-        node.retagMode = value === "replicate" ? "replicate" : "edit";
-        clearDebugTrace(node);
-        scheduleSave();
-      },
-    );
-    retagModeField.classList.add("prompt-mode-field");
-    options.appendChild(retagModeField);
-  }
-
   const footer = document.createElement("div");
   footer.className = "node-footer";
   const rawLabel = document.createElement("label");
@@ -987,6 +1027,8 @@ function renderPromptNode(node) {
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
   body.append(prompt, options, footer, status);
+  const retagLayerCard = makeRetagLayerCard(node, sourceImage, element);
+  if (retagLayerCard) element.appendChild(retagLayerCard);
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
@@ -1022,7 +1064,207 @@ const DEBUG_CATEGORY_LABELS = {
   atmosphere: "氛围 / 天气",
   lighting: "光照",
   style: "风格",
+  other: "其他细节",
 };
+
+const RETAG_LAYER_CATEGORY_ORDER = Object.freeze([
+  "identity",
+  "subject",
+  "expression",
+  "hair",
+  "eyes",
+  "skin",
+  "traits",
+  "accessory",
+  "clothing",
+  "legwear",
+  "footwear",
+  "handwear",
+  "pose",
+  "gaze",
+  "gesture",
+  "composition",
+  "background",
+  "atmosphere",
+  "lighting",
+  "style",
+  "other",
+]);
+
+function normalizeRetagTagGroups(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+  const seen = new Set();
+  RETAG_LAYER_CATEGORY_ORDER.forEach((category) => {
+    const rawTags = Array.isArray(value[category]) ? value[category] : [];
+    const tags = [];
+    rawTags.slice(0, 64).forEach((rawTag) => {
+      const tag = String(rawTag || "").trim().slice(0, 160);
+      const key = tag.toLocaleLowerCase();
+      if (!tag || seen.has(key)) return;
+      seen.add(key);
+      tags.push(tag);
+    });
+    if (tags.length) result[category] = tags;
+  });
+  return result;
+}
+
+function normalizeRetagLayerModes(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+  RETAG_LAYER_CATEGORY_ORDER.forEach((category) => {
+    const mode = String(value[category] || "").toLowerCase();
+    if (["auto", "preserve", "drop"].includes(mode)) result[category] = mode;
+  });
+  return result;
+}
+
+function retagLayerMode(node, category) {
+  const mode = normalizeRetagLayerModes(node?.meta?.retagLayerModes)[category];
+  return mode === "preserve" || mode === "drop" ? mode : "auto";
+}
+
+function retagLayerCategoryLists(node) {
+  const groups = normalizeRetagTagGroups(node?.meta?.retagTagGroups);
+  const categories = Object.keys(groups);
+  return {
+    preserve: categories.filter((category) => retagLayerMode(node, category) === "preserve"),
+    drop: categories.filter((category) => retagLayerMode(node, category) === "drop"),
+  };
+}
+
+function makeRetagLayerCard(node, sourceImage, nodeElement) {
+  if (!sourceImage) return null;
+  const groups = normalizeRetagTagGroups(node?.meta?.retagTagGroups);
+  const entries = RETAG_LAYER_CATEGORY_ORDER
+    .filter((category) => Array.isArray(groups[category]) && groups[category].length)
+    .map((category) => [category, groups[category]]);
+  if (!entries.length) return null;
+
+  const card = document.createElement("aside");
+  card.className = "retag-layer-card";
+  card.dataset.nodeId = node.id;
+  card.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    bringNodeToFront(node.id, nodeElement);
+    if (!isNodeSelected(node.id)) selectNode(node.id);
+  });
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "retag-layer-toggle";
+  toggle.setAttribute("aria-expanded", "false");
+  const title = document.createElement("span");
+  title.className = "retag-layer-title";
+  title.append(icon("layers-3"), document.createTextNode("原图标签图层"));
+  const summary = document.createElement("span");
+  summary.className = "retag-layer-summary";
+  const chevron = icon("chevron-down", "retag-layer-chevron");
+  toggle.append(title, summary, chevron);
+
+  const body = document.createElement("div");
+  body.className = "retag-layer-body";
+  body.hidden = true;
+  const help = document.createElement("p");
+  help.className = "retag-layer-help";
+  help.textContent = "自动按改图规则覆盖同类原图标签；锁定会保留原图分类；移除只删除原图标签，手写同类标签仍可加入。";
+  body.appendChild(help);
+
+  const refreshSummary = () => {
+    const lists = retagLayerCategoryLists(node);
+    const parts = [`${entries.length} 类`];
+    if (lists.preserve.length) parts.push(`锁定 ${lists.preserve.length}`);
+    if (lists.drop.length) parts.push(`移除 ${lists.drop.length}`);
+    summary.textContent = parts.join(" · ");
+  };
+
+  entries.forEach(([category, tags]) => {
+    const row = document.createElement("section");
+    row.className = "retag-layer-row";
+    const rowHead = document.createElement("div");
+    rowHead.className = "retag-layer-row-head";
+    const label = document.createElement("span");
+    label.className = "retag-layer-label";
+    label.textContent = DEBUG_CATEGORY_LABELS[category] || category;
+    const modeGroup = document.createElement("span");
+    modeGroup.className = "retag-layer-modes";
+    modeGroup.setAttribute("role", "group");
+    modeGroup.setAttribute("aria-label", `${label.textContent}处理方式`);
+    const modeButtons = [];
+    [
+      ["auto", "自动"],
+      ["preserve", "锁定"],
+      ["drop", "移除"],
+    ].forEach(([mode, modeLabel]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `retag-layer-mode is-${mode}`;
+      button.textContent = modeLabel;
+      button.title = mode === "auto"
+        ? "按改图逻辑自动覆盖冲突分类"
+        : mode === "preserve"
+          ? "保留这一类原图标签，即使手写提示词与其冲突"
+          : "移除这一类原图标签；手写的新标签不受影响";
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (retagLayerMode(node, category) === mode) return;
+        pushHistory();
+        const nextModes = normalizeRetagLayerModes(node.meta?.retagLayerModes);
+        if (mode === "auto") delete nextModes[category];
+        else nextModes[category] = mode;
+        node.meta = { ...(node.meta || {}), retagLayerModes: nextModes };
+        clearDebugTrace(node);
+        modeButtons.forEach(({ element, value }) => {
+          const active = value === mode;
+          element.classList.toggle("active", active);
+          element.setAttribute("aria-pressed", String(active));
+        });
+        refreshSummary();
+        scheduleSave();
+      });
+      modeButtons.push({ element: button, value: mode });
+      modeGroup.appendChild(button);
+    });
+    const currentMode = retagLayerMode(node, category);
+    modeButtons.forEach(({ element, value }) => {
+      const active = value === currentMode;
+      element.classList.toggle("active", active);
+      element.setAttribute("aria-pressed", String(active));
+    });
+    rowHead.append(label, modeGroup);
+
+    const tagList = document.createElement("div");
+    tagList.className = "retag-layer-tags";
+    tags.forEach((tag) => {
+      const chip = document.createElement("code");
+      chip.className = "retag-layer-tag";
+      chip.textContent = tag;
+      chip.title = tag;
+      tagList.appendChild(chip);
+    });
+    row.append(rowHead, tagList);
+    body.appendChild(row);
+  });
+
+  const setOpen = (open) => {
+    card.classList.toggle("open", open);
+    body.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !card.classList.contains("open");
+    if (open) state.expandedRetagLayers.add(node.id);
+    else state.expandedRetagLayers.delete(node.id);
+    setOpen(open);
+  });
+  body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+  refreshSummary();
+  setOpen(state.expandedRetagLayers.has(node.id));
+  card.append(toggle, body);
+  return card;
+}
 
 function formatDebugMs(ms) {
   const value = Number(ms) || 0;
@@ -1056,16 +1298,16 @@ function isDebugMergeNote(key) {
   return DEBUG_MERGE_NOTE_KEYS.includes(String(key));
 }
 
-function debugMergeModeLabel(mode) {
-  return String(mode || "edit").toLowerCase() === "replicate"
-    ? "复刻（保留原图）"
-    : "改图（覆盖冲突）";
-}
-
 function debugMergeValues(value) {
   return Array.isArray(value)
     ? value.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
+}
+
+function debugLayerCategoryLabels(value) {
+  return debugMergeValues(value).map(
+    (category) => DEBUG_CATEGORY_LABELS[category] || category,
+  );
 }
 
 function appendDebugTagGroup(parent, label, values, className = "") {
@@ -1139,19 +1381,19 @@ function makeDebugMergeSummary(details) {
 
   const head = document.createElement("div");
   head.className = "debug-merge-head";
-  head.textContent = `提示词冲突处理 · ${debugMergeModeLabel(details.mode)}`;
+  head.textContent = "提示词冲突处理";
   section.appendChild(head);
 
   const counts = document.createElement("div");
   counts.className = "debug-merge-counts";
   [
-    ["新增", details.added],
-    ["删除", details.removed],
-    ["保留", details.retained],
-    ["去重", details.duplicates],
-  ].forEach(([label, values]) => {
+    ["added", "新增", details.added],
+    ["removed", "删除", details.removed],
+    ["retained", "保留", details.retained],
+    ["duplicates", "去重", details.duplicates],
+  ].forEach(([tone, label, values]) => {
     const item = document.createElement("span");
-    item.className = "debug-merge-count";
+    item.className = `debug-merge-count is-${tone}`;
     item.textContent = `${label} ${debugMergeValues(values).length}`;
     counts.appendChild(item);
   });
@@ -1161,6 +1403,18 @@ function makeDebugMergeSummary(details) {
   appendDebugTagGroup(section, "删除冲突", details.removed, "is-removed");
   appendDebugTagGroup(section, "保留原图", details.retained, "is-retained");
   appendDebugTagGroup(section, "重复去重", details.duplicates, "is-duplicates");
+  appendDebugTagGroup(
+    section,
+    "锁定图层",
+    debugLayerCategoryLabels(details.preserveCategories),
+    "is-retained",
+  );
+  appendDebugTagGroup(
+    section,
+    "移除图层",
+    debugLayerCategoryLabels(details.dropCategories),
+    "is-removed",
+  );
   appendDebugCategoryGroups(section, "覆盖分类", details.overrides, "is-overrides");
   appendDebugCategoryGroups(section, "冲突分类", details.conflicts, "is-conflicts");
   return section;
@@ -1168,7 +1422,7 @@ function makeDebugMergeSummary(details) {
 
 function debugMergePlainText(details) {
   if (!details || typeof details !== "object") return [];
-  const lines = [`  提示词冲突处理：${debugMergeModeLabel(details.mode)}`];
+  const lines = ["  提示词冲突处理"];
   [
     ["新增", details.added],
     ["删除冲突", details.removed],
@@ -1177,6 +1431,13 @@ function debugMergePlainText(details) {
   ].forEach(([label, values]) => {
     const tags = debugMergeValues(values);
     if (tags.length) lines.push(`    ${label}: ${tags.join(", ")}`);
+  });
+  [
+    ["锁定图层", details.preserveCategories],
+    ["移除图层", details.dropCategories],
+  ].forEach(([label, values]) => {
+    const categories = debugLayerCategoryLabels(values);
+    if (categories.length) lines.push(`    ${label}: ${categories.join(", ")}`);
   });
   [
     ["覆盖分类", details.overrides],
@@ -1354,9 +1615,7 @@ function renderDebugBar() {
   els.debugBar.hidden = false;
   els.debugBarSummary.textContent = node && runs.length
     ? `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`
-      + (mergeDetails
-        ? ` · ${debugMergeModeLabel(mergeDetails.mode)}${conflictCount ? ` · 冲突 ${conflictCount}` : ""}`
-        : "")
+      + (mergeDetails && conflictCount ? ` · 冲突 ${conflictCount}` : "")
     : node?.type === "prompt"
       ? `调试信息 · ${node.title || "提示词节点"} · 等待下一次画布请求`
       : "调试信息 · 等待下一次画布请求";
@@ -1605,7 +1864,6 @@ function normalizeLoadedNodeDimensions(node) {
     node.height = clamp(Number(node.height) || 360, 300, 800);
     if (node.artist === "__none__") node.artist = "";
     node.artist = normalizedArtistSelection(node.artist);
-    node.retagMode = node.retagMode === "replicate" ? "replicate" : "edit";
   }
   if (node.type === "note") {
     node.width = clamp(Number(node.width) || 260, 220, 640);
@@ -2276,6 +2534,9 @@ async function generateFromNode(id, {
       : "正在生成图片…";
   renderAll();
   try {
+    const retagLayerCategories = retagged
+      ? retagLayerCategoryLists(node)
+      : { preserve: [], drop: [] };
     const result = await bridge.apiPost("canvas/generate", {
       prompt: workingPrompt,
       retagPrompt: requestRetagPrompt,
@@ -2283,7 +2544,8 @@ async function generateFromNode(id, {
       retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
       ratio: node.ratio,
       artist: node.artist,
-      retagMode: node.retagMode || "edit",
+      retagPreserveCategories: retagLayerCategories.preserve,
+      retagDropCategories: retagLayerCategories.drop,
       raw: !!node.raw,
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
@@ -2388,6 +2650,8 @@ function clearRetagCache(node) {
     retagSeedRaw: _retagSeedRaw,
     retagFromMetadata: _retagFromMetadata,
     retagFromCanvasCache: _retagFromCanvasCache,
+    retagTagGroups: _retagTagGroups,
+    retagLayerModes: _retagLayerModes,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
     translationResult: _translationResult,
@@ -2397,6 +2661,7 @@ function clearRetagCache(node) {
     ...meta
   } = node.meta || {};
   node.meta = meta;
+  state.expandedRetagLayers.delete(node?.id);
 }
 
 function clearTranslationCache(node) {
@@ -2470,9 +2735,11 @@ function reusableRetagSeed(node) {
 function cachedRetagResult(node, sourceImage, basePrompt) {
   if (!node || !sourceImage?.assetId) return null;
   const meta = node.meta || {};
+  const tagGroups = normalizeRetagTagGroups(meta.retagTagGroups);
   if (
     !meta.retagPrompt
     || meta.retagAssetId !== sourceImage.assetId
+    || !Object.keys(tagGroups).length
   ) return null;
   const cachedSeed = normalizeNaiSeed(meta.retagSeed);
   // A legacy workspace may have cached tags but no seed even though the
@@ -2494,6 +2761,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     seed: cachedSeed,
     fromMetadata: !!meta.retagFromMetadata,
     fromCanvasCache: !!meta.retagFromCanvasCache,
+    tagGroups,
   };
 }
 
@@ -2569,8 +2837,10 @@ async function retagFromNode(id, generateAfter = false) {
       retagSeedRaw: !!node.raw,
       retagFromMetadata: !!result.fromMetadata,
       retagFromCanvasCache: !!result.fromCanvasCache,
+      retagTagGroups: normalizeRetagTagGroups(result?.tagGroups),
       translatedPrompt: retagPrompt,
     };
+    state.expandedRetagLayers.add(node.id);
     // Keep the source image self-describing after the first retag.  This is
     // important for uploaded/re-encoded images whose PNG metadata is absent:
     // saving that image to the library and placing it back later must still
@@ -2805,10 +3075,14 @@ function setAssetPanelExpanded(expanded, { realign = true } = {}) {
 }
 
 function setAssetPanel(open) {
-  if (open) setCanvasContextMenu(false);
+  if (open) {
+    setCanvasContextMenu(false);
+    setNodeContextMenu(false);
+  }
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
   if (!open) setAssetPanelExpanded(false, { realign: false });
   els.assetPanel.classList.toggle("open", open);
+  document.body.classList.toggle("asset-library-open", open);
   document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
     button.classList.toggle("active", open);
     button.setAttribute("aria-expanded", String(open));
@@ -2931,7 +3205,6 @@ function renderAssetBatch(items, start) {
 function alignAssetPanel() {
   const { topbarRect, left, right } = alignedPanelEdges();
   const viewportRect = els.viewport.getBoundingClientRect();
-  const minimapRect = els.minimap.getBoundingClientRect();
   const debugRect = !els.debugBar.hidden
     ? els.debugBar.getBoundingClientRect()
     : { height: 0 };
@@ -2947,11 +3220,8 @@ function alignAssetPanel() {
   }
   els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
   const bottomOffsets = [12];
-  // Expanded mode hides the minimap and uses the space it occupied. The
-  // compact drawer still stops above the preview so both remain usable.
-  if (!state.assetPanelExpanded && minimapRect.height > 0) {
-    bottomOffsets.push(viewportRect.bottom - minimapRect.top + gap);
-  }
+  // Opening the library always hides the minimap, so compact and expanded
+  // layouts can both use the former preview area at the bottom-right.
   if (debugRect.height > 0) {
     bottomOffsets.push(viewportRect.bottom - debugRect.top + gap);
   }
@@ -3238,7 +3508,7 @@ async function uploadFiles(files, point = worldCenter()) {
 
 // DOM projection and drag navigation follow hero8152/Infinite-Canvas.
 function drawMinimap() {
-  if (window.matchMedia("(max-width: 620px)").matches) {
+  if (!state.minimapVisible || window.matchMedia("(max-width: 620px)").matches) {
     state.minimapTransform = null;
     return;
   }
@@ -3495,6 +3765,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
   if (middlePan) event.preventDefault();
   if (event.pointerType !== "touch") focusCanvasSurface();
   setCanvasContextMenu(false);
+  setNodeContextMenu(false);
   if (middlePan) setProjectMenu(false);
 
   if (event.pointerType === "touch") {
@@ -3589,7 +3860,7 @@ els.viewport.addEventListener("pointercancel", handleCanvasTouchEnd);
 function nodeEditorOwnsWheel(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   if (!targetElement) return false;
-  if (targetElement.closest(".asset-panel, .image-viewer-details, .debug-bar")) return true;
+  if (targetElement.closest(".asset-panel, .image-viewer-details, .debug-bar, .retag-layer-card")) return true;
   const editor = targetElement.closest(".prompt-text, .note-text");
   return !!editor?.closest(".node.selected");
 }
@@ -3625,12 +3896,35 @@ els.viewport.addEventListener("dblclick", (event) => {
 
 els.viewport.addEventListener("contextmenu", (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  // Text controls keep the browser's native edit/copy menu. Other interactive
+  // surfaces inside the board own the click and must never open the blank-
+  // canvas creation menu.
   if (target?.closest(
     "textarea, input, select, [contenteditable='true'], .topbar, .asset-panel, .debug-bar, .image-viewer, .project-menu, .minimap",
   )) return;
+  const nodeElement = target?.closest(".node");
+  if (nodeElement) {
+    const node = findNode(nodeElement.dataset.nodeId);
+    event.preventDefault();
+    event.stopPropagation();
+    if (!node) return;
+    setProjectMenu(false);
+    if (!isNodeSelected(node.id)) selectNode(node.id);
+    else setSelection(selectedNodeIds(), node.id);
+    setNodeContextMenu(true, node, event.clientX, event.clientY);
+    return;
+  }
+  if (target?.closest("button, .link-hit, .link-delete")) {
+    event.preventDefault();
+    event.stopPropagation();
+    setNodeContextMenu(false);
+    setCanvasContextMenu(false);
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   setProjectMenu(false);
+  setNodeContextMenu(false);
   if (els.assetPanel.classList.contains("open")) setAssetPanel(false);
   state.contextMenuPoint = clientToWorld(event.clientX, event.clientY);
   setCanvasContextMenu(true, event.clientX, event.clientY);
@@ -3772,7 +4066,36 @@ document.getElementById("contextAddNoteBtn").addEventListener("click", () => {
   setCanvasContextMenu(false);
   addNode(createNoteNode(point));
 });
+document.getElementById("nodeContextDuplicate").addEventListener("click", () => {
+  const node = findNode(state.contextMenuNodeId);
+  setNodeContextMenu(false);
+  if (node) duplicateNode(node.id);
+});
+document.getElementById("nodeContextDelete").addEventListener("click", () => {
+  const node = findNode(state.contextMenuNodeId);
+  setNodeContextMenu(false);
+  if (node) deleteNode(node.id);
+});
+document.getElementById("nodeContextSaveImage").addEventListener("click", async () => {
+  const node = findNode(state.contextMenuNodeId);
+  setNodeContextMenu(false);
+  if (node?.type === "image") await saveImageToLibrary(node);
+});
+document.getElementById("nodeContextDownloadImage").addEventListener("click", async () => {
+  const node = findNode(state.contextMenuNodeId);
+  setNodeContextMenu(false);
+  if (node?.type === "image") await downloadImage(node);
+});
 document.getElementById("fitBtn").addEventListener("click", fitView);
+els.minimapToggleBtn?.addEventListener("click", () => {
+  state.minimapVisible = !state.minimapVisible;
+  try {
+    localStorage.setItem(MINIMAP_VISIBLE_KEY, state.minimapVisible ? "1" : "0");
+  } catch (_) {
+    // The current browser may disable local storage.
+  }
+  updateMinimapVisibility({ redraw: true });
+});
 els.debugModeBtn?.addEventListener("click", () => {
   state.debugEnabled = !state.debugEnabled;
   try { localStorage.setItem("bestnaiCanvasDebug", state.debugEnabled ? "1" : "0"); } catch (_) { /* ignore */ }
@@ -3815,6 +4138,9 @@ document.addEventListener("pointerdown", (event) => {
   }
   if (!els.canvasContextMenu.hidden && !event.target.closest(".canvas-context-menu")) {
     setCanvasContextMenu(false);
+  }
+  if (!els.nodeContextMenu.hidden && !event.target.closest(".node-context-menu")) {
+    setNodeContextMenu(false);
   }
 });
 document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
@@ -3956,6 +4282,10 @@ document.addEventListener("keydown", (event) => {
       setCanvasContextMenu(false);
       return;
     }
+    if (!els.nodeContextMenu.hidden) {
+      setNodeContextMenu(false);
+      return;
+    }
     if (!els.projectMenu.hidden) {
       setProjectMenu(false);
       return;
@@ -4006,6 +4336,7 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("resize", () => {
   setCanvasContextMenu(false);
+  setNodeContextMenu(false);
   drawMinimap();
   alignToastRegion();
   // The embedded page can receive its first resize after initialization
@@ -4047,6 +4378,7 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 
+updateMinimapVisibility();
 refreshIcons();
 setupLogoEasterEgg();
 setupCompositionGuard();

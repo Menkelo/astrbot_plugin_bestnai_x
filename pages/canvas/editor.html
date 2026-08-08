@@ -50,6 +50,9 @@
             <button class="tool-btn icon-only" id="fitBtn" type="button" title="适配全部节点 (Ctrl+0)" aria-label="适配全部节点">
               <i data-lucide="scan"></i>
             </button>
+            <button class="tool-btn icon-only" id="minimapToggleBtn" type="button" title="隐藏缩略图" aria-label="隐藏缩略图" aria-pressed="true">
+              <i data-lucide="map"></i>
+            </button>
             <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
               <i data-lucide="upload"></i>
             </button>
@@ -142,6 +145,12 @@
       <button id="contextAddImageBtn" type="button" role="menuitem"><i data-lucide="image-plus"></i><span>图片</span></button>
       <button id="contextAddPromptBtn" type="button" role="menuitem"><i data-lucide="text-cursor-input"></i><span>提示词</span></button>
       <button id="contextAddNoteBtn" type="button" role="menuitem"><i data-lucide="notebook-pen"></i><span>备注</span></button>
+    </div>
+    <div id="nodeContextMenu" class="canvas-context-menu node-context-menu" role="menu" aria-label="节点操作" hidden>
+      <button id="nodeContextDuplicate" type="button" role="menuitem"><i data-lucide="copy"></i><span>复制节点</span></button>
+      <button id="nodeContextSaveImage" type="button" role="menuitem" data-image-only hidden><i data-lucide="bookmark-plus"></i><span>收录到素材库</span></button>
+      <button id="nodeContextDownloadImage" type="button" role="menuitem" data-image-only hidden><i data-lucide="download"></i><span>下载图片</span></button>
+      <button id="nodeContextDelete" class="danger" type="button" role="menuitem"><i data-lucide="trash-2"></i><span>删除节点</span></button>
     </div>
     <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
     <input id="workspaceInput" type="file" accept="application/json,.json" hidden />

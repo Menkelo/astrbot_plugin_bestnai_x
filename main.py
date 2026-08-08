@@ -70,10 +70,11 @@ from .services.prompt_builder import (
     save_image_to_temp,
 )
 from .services.prompt_merge import (
+    RETAG_LAYER_CATEGORIES,
     extract_retag_mode,
-    merge_retag_prompt,
+    group_prompt_tags,
     merge_retag_prompt_details,
-    normalize_retag_mode,
+    normalize_retag_layer_categories,
 )
 from .services.nai_metadata import (
     is_trusted_nai_generation_info,
@@ -113,30 +114,6 @@ CANVAS_RATIO_PRESETS: Dict[str, Tuple[int, int]] = {
     "21:9": (1344, 576),
     "9:21": (576, 1344),
 }
-
-
-def _merge_canvas_retag_prompt(
-    translated_user_prompt: str,
-    retag_prompt: str,
-    *,
-    original_user_prompt: str = "",
-    user_character: str = "",
-    user_series: str = "",
-    source_character: str = "",
-    source_series: str = "",
-    mode: str = "edit",
-) -> str:
-    return merge_retag_prompt(
-        translated_user_prompt,
-        retag_prompt,
-        original_user_prompt=original_user_prompt,
-        user_character=user_character,
-        user_series=user_series,
-        source_character=source_character,
-        source_series=source_series,
-        weight_user=True,
-        mode=mode,
-    )
 
 
 def _parse_size(size_str: str) -> Tuple[int, int]:
@@ -402,6 +379,11 @@ class BestNAIPlugin(Star):
                     "prompt": image_tags,
                     "character": source_character,
                     "series": source_series,
+                    "tagGroups": group_prompt_tags(
+                        image_tags,
+                        character=source_character,
+                        series=source_series,
+                    ),
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
@@ -459,6 +441,11 @@ class BestNAIPlugin(Star):
                 "prompt": prompt,
                 "character": str(retag_result.get("character") or ""),
                 "series": str(retag_result.get("series") or ""),
+                "tagGroups": group_prompt_tags(
+                    prompt,
+                    character=str(retag_result.get("character") or ""),
+                    series=str(retag_result.get("series") or ""),
+                ),
                 "ratio": ratio,
                 "seed": source_seed,
                 "fromMetadata": False,
@@ -518,7 +505,23 @@ class BestNAIPlugin(Star):
         retag_prompt = str(payload.get("retagPrompt") or "").strip()
         retag_character = str(payload.get("retagCharacter") or "").strip()
         retag_series = str(payload.get("retagSeries") or "").strip()
-        retag_mode = normalize_retag_mode(payload.get("retagMode"))
+        retag_preserve_categories = normalize_retag_layer_categories(
+            payload.get("retagPreserveCategories")
+        )
+        retag_drop_categories = normalize_retag_layer_categories(
+            payload.get("retagDropCategories")
+        )
+        retag_preserve_categories.difference_update(retag_drop_categories)
+        ordered_retag_preserve_categories = [
+            category
+            for category in RETAG_LAYER_CATEGORIES
+            if category in retag_preserve_categories
+        ]
+        ordered_retag_drop_categories = [
+            category
+            for category in RETAG_LAYER_CATEGORIES
+            if category in retag_drop_categories
+        ]
         if retag_character and not prompt_has_tag(retag_prompt, retag_character):
             # Do not trust stale structured metadata after an older retag
             # result was edited or migrated; the prompt itself is authoritative.
@@ -556,9 +559,15 @@ class BestNAIPlugin(Star):
 
         trace = DebugTrace("canvas.generate", bool(payload.get("debug")))
         trace.note("输入提示词", prompt)
-        trace.note("反推模式", retag_mode)
         if retag_prompt:
             trace.note("反推标签（独立输入）", retag_prompt)
+            trace.note(
+                "反推标签图层",
+                {
+                    "锁定原图": ordered_retag_preserve_categories,
+                    "移除原图": ordered_retag_drop_categories,
+                },
+            )
 
         if has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
@@ -670,8 +679,9 @@ class BestNAIPlugin(Star):
                 user_series=translated_series,
                 source_character=retag_character,
                 source_series=retag_series,
-                mode=retag_mode,
                 weight_user=True,
+                preserve_categories=retag_preserve_categories,
+                drop_categories=retag_drop_categories,
             )
             working_prompt = str(merge_details.get("prompt") or "")
             trace.note("提示词冲突处理", merge_details)
@@ -765,7 +775,8 @@ class BestNAIPlugin(Star):
                 "width": gen_config.width,
                 "height": gen_config.height,
                 "artist": resolved_artist_name,
-                "retagMode": retag_mode,
+                "retagPreserveCategories": ordered_retag_preserve_categories,
+                "retagDropCategories": ordered_retag_drop_categories,
                 "raw": raw_mode,
                 "model": FIXED_MODEL,
                 "seed": result.seed,
@@ -2005,7 +2016,7 @@ class BestNAIPlugin(Star):
         command_name = "nai0" if raw_mode else "nai"
 
         prompt = self._strip_named_command_prefix(event.message_str, command_name)
-        retag_mode, prompt = extract_retag_mode(prompt)
+        _, prompt = extract_retag_mode(prompt)
 
         image_src = extract_image_from_event_best_effort(event)
 
@@ -2196,12 +2207,11 @@ class BestNAIPlugin(Star):
                     source_character=str(retag_result.get("character") or ""),
                     source_series=str(retag_result.get("series") or ""),
                     weight_user=True,
-                    mode=retag_mode,
                 )
                 merged_overlay = str(merge_details.get("prompt") or "")
                 if merge_details.get("conflicts"):
                     logger.info(
-                        f"[BestNAI/ImageRetag] 模式={retag_mode}，已处理提示词冲突："
+                        "[BestNAI/ImageRetag] 已处理提示词冲突："
                         f"{merge_details['conflicts']}"
                     )
                 controls = []

@@ -70,6 +70,14 @@ class CanvasStoreTest(unittest.TestCase):
                         "retagSeedArtist": "default",
                         "retagSeedRaw": False,
                         "retagFromCanvasCache": True,
+                        "retagTagGroups": {
+                            "identity": ["hatsune_miku", "vocaloid"],
+                            "hair": ["aqua_hair"],
+                        },
+                        "retagLayerModes": {
+                            "identity": "preserve",
+                            "hair": "drop",
+                        },
                         "tags": "1girl, hatsune_miku, vocaloid",
                     },
                     "dataUrl": "data:image/png;base64,not-persisted",
@@ -129,8 +137,16 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedArtist"], "default")
         self.assertFalse(loaded["nodes"][0]["meta"]["retagSeedRaw"])
-        self.assertEqual(loaded["nodes"][0]["retagMode"], "replicate")
+        self.assertNotIn("retagMode", loaded["nodes"][0])
         self.assertTrue(loaded["nodes"][0]["meta"]["retagFromCanvasCache"])
+        self.assertEqual(
+            loaded["nodes"][0]["meta"]["retagTagGroups"]["identity"],
+            ["hatsune_miku", "vocaloid"],
+        )
+        self.assertEqual(
+            loaded["nodes"][0]["meta"]["retagLayerModes"],
+            {"identity": "preserve", "hair": "drop"},
+        )
         self.assertEqual(loaded["nodes"][0]["meta"]["retagRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)
@@ -158,6 +174,42 @@ class CanvasStoreTest(unittest.TestCase):
         )
         self.assertEqual(workspace["nodes"][0]["meta"]["seed"], 0)
         self.assertEqual(workspace["nodes"][0]["meta"]["retagSeed"], 0)
+
+    def test_retag_layer_state_is_whitelisted_and_bounded(self) -> None:
+        tags = [f"tag_{index}" for index in range(80)]
+        workspace = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_layers",
+                        "type": "prompt",
+                        "meta": {
+                            "retagTagGroups": {
+                                "hair": [*tags, "x" * 500],
+                                "clothing": ["tag_0", "white_dress"],
+                                "not_allowed": ["must_drop"],
+                            },
+                            "retagLayerModes": {
+                                "hair": "PRESERVE",
+                                "clothing": "drop",
+                                "pose": "invalid",
+                                "not_allowed": "drop",
+                            },
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+        meta = workspace["nodes"][0]["meta"]
+
+        self.assertEqual(len(meta["retagTagGroups"]["hair"]), 64)
+        self.assertNotIn("not_allowed", meta["retagTagGroups"])
+        self.assertEqual(meta["retagTagGroups"]["clothing"], ["white_dress"])
+        self.assertEqual(
+            meta["retagLayerModes"],
+            {"hair": "preserve", "clothing": "drop"},
+        )
 
     def test_debug_trace_survives_round_trip_and_is_bounded(self) -> None:
         long_value = "x" * 5000

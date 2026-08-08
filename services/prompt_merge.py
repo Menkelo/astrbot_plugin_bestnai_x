@@ -139,6 +139,13 @@ _CATEGORY_PATTERNS = {
     ),
 }
 
+RETAG_LAYER_CATEGORIES = (
+    "identity",
+    *_CATEGORY_PATTERNS.keys(),
+    "other",
+)
+_RETAG_LAYER_CATEGORY_SET = frozenset(RETAG_LAYER_CATEGORIES)
+
 _IDENTITY_LINKED_CATEGORIES = {
     "hair",
     "eyes",
@@ -267,31 +274,17 @@ _DIRECTIVE_WORDS = re.compile(
     re.IGNORECASE,
 )
 
-_RETAG_MODE_ALIASES = {
-    "edit": "edit",
-    "replace": "edit",
-    "改图": "edit",
-    "修改": "edit",
-    "replicate": "replicate",
-    "copy": "replicate",
-    "preserve": "replicate",
-    "复刻": "replicate",
-    "保留": "replicate",
-}
+def normalize_retag_mode(_value: Any) -> str:
+    """Collapse legacy retag-mode values to the single edit behavior."""
 
-
-def normalize_retag_mode(value: Any) -> str:
-    """Normalize the two retag merge modes used by canvas and QQ flows."""
-
-    key = str(value or "").strip().casefold()
-    return _RETAG_MODE_ALIASES.get(key, "edit")
+    return "edit"
 
 
 def extract_retag_mode(prompt: str) -> tuple[str, str]:
-    """Read an optional ``--mode edit|replicate`` flag from a QQ prompt.
+    """Strip a legacy ``--mode`` flag and use the single edit behavior.
 
-    The flag is deliberately explicit so ordinary words such as ``copy`` in a
-    visual description are never consumed as a mode switch.
+    Older saved examples may still contain this explicit flag. Consume it so
+    it never leaks into NovelAI tags, but do not keep a second merge policy.
     """
 
     text = str(prompt or "")
@@ -304,14 +297,13 @@ def extract_retag_mode(prompt: str) -> tuple[str, str]:
     match = pattern.search(text)
     if not match:
         return "edit", text.strip()
-    mode = normalize_retag_mode(match.group(1))
     cleaned = text[: match.start()] + " " + text[match.end() :]
     # Removing a flag between comma-separated tags can leave ``, ,`` behind.
     # Collapse adjacent separators, then trim punctuation at the prompt edges.
     cleaned = re.sub(r"\s*([,，;；])\s*(?:[,，;；]\s*)+", r"\1 ", cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = cleaned.strip(" \t\r\n,，;；")
-    return mode, cleaned
+    return "edit", cleaned
 
 _GENERIC_SUBJECT_TAGS = {
     "1girl",
@@ -455,6 +447,64 @@ def _unique_atoms(tokens: Iterable[str]) -> list[str]:
     return values
 
 
+def normalize_retag_layer_categories(values: Any) -> set[str]:
+    """Return the bounded category set accepted by the retag layer controls."""
+
+    if not isinstance(values, (list, tuple, set, frozenset)):
+        return set()
+    return {
+        key
+        for value in values
+        if (key := str(value or "").strip().casefold())
+        in _RETAG_LAYER_CATEGORY_SET
+    }
+
+
+def _ordered_retag_layer_categories(values: Iterable[str]) -> list[str]:
+    selected = set(values)
+    return [category for category in RETAG_LAYER_CATEGORIES if category in selected]
+
+
+def _source_identity_keys(character: str = "", series: str = "") -> set[str]:
+    keys: set[str] = set()
+    for value in (character, series):
+        for token in _tokens(str(value or "")):
+            keys.update(_token_keys(token))
+    return keys
+
+
+def _retag_layer_category(token: str, identity_keys: set[str]) -> str:
+    key = _key(token)
+    if key and key in identity_keys:
+        return "identity"
+    return _category_atom(token) or "other"
+
+
+def group_prompt_tags(
+    prompt: str,
+    *,
+    character: str = "",
+    series: str = "",
+) -> Dict[str, list[str]]:
+    """Group source-image atoms for the canvas retag layer card.
+
+    Structured character/series tags are the only values classified as
+    ``identity``.  Unknown unstructured tags stay in ``other`` instead of
+    guessing and accidentally presenting an appearance tag as a character.
+    """
+
+    groups: Dict[str, list[str]] = {category: [] for category in RETAG_LAYER_CATEGORIES}
+    seen: set[str] = set()
+    identity_keys = _source_identity_keys(character, series)
+    for atom in _flatten_atoms(_tokens(prompt)):
+        key = _key(atom)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        groups[_retag_layer_category(atom, identity_keys)].append(atom)
+    return {category: tags for category, tags in groups.items() if tags}
+
+
 def merge_retag_prompt_details(
     translated_user_prompt: str,
     retag_prompt: str,
@@ -466,18 +516,26 @@ def merge_retag_prompt_details(
     source_series: str = "",
     weight_user: bool = True,
     mode: str = "edit",
+    preserve_categories: Any = None,
+    drop_categories: Any = None,
 ) -> Dict[str, Any]:
     """Merge image tags and return a structured conflict summary.
 
-    ``edit`` treats plain user tags as category overrides. ``replicate`` keeps
-    source categories unless the user writes an explicit replacement directive;
-    a resolved character identity still counts as an explicit replacement.
+    Plain user tags replace conflicting source-image categories. ``mode`` is
+    retained only for compatibility with older callers and always normalizes
+    to ``edit``.
     """
     merge_mode = normalize_retag_mode(mode)
     user_text = normalize_prompt_ascii(translated_user_prompt or "").strip()
     raw_user_text = original_user_prompt or user_text
     source_tokens = _tokens(retag_prompt)
     user_tokens = _tokens(user_text)
+    preserved_categories = normalize_retag_layer_categories(preserve_categories)
+    dropped_categories = normalize_retag_layer_categories(drop_categories)
+    # A category cannot be both locked and removed. Removal is the explicit,
+    # stronger instruction and therefore wins for malformed/stale clients.
+    preserved_categories.difference_update(dropped_categories)
+    source_identity_keys = _source_identity_keys(source_character, source_series)
 
     translated_identity_tail = _extract_identity_override(user_text)
     raw_identity_tail = _extract_identity_override(raw_user_text)
@@ -527,7 +585,6 @@ def merge_retag_prompt_details(
                 category_overrides[category] = tail_tokens
         if (
             category not in category_overrides
-            and merge_mode == "edit"
             and _has_category(user_tokens, category)
         ):
             category_overrides[category] = [
@@ -535,23 +592,40 @@ def merge_retag_prompt_details(
             ]
 
     remove_keys: set[str] = set()
+    for token in source_tokens:
+        for atom in _atomic_tokens(token):
+            if _retag_layer_category(atom, source_identity_keys) in dropped_categories:
+                key = _key(atom)
+                if key:
+                    remove_keys.add(key)
+
     if identity_override:
-        for token in (
-            *_tokens(str(source_character or "")),
-            *_tokens(str(source_series or "")),
-        ):
-            remove_keys.update(_token_keys(token))
+        if "identity" not in preserved_categories:
+            for token in (
+                *_tokens(str(source_character or "")),
+                *_tokens(str(source_series or "")),
+            ):
+                remove_keys.update(_token_keys(token))
         # Character changes should not leave the old character's obvious visual
         # signature or clothing behind. Composition and background stay intact.
         for token in source_tokens:
             for atom in _atomic_tokens(token):
-                if _category_atom(atom) in _IDENTITY_LINKED_CATEGORIES:
+                category = _category_atom(atom)
+                if (
+                    category in _IDENTITY_LINKED_CATEGORIES
+                    and category not in preserved_categories
+                ):
                     remove_keys.add(_key(atom))
 
         # Legacy unstructured retag output may put character/series first. Keep
         # the fallback conservative: structured fields are authoritative, and
         # obvious appearance/pose/expression tags must never be guessed as IDs.
-        if not source_character and not source_series:
+        if (
+            not source_character
+            and not source_series
+            and "identity" not in preserved_categories
+            and "other" not in preserved_categories
+        ):
             # Older cached/metadata results may not have structured identity
             # fields.  Remove up to two leading canonical-looking identity
             # tags, while skipping generic subject and visual tags.
@@ -573,6 +647,8 @@ def merge_retag_prompt_details(
 
     category_remove_keys: set[str] = set()
     for category in category_overrides:
+        if category in preserved_categories:
+            continue
         for token in source_tokens:
             for atom in _atomic_tokens(token):
                 if _category_atom(atom) == category:
@@ -690,6 +766,8 @@ def merge_retag_prompt_details(
         "duplicates": duplicate_atoms,
         "overrides": override_summary,
         "conflicts": conflict_groups,
+        "preserveCategories": _ordered_retag_layer_categories(preserved_categories),
+        "dropCategories": _ordered_retag_layer_categories(dropped_categories),
     }
 
 
@@ -704,6 +782,8 @@ def merge_retag_prompt(
     source_series: str = "",
     weight_user: bool = True,
     mode: str = "edit",
+    preserve_categories: Any = None,
+    drop_categories: Any = None,
 ) -> str:
     """Compatibility wrapper returning only the merged prompt string."""
 
@@ -718,5 +798,7 @@ def merge_retag_prompt(
             source_series=source_series,
             weight_user=weight_user,
             mode=mode,
+            preserve_categories=preserve_categories,
+            drop_categories=drop_categories,
         )["prompt"]
     )

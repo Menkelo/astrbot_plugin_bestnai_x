@@ -22,6 +22,7 @@ sys.modules.setdefault("astrbot.api", astrbot_api_module)
 
 from astrbot_plugin_bestnai_x.services.prompt_merge import (
     extract_retag_mode,
+    group_prompt_tags,
     merge_retag_prompt,
     merge_retag_prompt_details,
 )
@@ -200,7 +201,7 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertNotIn("saenai_heroine_no_sodatekata", result)
         self.assertNotIn("::,", result)
 
-    def test_replicate_mode_keeps_plain_category_additions(self) -> None:
+    def test_legacy_replicate_mode_now_uses_edit_conflict_rules(self) -> None:
         result = merge_retag_prompt(
             "blue_hair, white_dress, standing",
             self.source,
@@ -211,22 +212,21 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertIn("blue_hair", result)
         self.assertIn("white_dress", result)
         self.assertIn("standing", result)
-        self.assertIn("black_hair", result)
-        self.assertIn("school_uniform", result)
-        self.assertIn("sitting", result)
+        self.assertNotIn("black_hair", result)
+        self.assertNotIn("school_uniform", result)
+        self.assertNotIn("sitting", result)
 
-    def test_replicate_mode_still_honors_explicit_replacement(self) -> None:
-        result = merge_retag_prompt(
+    def test_legacy_replicate_mode_normalizes_to_edit_in_details(self) -> None:
+        details = merge_retag_prompt_details(
             "change outfit to white_dress",
             self.source,
             weight_user=False,
             mode="replicate",
         )
 
-        self.assertIn("white_dress", result)
-        self.assertNotIn("school_uniform", result)
-        self.assertIn("black_hair", result)
-        self.assertIn("sitting", result)
+        self.assertEqual(details["mode"], "edit")
+        self.assertIn("white_dress", details["prompt"])
+        self.assertNotIn("school_uniform", details["prompt"])
 
     def test_extended_categories_are_overridden_in_edit_mode(self) -> None:
         result = merge_retag_prompt(
@@ -264,7 +264,7 @@ class PromptOverrideMergeTest(unittest.TestCase):
     def test_retag_mode_flag_is_explicit_and_removed_from_prompt(self) -> None:
         mode, prompt = extract_retag_mode("--mode replicate blue_hair, standing")
 
-        self.assertEqual(mode, "replicate")
+        self.assertEqual(mode, "edit")
         self.assertEqual(prompt, "blue_hair, standing")
 
     def test_retag_mode_flag_accepts_prompt_punctuation(self) -> None:
@@ -277,7 +277,7 @@ class PromptOverrideMergeTest(unittest.TestCase):
         for value, expected in cases:
             with self.subTest(value=value):
                 mode, prompt = extract_retag_mode(value)
-                self.assertEqual(mode, "replicate")
+                self.assertEqual(mode, "edit")
                 self.assertEqual(prompt, expected)
 
     def test_weighted_multi_category_overlay_is_emitted_once(self) -> None:
@@ -412,7 +412,7 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertIn("by_the_window", result)
         self.assertNotIn("sitting", result)
 
-    def test_replicate_mode_does_not_treat_chair_as_a_hair_directive(self) -> None:
+    def test_legacy_mode_flag_does_not_treat_chair_as_a_hair_directive(self) -> None:
         result = merge_retag_prompt(
             "wooden_chair beside_window",
             "1girl, black_hair, school_uniform, sitting",
@@ -423,6 +423,88 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertIn("wooden_chair beside_window", result)
         self.assertIn("black_hair", result)
         self.assertIn("school_uniform", result)
+
+    def test_source_tags_are_grouped_with_structured_identity(self) -> None:
+        groups = group_prompt_tags(
+            self.source,
+            character="kasumigaoka_utaha",
+            series="saenai_heroine_no_sodatekata",
+        )
+
+        self.assertEqual(
+            groups["identity"],
+            ["kasumigaoka_utaha", "saenai_heroine_no_sodatekata"],
+        )
+        self.assertEqual(groups["hair"], ["black_hair"])
+        self.assertEqual(groups["clothing"], ["school_uniform"])
+        self.assertEqual(groups["pose"], ["sitting"])
+        self.assertEqual(groups["background"], ["classroom"])
+
+    def test_locked_clothing_keeps_source_and_user_outfits(self) -> None:
+        details = merge_retag_prompt_details(
+            "white_dress",
+            self.source,
+            weight_user=False,
+            preserve_categories=["clothing"],
+        )
+
+        self.assertIn("white_dress", details["prompt"])
+        self.assertIn("school_uniform", details["prompt"])
+        self.assertEqual(details["preserveCategories"], ["clothing"])
+
+    def test_dropped_clothing_removes_only_source_outfit(self) -> None:
+        details = merge_retag_prompt_details(
+            "white_dress",
+            self.source,
+            weight_user=False,
+            drop_categories=["clothing"],
+        )
+
+        self.assertIn("white_dress", details["prompt"])
+        self.assertNotIn("school_uniform", details["prompt"])
+        self.assertIn("black_hair", details["prompt"])
+        self.assertEqual(details["dropCategories"], ["clothing"])
+
+    def test_locked_hair_survives_structured_character_replacement(self) -> None:
+        result = merge_retag_prompt(
+            "izumi_sagiri, eromanga_sensei",
+            self.source,
+            user_character="izumi_sagiri",
+            user_series="eromanga_sensei",
+            source_character="kasumigaoka_utaha",
+            source_series="saenai_heroine_no_sodatekata",
+            weight_user=False,
+            preserve_categories=["hair"],
+        )
+
+        self.assertIn("izumi_sagiri", result)
+        self.assertIn("black_hair", result)
+        self.assertNotIn("kasumigaoka_utaha", result)
+        self.assertNotIn("school_uniform", result)
+
+    def test_drop_mode_wins_when_same_category_is_also_locked(self) -> None:
+        details = merge_retag_prompt_details(
+            "",
+            self.source,
+            weight_user=False,
+            preserve_categories=["clothing"],
+            drop_categories=["clothing"],
+        )
+
+        self.assertNotIn("school_uniform", details["prompt"])
+        self.assertEqual(details["preserveCategories"], [])
+        self.assertEqual(details["dropCategories"], ["clothing"])
+
+    def test_layer_removal_does_not_break_weighted_source_groups(self) -> None:
+        result = merge_retag_prompt(
+            "",
+            "1.2::black_hair, school_uniform, sitting ::, classroom",
+            weight_user=False,
+            drop_categories=["clothing"],
+        )
+
+        self.assertEqual(result, "1.2::black_hair, sitting ::, classroom")
+        self.assertNotIn("school_uniform", result)
 
 
 if __name__ == "__main__":

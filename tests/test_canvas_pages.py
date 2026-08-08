@@ -160,12 +160,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("function mergeRetagPrompt", editor)
         self.assertIn("retagPrompt: requestRetagPrompt", editor)
         self.assertIn('retagPrompt: node.meta?.retagPrompt || ""', editor)
-        self.assertIn('retagMode: node.retagMode || "edit"', editor)
-        self.assertIn('retagMode: "edit"', editor)
-        self.assertIn('"复刻（保留原图）"', editor)
-        self.assertIn('"改图（覆盖冲突）"', editor)
-        self.assertIn("prompt-mode-field", styles)
-        self.assertIn('"retagMode":', service)
+        self.assertNotIn("retagMode", editor)
+        self.assertNotIn('"复刻（保留原图）"', editor)
+        self.assertNotIn('"反推模式"', editor)
+        self.assertNotIn("prompt-mode-field", styles)
+        self.assertNotIn('"retagMode":', service)
         self.assertIn("function cachedRetagResult", editor)
         self.assertIn("cachedRetagResult(node, sourceImage, basePrompt)", editor)
         # The cached tag result describes the source image, so editing the
@@ -214,6 +213,44 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertNotIn("add_image_to_library", generate_body)
         self.assertNotIn("add_image_to_library", upload_body)
+
+    def test_retag_tag_layers_are_an_attached_card_and_affect_generation(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("function makeRetagLayerCard", editor)
+        render = editor.split("function renderPromptNode(node)", 1)[1].split(
+            "const DEBUG_SECTIONS", 1
+        )[0]
+        self.assertIn("makeRetagLayerCard(node, sourceImage, element)", render)
+        self.assertIn("element.appendChild(retagLayerCard)", render)
+        self.assertNotIn("body.appendChild(retagLayerCard)", render)
+        self.assertIn('document.createTextNode("原图标签图层")', editor)
+        self.assertIn('["auto", "自动"]', editor)
+        self.assertIn('["preserve", "锁定"]', editor)
+        self.assertIn('["drop", "移除"]', editor)
+        self.assertIn("retagPreserveCategories: retagLayerCategories.preserve", editor)
+        self.assertIn("retagDropCategories: retagLayerCategories.drop", editor)
+        self.assertIn("retagTagGroups: normalizeRetagTagGroups(result?.tagGroups)", editor)
+        self.assertIn("retagTagGroups: _retagTagGroups", editor)
+        self.assertIn("retagLayerModes: _retagLayerModes", editor)
+        self.assertIn('closest(".asset-panel, .image-viewer-details, .debug-bar, .retag-layer-card")', editor)
+
+        card = styles.split(".retag-layer-card {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: absolute;", card)
+        self.assertIn("top: calc(100% + 11px);", card)
+        body = styles.split(".retag-layer-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-y: auto;", body)
+        self.assertIn("overscroll-behavior: contain;", body)
+
+        self.assertIn('raw_meta.get("retagTagGroups")', service)
+        self.assertIn('raw_meta.get("retagLayerModes")', service)
+        self.assertIn('payload.get("retagPreserveCategories")', main)
+        self.assertIn('payload.get("retagDropCategories")', main)
+        self.assertIn("preserve_categories=retag_preserve_categories", main)
+        self.assertIn("drop_categories=retag_drop_categories", main)
 
     def test_image_nodes_have_fullscreen_viewer(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
@@ -318,14 +355,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("buttonRect.left", editor)
         self.assertIn('els.assetPanel.style.width = `${right - left}px`', editor)
         self.assertIn("topbarRect.bottom - viewportRect.top + gap", editor)
-        self.assertIn("viewportRect.bottom - minimapRect.top + gap", editor)
         align_body = editor.split("function alignAssetPanel()", 1)[1].split(
             "function updateAssetGridMetrics", 1
         )[0]
         self.assertIn("topbarRect.left - viewportRect.left", align_body)
         self.assertIn('els.assetPanel.style.width = `${topbarRect.width}px`', align_body)
-        self.assertIn("if (!state.assetPanelExpanded && minimapRect.height > 0)", align_body)
-        self.assertIn("body.asset-library-expanded .minimap", styles)
+        self.assertNotIn("minimapRect", align_body)
+        self.assertIn('document.body.classList.toggle("asset-library-open", open)', editor)
+        self.assertIn("body.asset-library-open .minimap", styles)
+        self.assertIn("body.asset-library-open .minimap-arrange-btn", styles)
         self.assertIn("max-width: calc(100vw - 24px);", styles)
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetSelectModeBtn"', html)
@@ -664,6 +702,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("els.debugBar.hidden = false;", render)
         self.assertIn('"调试信息 · 等待下一次画布请求"', render)
 
+    def test_minimap_has_a_persistent_visibility_toggle(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="minimapToggleBtn"', html)
+        self.assertIn('data-lucide="map"', html)
+        self.assertIn('const MINIMAP_VISIBLE_KEY = "bestnaiCanvasMinimapVisible"', editor)
+        self.assertIn('document.body.classList.toggle("minimap-hidden", !visible)', editor)
+        self.assertIn('localStorage.setItem(MINIMAP_VISIBLE_KEY', editor)
+        self.assertIn("if (!state.minimapVisible || window.matchMedia", editor)
+        self.assertIn("body.minimap-hidden .minimap", styles)
+        self.assertIn("body.minimap-hidden .minimap-arrange-btn", styles)
+        mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
+            "@media (prefers-reduced-motion", 1
+        )[0]
+        self.assertIn("#minimapToggleBtn", mobile)
+
     def test_debug_bar_groups_prompt_merge_details(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
@@ -674,8 +730,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('appendDebugTagGroup(section, "删除冲突", details.removed', editor)
         self.assertIn('appendDebugTagGroup(section, "保留原图", details.retained', editor)
         self.assertIn('appendDebugTagGroup(section, "重复去重", details.duplicates', editor)
+        self.assertIn('["added", "新增", details.added]', editor)
+        self.assertIn('["removed", "删除", details.removed]', editor)
+        self.assertIn('["retained", "保留", details.retained]', editor)
+        self.assertIn('["duplicates", "去重", details.duplicates]', editor)
+        self.assertIn("item.className = `debug-merge-count is-${tone}`", editor)
         self.assertIn(".debug-merge-summary {", styles)
         self.assertIn(".debug-merge-category-row {", styles)
+        merge_summary = styles.split(".debug-merge-summary {", 1)[1].split("}", 1)[0]
+        merge_count = styles.split(".debug-merge-count {", 1)[1].split("}", 1)[0]
+        merge_tag = styles.split(".debug-merge-tag {", 1)[1].split("}", 1)[0]
+        self.assertIn("--debug-merge-radius: 8px;", merge_summary)
+        self.assertIn("border-radius: var(--debug-merge-radius);", merge_summary)
+        self.assertIn("border-radius: var(--debug-merge-radius);", merge_count)
+        self.assertIn("border-radius: var(--debug-merge-radius);", merge_tag)
+        for tone in ("added", "removed", "retained", "duplicates"):
+            with self.subTest(tone=tone):
+                self.assertIn(f".debug-merge-count.is-{tone} {{", styles)
+                self.assertIn(f".debug-merge-group.is-{tone} .debug-merge-tag", styles)
 
     def test_debug_bar_follows_prompt_selection_without_full_render(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -887,9 +959,38 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.getElementById("contextAddPromptBtn")', editor)
         self.assertIn('addNode(createPromptNode(point))', editor)
         self.assertIn('addNode(createNoteNode(point))', editor)
+        context_menu = editor.split(
+            'els.viewport.addEventListener("contextmenu"', 1
+        )[1].split("function dataTransferHasFiles", 1)[0]
+        self.assertIn('const nodeElement = target?.closest(".node")', context_menu)
+        self.assertIn("setNodeContextMenu(true, node, event.clientX, event.clientY)", context_menu)
+        self.assertLess(
+            context_menu.index('const nodeElement = target?.closest(".node")'),
+            context_menu.index("setCanvasContextMenu(true"),
+        )
         menu_styles = styles.split(".canvas-context-menu {", 1)[1].split("}", 1)[0]
         self.assertIn("position: fixed;", menu_styles)
         self.assertIn("border-radius: 18px;", menu_styles)
+
+    def test_node_context_menu_matches_node_type_actions(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="nodeContextMenu"', html)
+        self.assertIn('id="nodeContextDuplicate"', html)
+        self.assertIn('id="nodeContextDelete"', html)
+        self.assertIn('id="nodeContextSaveImage"', html)
+        self.assertIn('id="nodeContextDownloadImage"', html)
+        self.assertEqual(html.count("data-image-only"), 2)
+        self.assertIn('const imageNode = node.type === "image"', editor)
+        self.assertIn('querySelectorAll("[data-image-only]")', editor)
+        self.assertIn('duplicateNode(node.id)', editor)
+        self.assertIn('deleteNode(node.id)', editor)
+        self.assertIn('await saveImageToLibrary(node)', editor)
+        self.assertIn('await downloadImage(node)', editor)
+        self.assertIn(".canvas-context-menu button.danger {", styles)
+        self.assertIn(".canvas-context-menu button:disabled {", styles)
 
     def test_character_preservation_is_removed(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")
@@ -917,8 +1018,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('progress_verb: str = "生图"', main)
         self.assertIn('progress_verb="反推"', main)
         self.assertIn("extract_retag_mode", main)
+        self.assertIn("_, prompt = extract_retag_mode(prompt)", main)
         self.assertIn("merge_retag_prompt_details", main)
-        self.assertIn("mode=retag_mode", main)
+        self.assertNotIn("mode=retag_mode", main)
+        self.assertNotIn("retag_mode, prompt", main)
         self.assertIn("def _format_generation_progress", main)
         self.assertIn("followup_messages=show_messages", main)
         image_branch = main.split("        if image_src:", 1)[1].split(
