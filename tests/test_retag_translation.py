@@ -32,11 +32,20 @@ class RetagTranslationTest(unittest.TestCase):
 
     def test_metadata_branch_does_not_translate(self) -> None:
         # Embedded NAI prompts do not need a second translation request.
-        start = self.retag.index("if source_seed and source_prompt:")
+        start = self.retag.index("if source_seed is not None and source_prompt:")
         end = self.retag.index("if not retag_config.enabled:")
         metadata_branch = self.retag[start:end]
 
         self.assertNotIn("self._translate_canvas_hint(user_hint)", metadata_branch)
+
+    def test_metadata_branch_resolves_source_identity_without_llm(self) -> None:
+        start = self.retag.index("if source_seed is not None and source_prompt:")
+        end = self.retag.index("if not retag_config.enabled:")
+        metadata_branch = self.retag[start:end]
+
+        self.assertIn("self._resolve_prompt_identity(source_prompt, timeout=3.0)", metadata_branch)
+        self.assertIn('"character": source_character', metadata_branch)
+        self.assertIn('"series": source_series', metadata_branch)
 
     def test_retag_uses_one_tagging_request(self) -> None:
         self.assertNotIn("asyncio.gather(", self.retag)
@@ -45,6 +54,22 @@ class RetagTranslationTest(unittest.TestCase):
 
     def test_canvas_trace_marks_hint_as_generation_only(self) -> None:
         self.assertIn("手写提示词（不送反推）", self.retag)
+
+    def test_canvas_retag_trace_does_not_require_removed_config_model_field(self) -> None:
+        self.assertNotIn("retag_config.model", self.retag)
+        self.assertIn('getattr(retag_config, "model", "")', self.retag)
+
+    def test_qq_retag_has_metadata_seed_shortcut_before_vision_provider(self) -> None:
+        command = self.main[self.main.index("async def _handle_nai_command"):]
+        self.assertIn("read_image_generation_info_any(image_src)", command)
+        self.assertIn("metadata_retag = source_seed is not None and bool(source_prompt)", command)
+        self.assertIn(
+            "if not metadata_retag and not self.plugin_config.image_retag.enabled:",
+            command,
+        )
+        self.assertIn('"fromMetadata": True', command)
+        self.assertIn("self._resolve_prompt_identity(\n                        source_prompt", command)
+        self.assertIn("seed=source_seed if metadata_retag else None", command)
 
     def test_translation_failure_keeps_the_original_text(self) -> None:
         start = self.main.index("async def _translate_canvas_hint")

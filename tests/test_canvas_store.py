@@ -53,6 +53,8 @@ class CanvasStoreTest(unittest.TestCase):
                         "translatedPrompt": "1girl, blue hair",
                         "translationSource": "蓝发少女",
                         "translationResult": "1girl, blue hair",
+                        "translationCharacter": "hatsune_miku",
+                        "translationSeries": "vocaloid",
                         "translatedPromptExpanded": True,
                         "characterKeep": True,
                         "advancedOpen": True,
@@ -61,6 +63,11 @@ class CanvasStoreTest(unittest.TestCase):
                         "retagPrompt": "hatsune_miku, vocaloid",
                         "retagAssetId": "a" * 32,
                         "retagRatio": "2:3",
+                        "retagSeed": 3405988762,
+                        "retagSeedPrompt": "1girl",
+                        "retagSeedRatio": "2:3",
+                        "retagSeedArtist": "default",
+                        "retagSeedRaw": False,
                         "tags": "1girl, hatsune_miku, vocaloid",
                     },
                     "dataUrl": "data:image/png;base64,not-persisted",
@@ -105,6 +112,8 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(loaded["nodes"][0]["meta"]["translatedPrompt"], "1girl, blue hair")
         self.assertEqual(loaded["nodes"][0]["meta"]["translationSource"], "蓝发少女")
         self.assertEqual(loaded["nodes"][0]["meta"]["translationResult"], "1girl, blue hair")
+        self.assertEqual(loaded["nodes"][0]["meta"]["translationCharacter"], "hatsune_miku")
+        self.assertEqual(loaded["nodes"][0]["meta"]["translationSeries"], "vocaloid")
         self.assertNotIn("advancedOpen", loaded["nodes"][0]["meta"])
         self.assertEqual(loaded["nodes"][0]["meta"]["steps"], 32)
         self.assertEqual(loaded["nodes"][0]["meta"]["scale"], 6.5)
@@ -113,6 +122,11 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertNotIn("characterKeep", loaded["nodes"][0]["meta"])
         self.assertEqual(loaded["nodes"][0]["meta"]["retagPrompt"], "hatsune_miku, vocaloid")
         self.assertEqual(loaded["nodes"][0]["meta"]["retagAssetId"], "a" * 32)
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagSeed"], 3405988762)
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedPrompt"], "1girl")
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedRatio"], "2:3")
+        self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedArtist"], "default")
+        self.assertFalse(loaded["nodes"][0]["meta"]["retagSeedRaw"])
         self.assertEqual(loaded["nodes"][0]["meta"]["retagRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)

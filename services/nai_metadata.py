@@ -10,11 +10,19 @@ NovelAI 把生成参数放在 PNG 的 tEXt 块里：`Comment` 是一段 JSON，
 
 from __future__ import annotations
 
+import asyncio
+from io import BytesIO
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import aiohttp
 from PIL import Image as PILImage
+
+try:  # Support both plugin-package imports and direct ``services`` imports.
+    from ..constants import MAX_SEED
+except ImportError:  # pragma: no cover - compatibility path for standalone tests
+    from constants import MAX_SEED
 
 
 # Comment JSON 里我们关心的数值字段
@@ -67,6 +75,8 @@ def parse_nai_info(info: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(comment, dict):
             for key in _INT_FIELDS:
                 number = _coerce_int(comment.get(key))
+                if key == "seed" and number is not None and number > MAX_SEED:
+                    number = None
                 if number is not None:
                     result[key] = number
 
@@ -103,6 +113,38 @@ def read_image_generation_info(path: str | Path) -> Dict[str, Any]:
     try:
         with PILImage.open(Path(path)) as image:
             # 非 PNG 一律没有 tEXt 块，省掉后续解析
+            if str(image.format or "").upper() != "PNG":
+                return {}
+            return parse_nai_info(dict(image.info or {}))
+    except Exception:
+        return {}
+
+
+async def read_image_generation_info_any(source: str | Path) -> Dict[str, Any]:
+    """Read NovelAI metadata from a local file or a remote image URL.
+
+    QQ adapters commonly expose an image as a URL, while the canvas upload
+    path usually has a local file.  Keeping the URL fetch here lets both
+    entry-points share the same metadata shortcut without making callers
+    duplicate PNG parsing or block the event loop on local IO.
+    """
+    value = str(source or "").strip()
+    if not value:
+        return {}
+
+    if not (value.startswith("http://") or value.startswith("https://")):
+        return await asyncio.to_thread(read_image_generation_info, value)
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        headers = {"User-Agent": "Mozilla/5.0", "Accept": "image/png,image/*;q=0.8,*/*;q=0.1"}
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(value, headers=headers) as response:
+                if response.status < 200 or response.status >= 300:
+                    return {}
+                data = await response.read()
+
+        with PILImage.open(BytesIO(data)) as image:
             if str(image.format or "").upper() != "PNG":
                 return {}
             return parse_nai_info(dict(image.info or {}))

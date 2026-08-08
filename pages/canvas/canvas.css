@@ -1275,7 +1275,33 @@ select:focus-visible,
 }
 
 .image-viewer-place-btn {
-  display: none;
+  display: inline-flex;
+  width: 100%;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #111827;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.image-viewer-place-btn:hover:not(:disabled) {
+  background: #fff;
+}
+
+.image-viewer-place-btn:disabled {
+  cursor: wait;
+  opacity: .58;
+}
+
+.image-viewer-place-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .image-viewer-place-btn[hidden] {
@@ -1326,13 +1352,19 @@ select:focus-visible,
   position: absolute;
   z-index: 22;
   display: none;
-  border: 1px solid #111827;
-  background: rgba(17, 24, 39, .06);
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, .08);
   pointer-events: none;
 }
 
 .selection-box.visible {
   display: block;
+}
+
+.selection-box.crossing {
+  border-color: #dc2626;
+  border-style: dashed;
+  background: rgba(220, 38, 38, .08);
 }
 
 .drop-overlay {
@@ -1531,6 +1563,12 @@ select:focus-visible,
   transform: translateY(0);
 }
 
+.asset-panel.expanded {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .98);
+  backdrop-filter: blur(20px);
+}
+
 .asset-delete-toolbar {
   display: flex;
   min-height: 28px;
@@ -1569,6 +1607,7 @@ select:focus-visible,
 }
 
 .asset-delete-actions button,
+.asset-expand-btn,
 .asset-select-mode-btn {
   display: inline-flex;
   height: 28px;
@@ -1584,6 +1623,7 @@ select:focus-visible,
 }
 
 .asset-select-mode-btn,
+.asset-expand-btn,
 .asset-delete-cancel {
   border: 1px solid var(--line);
   background: var(--soft-2);
@@ -1591,6 +1631,7 @@ select:focus-visible,
 }
 
 .asset-select-mode-btn:hover:not(:disabled),
+.asset-expand-btn:hover:not(:disabled),
 .asset-delete-cancel:hover:not(:disabled) {
   border-color: var(--line-2);
   background: var(--card-solid);
@@ -1610,12 +1651,14 @@ select:focus-visible,
 }
 
 .asset-delete-actions button:disabled,
+.asset-expand-btn:disabled,
 .asset-select-mode-btn:disabled {
   cursor: default;
   opacity: .45;
 }
 
 .asset-delete-actions button svg,
+.asset-expand-btn svg,
 .asset-select-mode-btn svg {
   width: 12px;
   height: 12px;
@@ -1625,10 +1668,14 @@ select:focus-visible,
   display: none;
 }
 
+.asset-panel.delete-mode .asset-expand-btn {
+  display: none;
+}
+
 .asset-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  /* 行高由卡片自己的 aspect-ratio 决定，不再靠 JS 量宽度算高度 */
+  /* 卡片自身使用固定高度；懒加载提示行保持内容高度，避免出现整张卡片高的空白。 */
   grid-auto-rows: auto;
   min-height: 0;
   flex: 1;
@@ -1659,7 +1706,7 @@ select:focus-visible,
 
 .asset-grid.compact-layout .asset-image-card {
   display: flex;
-  aspect-ratio: 1;
+  height: var(--asset-card-height, 112px);
   flex-direction: column;
 }
 
@@ -1676,6 +1723,15 @@ select:focus-visible,
 
 .asset-image-card:active {
   cursor: grabbing;
+}
+
+.asset-panel.expanded .asset-image-card {
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.asset-panel.expanded .asset-image-card:active {
+  cursor: pointer;
 }
 
 .asset-image-card.dragging {
@@ -2105,7 +2161,10 @@ select:focus-visible,
   .toolbar {
     grid-area: tools;
     display: grid;
-    grid-template-columns: repeat(9, minmax(28px, 1fr));
+    /* Ten visible actions must stay on one row on phones. The toolbar remains
+       horizontally scrollable on narrower devices instead of wrapping the
+       destructive action into a second, space-consuming line. */
+    grid-template-columns: repeat(10, minmax(28px, 1fr));
     width: 100%;
     max-width: none;
     min-width: 0;
@@ -2179,6 +2238,10 @@ select:focus-visible,
     max-width: none;
     background: rgba(255, 255, 255, .98);
     backdrop-filter: none;
+  }
+
+  .asset-expand-btn {
+    display: none;
   }
 
   .asset-image-card {

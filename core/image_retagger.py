@@ -12,6 +12,12 @@ import aiohttp
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
+from .prompt_tokens import (
+    expand_prompt_tokens,
+    rebuild_weighted_token,
+    split_prompt_tokens,
+    weighted_token_parts,
+)
 
 
 class ImageRetagError(Exception):
@@ -137,22 +143,35 @@ def strip_control_tags(text: str) -> str:
     """Remove artist/quality/rating controls from a retag prompt."""
     cleaned = _clean_tags(text)
     kept = []
-    for raw_token in re.split(r"\s*,\s*", cleaned):
-        token = raw_token.strip(" ,;")
-        if not token:
+    seen = set()
+    for token_segment in split_prompt_tokens(cleaned):
+        weight, atoms, weighted = weighted_token_parts(token_segment)
+        filtered_atoms = []
+        for raw_token in atoms:
+            token = raw_token.strip(" ,;")
+            if not token:
+                continue
+            lowered = token.lower()
+            plain = re.sub(r"[\[\]{}()]+", "", lowered).strip()
+            if "artist:" in lowered or re.search(r"\bartist(?:_|\s)", lowered):
+                continue
+            if plain in _CONTROL_TAGS or any(
+                phrase in plain for phrase in ("quality", "aesthetic", "absurdres")
+            ):
+                continue
+            if re.match(r"^(?:rating|score)\s*[:_]", plain):
+                continue
+            if plain in seen:
+                continue
+            seen.add(plain)
+            filtered_atoms.append(token)
+        if not filtered_atoms:
             continue
-        lowered = token.lower()
-        plain = re.sub(r"[\[\]{}()]+", "", lowered).strip()
-        if "artist:" in lowered or re.search(r"\bartist(?:_|\s)", lowered):
-            continue
-        if plain in _CONTROL_TAGS or any(
-            phrase in plain for phrase in ("quality", "aesthetic", "absurdres")
-        ):
-            continue
-        if re.match(r"^(?:rating|score)\s*[:_]", plain):
-            continue
-        if token not in kept:
-            kept.append(token)
+        kept.append(
+            rebuild_weighted_token(weight, filtered_atoms)
+            if weighted
+            else ", ".join(filtered_atoms)
+        )
     return ", ".join(kept).strip(" ,;")
 
 
@@ -199,16 +218,19 @@ def parse_retag_response(text: str) -> Tuple[str, str, str]:
 def compose_retag_prompt(character: str, series: str, tags: str) -> str:
     """把角色、作品、其余 tags 拼成最终提示词，角色信息排在最前。"""
     parts = []
-    lowered_tags = (tags or "").lower()
+    tag_keys = {
+        re.sub(r"\s+", " ", str(item or "").strip(" ,;{}[]()").lower())
+        for item in expand_prompt_tokens(tags)
+        if str(item or "").strip()
+    }
 
     for token in (character, series):
         if not token:
             continue
 
         # 模型可能已经把角色 tag 写进 tags 里了，避免重复
-        pattern = r"(?:^|,\s*)" + re.escape(token.lower()) + r"(?:\s*,|$)"
-
-        if re.search(pattern, lowered_tags):
+        token_key = re.sub(r"\s+", " ", token.strip(" ,;{}[]()").lower())
+        if token_key in tag_keys:
             continue
 
         if token not in parts:
@@ -247,7 +269,21 @@ async def _url_to_data_url(url: str) -> str:
         async with session.get(url, headers=headers) as resp:
             if resp.status < 200 or resp.status >= 300:
                 text = await resp.text()
-                raise ImageRetagError(f"下载图片失败 HTTP {resp.status}: {text[:200]}")
+                raw = f"HTTP {resp.status}: {text[:200]}"
+                lowered = raw.lower()
+                if any(
+                    marker in lowered
+                    for marker in (
+                        "cloudflare",
+                        "origin web server",
+                        "invalid or incomplete response",
+                        "bad gateway",
+                        "gateway time-out",
+                        "error 52",
+                    )
+                ):
+                    raise ImageRetagError(describe_api_error(raw, "图片下载"))
+                raise ImageRetagError(f"下载图片失败 {raw}")
 
             content_type = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
             data = await resp.read()

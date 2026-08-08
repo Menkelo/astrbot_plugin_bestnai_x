@@ -12,10 +12,9 @@ import aiohttp
 
 from astrbot.api import logger
 
+from .api_errors import describe_api_error
+from ..constants import MAX_SEED
 from ..models.config import GenerationConfig, PluginConfig
-
-
-MAX_SEED = 2_147_483_647
 
 
 class GenerationResult(NamedTuple):
@@ -305,6 +304,19 @@ class ImageGenerator:
 
     def _raise_for_status(self, status: int, message: str) -> None:
         msg = message or f"HTTP {status}"
+        lowered = msg.lower()
+        if any(
+            marker in lowered
+            for marker in (
+                "cloudflare",
+                "origin web server",
+                "invalid or incomplete response",
+                "bad gateway",
+                "gateway time-out",
+                "error 52",
+            )
+        ):
+            msg = describe_api_error(msg, "生图")
 
         if status in (401, 403):
             raise APIKeyError(msg, status)
@@ -317,7 +329,7 @@ class ImageGenerator:
 
             raise RateLimitError(msg, status)
 
-        if status in (500, 502, 503, 504):
+        if status in (500, 502, 503, 504, 520, 521, 522, 523, 524):
             raise ServerBusyError(msg, status)
 
         raise GenerationError(msg, status)
@@ -757,8 +769,22 @@ class ImageGenerator:
             async with session.get(url, headers=headers) as resp:
                 if resp.status < 200 or resp.status >= 300:
                     text = await resp.text()
+                    raw = f"HTTP {resp.status}: {text[:200]}"
+                    lowered = raw.lower()
+                    if any(
+                        marker in lowered
+                        for marker in (
+                            "cloudflare",
+                            "origin web server",
+                            "invalid or incomplete response",
+                            "bad gateway",
+                            "gateway time-out",
+                            "error 52",
+                        )
+                    ):
+                        raise GenerationError(describe_api_error(raw, "图片下载"), resp.status)
                     raise GenerationError(
-                        f"下载图片失败 HTTP {resp.status}: {text[:200]}",
+                        f"下载图片失败 {raw}",
                         resp.status,
                     )
 

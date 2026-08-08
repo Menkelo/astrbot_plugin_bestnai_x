@@ -70,6 +70,19 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertIn("classroom", result)
         self.assertNotIn("sitting", result)
 
+    def test_extended_clothing_and_expression_tags_are_overridden(self) -> None:
+        result = merge_retag_prompt(
+            "change outfit to gothic_lolita, smirk",
+            "1girl, long_sleeves, gothic_lolita, smile, classroom",
+            weight_user=False,
+        )
+
+        self.assertIn("gothic_lolita", result)
+        self.assertIn("smirk", result)
+        self.assertNotIn("long_sleeves", result)
+        self.assertNotIn("smile", result)
+        self.assertIn("classroom", result)
+
     def test_plain_additive_prompt_keeps_unmentioned_source_tags(self) -> None:
         result = merge_retag_prompt(
             "blue_hair",
@@ -104,6 +117,78 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertIn("sitting", result)
         self.assertNotIn("black_hair", result)
         self.assertNotIn("school_uniform", result)
+
+    def test_resolved_character_name_forces_identity_replacement_without_verb(self) -> None:
+        result = merge_retag_prompt(
+            "izumi_sagiri, eromanga_sensei",
+            self.source,
+            original_user_prompt="埃罗芒阿老师",
+            user_character="izumi_sagiri",
+            user_series="eromanga_sensei",
+            weight_user=False,
+        )
+
+        self.assertIn("izumi_sagiri", result)
+        self.assertIn("eromanga_sensei", result)
+        self.assertNotIn("kasumigaoka_utaha", result)
+        self.assertNotIn("saenai_heroine_no_sodatekata", result)
+
+    def test_structured_identity_does_not_remove_leading_pose_or_expression(self) -> None:
+        result = merge_retag_prompt(
+            "izumi_sagiri, eromanga_sensei",
+            (
+                "smile, looking_at_viewer, kasumigaoka_utaha, "
+                "saenai_heroine_no_sodatekata, black_hair, school_uniform, sunset"
+            ),
+            user_character="izumi_sagiri",
+            user_series="eromanga_sensei",
+            source_character="kasumigaoka_utaha",
+            source_series="saenai_heroine_no_sodatekata",
+            weight_user=False,
+        )
+
+        self.assertIn("smile", result)
+        self.assertIn("looking_at_viewer", result)
+        self.assertIn("sunset", result)
+        self.assertNotIn("kasumigaoka_utaha", result)
+
+    def test_unstructured_fallback_preserves_categorized_leading_tags(self) -> None:
+        result = merge_retag_prompt(
+            "izumi_sagiri, eromanga_sensei",
+            "smile, looking_at_viewer, sunset, outdoors",
+            user_character="izumi_sagiri",
+            user_series="eromanga_sensei",
+            weight_user=False,
+        )
+
+        self.assertIn("smile", result)
+        self.assertIn("looking_at_viewer", result)
+        self.assertIn("sunset", result)
+
+    def test_unstructured_fallback_removes_both_old_identity_tags_after_subject_count(self) -> None:
+        result = merge_retag_prompt(
+            "change to izumi_sagiri",
+            "1girl, kasumigaoka_utaha, saenai_heroine_no_sodatekata, black_hair, sitting, classroom",
+            weight_user=False,
+        )
+
+        self.assertNotIn("kasumigaoka_utaha", result)
+        self.assertNotIn("saenai_heroine_no_sodatekata", result)
+        self.assertIn("sitting", result)
+        self.assertIn("classroom", result)
+
+    def test_weighted_source_group_is_not_split_or_malformed(self) -> None:
+        result = merge_retag_prompt(
+            "change to izumi_sagiri",
+            "1.2::kasumigaoka_utaha, saenai_heroine_no_sodatekata ::, black_hair, sitting",
+            weight_user=False,
+        )
+
+        self.assertIn("izumi_sagiri", result)
+        self.assertIn("sitting", result)
+        self.assertNotIn("kasumigaoka_utaha", result)
+        self.assertNotIn("saenai_heroine_no_sodatekata", result)
+        self.assertNotIn("::,", result)
 
 
 if __name__ == "__main__":

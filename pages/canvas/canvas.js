@@ -53,6 +53,7 @@ const els = {
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
   assetLibraryCount: document.getElementById("assetLibraryCount"),
+  assetExpandBtn: document.getElementById("assetExpandBtn"),
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
   assetDeleteCount: document.getElementById("assetDeleteCount"),
@@ -99,6 +100,7 @@ const state = {
   libraryPreloadPromise: null,
   libraryRenderObserver: null,
   libraryRenderCleanup: null,
+  assetPanelExpanded: false,
   assetDeleteMode: false,
   selectedAssetIds: new Set(),
   deletingAssets: false,
@@ -359,6 +361,12 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
     setProjectMenu(false);
     return;
   }
+
+  // A library preview/expanded panel belongs to the current canvas view.  Do
+  // not carry it (or its selected/deleting state) into another workspace.
+  closeImageViewer();
+  if (els.assetPanel.classList.contains("open")) setAssetPanel(false);
+  setCanvasContextMenu(false);
   if (saveCurrent && canvasId) await flushWorkspace();
 
   const workspace = await bridge.apiGet("canvas/workspace", { id: canvas.id });
@@ -809,7 +817,7 @@ function makeNodeShell(node, label) {
   element.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     bringNodeToFront(node.id, element);
-    if (event.ctrlKey || event.metaKey) selectNode(node.id, true);
+    if (event.ctrlKey || event.metaKey || event.shiftKey) selectNode(node.id, true);
     else if (!isNodeSelected(node.id)) selectNode(node.id);
   });
   attachNodeDrag(handle, element, node);
@@ -851,7 +859,7 @@ function renderPromptNode(node) {
   prompt.addEventListener("input", () => {
     node.prompt = prompt.value;
     node.error = "";
-    if (node.meta?.translatedPrompt || node.meta?.retagPrompt) {
+    if (node.meta?.translatedPrompt || node.meta?.retagPrompt || node.meta?.retagSeed) {
       clearRetagCache(node);
     }
     scheduleSave();
@@ -1046,6 +1054,12 @@ function setDebugBarOpen(open) {
   els.debugBarBody?.toggleAttribute("hidden", !state.debugBarOpen);
   const chevron = els.debugBarToggle?.querySelector(".debug-bar-chevron");
   chevron?.classList.toggle("rotated", state.debugBarOpen);
+  if (els.assetPanel.classList.contains("open")) {
+    window.requestAnimationFrame(() => {
+      alignAssetPanel();
+      updateAssetGridMetrics();
+    });
+  }
 }
 
 function renderDebugBar() {
@@ -1053,6 +1067,12 @@ function renderDebugBar() {
   if (!debugModeEnabled()) {
     els.debugBar.hidden = true;
     els.debugBarBody.replaceChildren();
+    if (els.assetPanel.classList.contains("open")) {
+      window.requestAnimationFrame(() => {
+        alignAssetPanel();
+        updateAssetGridMetrics();
+      });
+    }
     return;
   }
   const candidates = [
@@ -1595,7 +1615,7 @@ function attachNodeDrag(handle, element, node) {
     event.preventDefault();
     event.stopPropagation();
 
-    if (event.ctrlKey || event.metaKey) {
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
       selectNode(node.id, true);
       if (!isNodeSelected(node.id)) return;
     } else if (!isNodeSelected(node.id)) {
@@ -1809,20 +1829,52 @@ function findNextGeneratedPosition(sourceNode, width, height) {
   };
 }
 
-function finishBoxSelection(startWorld, endEvent) {
+function finishBoxSelection(
+  startWorld,
+  endEvent,
+  {
+    startClientX = endEvent.clientX,
+    additive = false,
+    toggle = false,
+    baseSelection = [],
+  } = {},
+) {
   const endWorld = clientToWorld(endEvent.clientX, endEvent.clientY);
   const minX = Math.min(startWorld.x, endWorld.x);
   const minY = Math.min(startWorld.y, endWorld.y);
   const maxX = Math.max(startWorld.x, endWorld.x);
   const maxY = Math.max(startWorld.y, endWorld.y);
+  // AutoCAD-style window selection: left-to-right selects nodes fully inside
+  // the rectangle; right-to-left selects every node the rectangle crosses.
+  const crossing = endEvent.clientX < startClientX;
   const ids = state.nodes.filter((node) => {
     const rect = nodeRect(node);
-    return rect.x < maxX
-      && rect.x + rect.width > minX
-      && rect.y < maxY
-      && rect.y + rect.height > minY;
+    if (crossing) {
+      return rect.x < maxX
+        && rect.x + rect.width > minX
+        && rect.y < maxY
+        && rect.y + rect.height > minY;
+    }
+    return rect.x >= minX
+      && rect.x + rect.width <= maxX
+      && rect.y >= minY
+      && rect.y + rect.height <= maxY;
   }).map((node) => node.id);
-  setSelection(ids, ids[ids.length - 1] || "");
+  const base = new Set(baseSelection.filter((id) => !!findNode(id)));
+  if (toggle) {
+    ids.forEach((id) => {
+      if (base.has(id)) base.delete(id);
+      else base.add(id);
+    });
+  } else if (additive) {
+    ids.forEach((id) => base.add(id));
+  } else {
+    base.clear();
+    ids.forEach((id) => base.add(id));
+  }
+  const selected = [...base];
+  const primary = ids[ids.length - 1] || selected[selected.length - 1] || "";
+  setSelection(selected, primary);
   renderAll();
 }
 
@@ -1927,9 +1979,11 @@ async function generateFromNode(id, {
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
       cachedTranslation: node.meta?.translationResult || "",
+      cachedTranslationCharacter: node.meta?.translationCharacter || "",
+      cachedTranslationSeries: node.meta?.translationSeries || "",
       debug: debugModeEnabled(),
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
-      seed: node.meta?.retagSeed || undefined,
+       seed: reusableRetagSeed(node),
     });
     const assets = Array.isArray(result?.assets) ? result.assets : [];
     if (!assets.length) throw new Error("服务未返回图片");
@@ -1939,6 +1993,8 @@ async function generateFromNode(id, {
       translatedPrompt: result.meta?.translatedPrompt || requestRetagPrompt || "",
       translationSource: result.meta?.translationSource || "",
       translationResult: result.meta?.translationResult || "",
+      translationCharacter: result.meta?.translationCharacter || "",
+      translationSeries: result.meta?.translationSeries || "",
     };
     recordRunDebug(node, "generate", result.meta?.debug);
     const createdIds = [];
@@ -2013,13 +2069,55 @@ function clearRetagCache(node) {
     retagCharacter: _retagCharacter,
     retagSeries: _retagSeries,
     retagSeed: _retagSeed,
+    retagSeedPrompt: _retagSeedPrompt,
+    retagSeedRatio: _retagSeedRatio,
+    retagSeedArtist: _retagSeedArtist,
+    retagSeedRaw: _retagSeedRaw,
     retagFromMetadata: _retagFromMetadata,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
     translationResult: _translationResult,
+    translationCharacter: _translationCharacter,
+    translationSeries: _translationSeries,
     ...meta
   } = node.meta || {};
   node.meta = meta;
+}
+
+function clearRetagSeed(node) {
+  if (!node?.meta) return;
+  const {
+    retagSeed: _retagSeed,
+    retagSeedPrompt: _retagSeedPrompt,
+    retagSeedRatio: _retagSeedRatio,
+    retagSeedArtist: _retagSeedArtist,
+    retagSeedRaw: _retagSeedRaw,
+    ...meta
+  } = node.meta;
+  node.meta = meta;
+}
+
+function reusableRetagSeed(node) {
+  const meta = node?.meta || {};
+  const seed = Number(meta.retagSeed) || 0;
+  if (!seed) return undefined;
+
+  // Workspaces created before the fingerprint fields existed can still use
+  // their saved seed. A changed prompt invalidates the retag cache (and its
+  // seed) at input time; ratio/artist/raw changes intentionally keep the seed
+  // so NovelAI can preserve composition direction across style variants.
+  const hasFingerprint = [
+    "retagSeedPrompt",
+    "retagSeedRatio",
+    "retagSeedArtist",
+    "retagSeedRaw",
+  ].some((key) => Object.prototype.hasOwnProperty.call(meta, key));
+  if (!hasFingerprint) return seed;
+
+  if (String(meta.retagSeedPrompt || "") !== String(node.prompt || "").trim()) {
+    return undefined;
+  }
+  return seed;
 }
 
 function cachedRetagResult(node, sourceImage, basePrompt) {
@@ -2035,6 +2133,8 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     ratio: String(meta.retagRatio || "").trim(),
     character: String(meta.retagCharacter || "").trim(),
     series: String(meta.retagSeries || "").trim(),
+    seed: Number(meta.retagSeed) || 0,
+    fromMetadata: !!meta.retagFromMetadata,
   };
 }
 
@@ -2071,11 +2171,10 @@ async function retagFromNode(id, generateAfter = false) {
 
   const basePrompt = node.prompt?.trim() || "";
   const cachedRetag = cachedRetagResult(node, sourceImage, basePrompt);
-  if (!cachedRetag && !state.config.retagConfigured) {
-    node.error = "请先配置图片反推提供商";
-    renderAll();
-    return false;
-  }
+  // Do not gate this action on the vision-provider flag. A PNG generated by
+  // NovelAI can be retagged from its embedded prompt/seed and only needs the
+  // tags-site lookup; the backend will still return a clear configuration
+  // error for ordinary images when no vision provider is available.
 
   node.status = "retagging";
   node.error = "";
@@ -2103,6 +2202,10 @@ async function retagFromNode(id, generateAfter = false) {
       retagAssetId: sourceImage.assetId,
       retagRatio: result.ratio || "",
       retagSeed: Number(result.seed) || 0,
+      retagSeedPrompt: basePrompt,
+      retagSeedRatio: node.ratio || "",
+      retagSeedArtist: node.artist || "",
+      retagSeedRaw: !!node.raw,
       retagFromMetadata: !!result.fromMetadata,
       translatedPrompt: retagPrompt,
     };
@@ -2288,9 +2391,43 @@ async function loadLibrary(render = true) {
   }
 }
 
+function updateAssetExpandControl() {
+  if (!els.assetExpandBtn) return;
+  const expanded = state.assetPanelExpanded;
+  const canExpand = window.innerWidth > 620;
+  els.assetExpandBtn.hidden = !canExpand;
+  els.assetExpandBtn.disabled = !canExpand;
+  els.assetExpandBtn.setAttribute("aria-pressed", String(expanded));
+  els.assetExpandBtn.setAttribute("aria-label", expanded ? "收起素材库" : "展开素材库");
+  els.assetExpandBtn.title = expanded ? "收起素材库" : "展开素材库";
+  const label = document.createElement("span");
+  label.textContent = expanded ? "收起" : "展开";
+  els.assetExpandBtn.replaceChildren(icon(expanded ? "minimize-2" : "maximize-2"), label);
+  refreshIcons(els.assetExpandBtn);
+}
+
+function setAssetPanelExpanded(expanded, { realign = true } = {}) {
+  const next = !!expanded
+    && window.innerWidth > 620
+    && els.assetPanel.classList.contains("open");
+  state.assetPanelExpanded = next;
+  els.assetPanel.classList.toggle("expanded", next);
+  document.body.classList.toggle("asset-library-expanded", next);
+  updateAssetExpandControl();
+  els.assetGrid.querySelectorAll(".asset-image-card").forEach((card) => {
+    card.title = next ? "点击预览，确认后放入画布" : "点击预览，拖到画布使用";
+  });
+  if (realign && els.assetPanel.classList.contains("open")) {
+    alignAssetPanel();
+    updateAssetGridMetrics();
+    window.requestAnimationFrame(updateAssetGridMetrics);
+  }
+}
+
 function setAssetPanel(open) {
   if (open) setCanvasContextMenu(false);
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
+  if (!open) setAssetPanelExpanded(false, { realign: false });
   els.assetPanel.classList.toggle("open", open);
   document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
     button.classList.toggle("active", open);
@@ -2300,6 +2437,7 @@ function setAssetPanel(open) {
     setAssetDeleteMode(false);
     return;
   }
+  updateAssetExpandControl();
   alignAssetPanel();
   renderAssetLibrary();
 }
@@ -2371,6 +2509,8 @@ function renderAssetLibrary() {
   els.assetEmpty.querySelector("span").textContent = "暂无图片素材";
 
   if (items.length) renderAssetBatch(items, 0);
+  updateAssetGridMetrics();
+  window.requestAnimationFrame(updateAssetGridMetrics);
   refreshIcons(els.assetPanel);
 }
 
@@ -2412,21 +2552,54 @@ function alignAssetPanel() {
   const { topbarRect, left, right } = alignedPanelEdges();
   const viewportRect = els.viewport.getBoundingClientRect();
   const minimapRect = els.minimap.getBoundingClientRect();
+  const debugRect = !els.debugBar.hidden
+    ? els.debugBar.getBoundingClientRect()
+    : { height: 0 };
   const gap = 14;
-  els.assetPanel.style.left = `${left - viewportRect.left}px`;
-  els.assetPanel.style.width = `${right - left}px`;
-  els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
-  if (minimapRect.height > 0) {
-    els.assetPanel.style.bottom = `${viewportRect.bottom - minimapRect.top + gap}px`;
+  if (state.assetPanelExpanded) {
+    const margin = 12;
+    els.assetPanel.style.left = `${margin}px`;
+    els.assetPanel.style.width = `${Math.max(240, viewportRect.width - margin * 2)}px`;
   } else {
-    els.assetPanel.style.bottom = "12px";
+    els.assetPanel.style.left = `${left - viewportRect.left}px`;
+    els.assetPanel.style.width = `${right - left}px`;
   }
+  els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
+  const bottomOffsets = [12];
+  if (!state.assetPanelExpanded && minimapRect.height > 0) {
+    bottomOffsets.push(viewportRect.bottom - minimapRect.top + gap);
+  }
+  if (debugRect.height > 0) {
+    bottomOffsets.push(viewportRect.bottom - debugRect.top + gap);
+  }
+  els.assetPanel.style.bottom = `${Math.max(...bottomOffsets)}px`;
+}
+
+function updateAssetGridMetrics() {
+  if (!els.assetPanel.classList.contains("open")) return;
+  const styles = window.getComputedStyle(els.assetGrid);
+  const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+  const columnGap = parseFloat(styles.columnGap) || 0;
+  const availableWidth = Math.max(0, els.assetGrid.clientWidth - horizontalPadding);
+  const columns = state.assetPanelExpanded
+    ? clamp(Math.floor((availableWidth + columnGap) / (156 + columnGap)), 3, 10)
+    : 3;
+  els.assetGrid.style.gridTemplateColumns = state.assetPanelExpanded
+    ? `repeat(${columns}, minmax(0, 1fr))`
+    : "";
+  const tileSize = Math.max(
+    64,
+    Math.floor((availableWidth - columnGap * (columns - 1)) / columns),
+  );
+  els.assetGrid.style.setProperty("--asset-card-height", `${tileSize}px`);
 }
 
 function renderImageAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
-  card.title = "点击预览，拖到画布使用";
+  card.title = state.assetPanelExpanded
+    ? "点击预览，确认后放入画布"
+    : "点击预览，拖到画布使用";
   card.dataset.assetId = item.id;
   card.classList.toggle("selected", state.selectedAssetIds.has(item.id));
   card.setAttribute("aria-selected", String(state.selectedAssetIds.has(item.id)));
@@ -2498,6 +2671,7 @@ function attachLibraryImageDrag(card, item) {
   card.addEventListener("pointerdown", (event) => {
     if (
       state.assetDeleteMode
+      || state.assetPanelExpanded
       || event.pointerType === "touch"
       || event.button !== 0
       || event.target.closest("button")
@@ -2580,11 +2754,12 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   try {
     await ensureLibraryImageData(item);
     const nodeWidth = fittedImageNodeWidth(item.width, item.height);
+    const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);
     addNode({
       id: uid("image"),
       type: "image",
       x: point.x - nodeWidth / 2,
-      y: point.y - 120,
+      y: point.y - nodeHeight / 2,
       width: nodeWidth,
       title: item.name || "素材图片",
       assetId: item.id,
@@ -2620,7 +2795,9 @@ async function saveImageToLibrary(node) {
       tags: node.meta?.tags || node.meta?.finalPrompt || "",
       artist: node.meta?.artist || "",
       ratio: node.meta?.ratio || "",
-      seed: Number(node.meta?.seed) || 0,
+      // A source image may only reveal its seed during the retag pass; keep
+      // that value when the image itself is later collected into the library.
+      seed: Number(node.meta?.seed || node.meta?.retagSeed) || 0,
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
@@ -2641,11 +2818,12 @@ async function uploadFiles(files, point = worldCenter()) {
     try {
       const asset = await bridge.upload("canvas/upload", images[index]);
       const nodeWidth = fittedImageNodeWidth(asset.width, asset.height);
+      const nodeHeight = estimatedImageNodeHeight(nodeWidth, asset.width, asset.height);
       const node = {
         id: uid("image"),
         type: "image",
         x: point.x + index * 34 - nodeWidth / 2,
-        y: point.y + index * 34 - 150,
+        y: point.y + index * 34 - nodeHeight / 2,
         width: nodeWidth,
         title: images[index].name,
         assetId: asset.id,
@@ -2916,29 +3094,39 @@ els.viewport.addEventListener("pointerdown", (event) => {
 
   if (middlePan) event.preventDefault();
   setCanvasContextMenu(false);
+  if (middlePan) setProjectMenu(false);
 
   if (event.pointerType === "touch") {
     handleCanvasTouchStart(event);
     return;
   }
 
-  if (!middlePan && (event.ctrlKey || event.metaKey)) {
+  // Desktop follows the familiar CAD interaction model: middle-drag pans,
+  // wheel zooms, a plain left click selects/clears, and a left drag on empty
+  // canvas creates a selection window. Ctrl/Cmd toggles selection; Shift adds
+  // to it. This keeps node dragging on the header untouched.
+  if (!middlePan) {
     event.preventDefault();
     event.stopPropagation();
+    setProjectMenu(false);
     const viewportRect = els.viewport.getBoundingClientRect();
     const startWorld = clientToWorld(event.clientX, event.clientY);
     const startX = event.clientX - viewportRect.left;
     const startY = event.clientY - viewportRect.top;
-    els.selectionBox.classList.add("visible");
-    els.selectionBox.style.left = `${startX}px`;
-    els.selectionBox.style.top = `${startY}px`;
-    els.selectionBox.style.width = "0";
-    els.selectionBox.style.height = "0";
-    els.viewport.setPointerCapture(event.pointerId);
+    const additive = !!event.shiftKey;
+    const toggle = !!(event.ctrlKey || event.metaKey);
+    const baseSelection = selectedNodeIds();
+    let moved = false;
 
-    const moveSelection = (moveEvent) => {
+    els.viewport.setPointerCapture(event.pointerId);
+    const updateSelectionBox = (moveEvent) => {
       const currentX = moveEvent.clientX - viewportRect.left;
       const currentY = moveEvent.clientY - viewportRect.top;
+      if (!moved && Math.hypot(currentX - startX, currentY - startY) < 4) return;
+      moved = true;
+      els.selectionBox.classList.add("visible");
+      els.selectionBox.classList.toggle("crossing", currentX < startX);
+      els.selectionBox.classList.toggle("window", currentX >= startX);
       els.selectionBox.style.left = `${Math.min(startX, currentX)}px`;
       els.selectionBox.style.top = `${Math.min(startY, currentY)}px`;
       els.selectionBox.style.width = `${Math.abs(currentX - startX)}px`;
@@ -2948,23 +3136,31 @@ els.viewport.addEventListener("pointerdown", (event) => {
       if (els.viewport.hasPointerCapture(endEvent.pointerId)) {
         els.viewport.releasePointerCapture(endEvent.pointerId);
       }
-      els.selectionBox.classList.remove("visible");
-      els.viewport.removeEventListener("pointermove", moveSelection);
+      els.selectionBox.classList.remove("visible", "crossing", "window");
+      els.viewport.removeEventListener("pointermove", updateSelectionBox);
       els.viewport.removeEventListener("pointerup", endSelection);
       els.viewport.removeEventListener("pointercancel", endSelection);
-      finishBoxSelection(startWorld, endEvent);
+      if (endEvent.type === "pointercancel") return;
+      if (moved) {
+        finishBoxSelection(startWorld, endEvent, {
+          startClientX: event.clientX,
+          additive,
+          toggle,
+          baseSelection,
+        });
+      } else if (!additive && !toggle) {
+        clearSelection();
+        renderAll();
+      }
     };
-    els.viewport.addEventListener("pointermove", moveSelection);
+    els.viewport.addEventListener("pointermove", updateSelectionBox);
     els.viewport.addEventListener("pointerup", endSelection);
     els.viewport.addEventListener("pointercancel", endSelection);
     return;
   }
 
-  if (!middlePan) {
-    clearSelection();
-    renderNodes();
-    requestAnimationFrame(renderConnections);
-  }
+  // Middle-button panning remains available while the left button is reserved
+  // for CAD-style selection windows.
   const start = { x: event.clientX, y: event.clientY, vx: state.viewport.x, vy: state.viewport.y };
   els.viewport.classList.add("panning");
   els.viewport.setPointerCapture(event.pointerId);
@@ -3200,6 +3396,9 @@ document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((b
     setAssetPanel(!els.assetPanel.classList.contains("open"));
   });
 });
+els.assetExpandBtn?.addEventListener("click", () => {
+  setAssetPanelExpanded(!state.assetPanelExpanded);
+});
 els.assetSelectModeBtn.addEventListener("click", () => setAssetDeleteMode(true));
 els.assetDeleteCancel.addEventListener("click", () => setAssetDeleteMode(false));
 els.assetDeleteConfirm.addEventListener("click", deleteSelectedLibraryAssets);
@@ -3335,6 +3534,10 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     if (els.assetPanel.classList.contains("open")) {
+      if (state.assetPanelExpanded) {
+        setAssetPanelExpanded(false);
+        return;
+      }
       setAssetPanel(false);
       return;
     }
@@ -3377,8 +3580,19 @@ window.addEventListener("resize", () => {
   setCanvasContextMenu(false);
   drawMinimap();
   alignToastRegion();
+  // The embedded page can receive its first resize after initialization
+  // (for example when a desktop iframe settles).  Keep the desktop-only
+  // expand control in sync with the actual responsive viewport.
+  updateAssetExpandControl();
   if (!els.projectMenu.hidden) alignProjectMenu();
-  if (els.assetPanel.classList.contains("open")) alignAssetPanel();
+  if (els.assetPanel.classList.contains("open")) {
+    if (state.assetPanelExpanded && window.innerWidth <= 620) {
+      setAssetPanelExpanded(false);
+      return;
+    }
+    alignAssetPanel();
+    updateAssetGridMetrics();
+  }
 });
 window.addEventListener("online", checkConnection);
 window.addEventListener("offline", () => setConnectionState("offline"));

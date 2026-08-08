@@ -166,7 +166,9 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
         self.assertIn('"seed": result.seed', self.main)
         self.assertNotIn("steps: node.meta?.steps", self.editor)
         self.assertNotIn("scale: node.meta?.scale", self.editor)
-        self.assertIn("seed: node.meta?.retagSeed || undefined", self.editor)
+        self.assertIn("seed: reusableRetagSeed(node)", self.editor)
+        self.assertIn("function reusableRetagSeed(node)", self.editor)
+        self.assertIn("function clearRetagSeed(node)", self.editor)
 
     def test_canvas_uses_plugin_generation_defaults(self) -> None:
         # 画布不再提供步数 / 引导系数覆盖，统一使用插件配置。
@@ -179,7 +181,17 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
 
     def test_new_meta_fields_are_persisted(self) -> None:
         # 工作区不保存这些字段的话，刷新页面种子就丢了
-        for field in ("retagSeed", "retagFromMetadata", '"seed"', '"steps"', '"scale"'):
+        for field in (
+            "retagSeed",
+            "retagSeedPrompt",
+            "retagSeedRatio",
+            "retagSeedArtist",
+            "retagSeedRaw",
+            "retagFromMetadata",
+            '"seed"',
+            '"steps"',
+            '"scale"',
+        ):
             with self.subTest(field=field):
                 self.assertIn(field, self.store)
         self.assertNotIn('"advancedOpen"', self.store)

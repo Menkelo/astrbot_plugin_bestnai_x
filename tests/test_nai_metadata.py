@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import sys
 import types
 import unittest
@@ -28,8 +29,11 @@ sys.modules.setdefault("astrbot.api", astrbot_api_module)
 from astrbot_plugin_bestnai_x.services.nai_metadata import (
     parse_nai_info,
     read_image_generation_info,
+    read_image_generation_info_any,
 )
 from astrbot_plugin_bestnai_x.services.prompt_builder import apply_prompt_weight
+from astrbot_plugin_bestnai_x.constants import MAX_SEED
+from astrbot_plugin_bestnai_x.core.generator import ImageGenerator
 
 
 NAI_COMMENT = {
@@ -76,6 +80,10 @@ class NaiMetadataTest(unittest.TestCase):
         self.assertEqual(info["prompt"], "1girl, solo, twintails, best quality")
         self.assertEqual(info["negativePrompt"], "lowres, bad anatomy")
 
+    def test_async_reader_supports_local_canvas_or_qq_path(self) -> None:
+        info = asyncio.run(read_image_generation_info_any(_nai_png(self.tmp_path)))
+        self.assertEqual(info["seed"], 3405988762)
+
     def test_reencoding_drops_metadata(self) -> None:
         # 这是本功能最重要的边界：图片被重存后元数据必然丢失，
         # 所以 QQ 收到的图基本读不到种子
@@ -120,6 +128,11 @@ class NaiMetadataTest(unittest.TestCase):
         info = parse_nai_info({"Comment": json.dumps({"seed": 0})})
         self.assertNotIn("seed", info)
 
+    def test_seed_range_keeps_unsigned_32_bit_values(self) -> None:
+        self.assertEqual(MAX_SEED, 4_294_967_295)
+        self.assertLess(3405988762, MAX_SEED)
+        self.assertEqual(ImageGenerator._resolve_seed(3405988762), 3405988762)
+
 
 class PromptWeightTest(unittest.TestCase):
     def test_wraps_with_novelai_numeric_syntax(self) -> None:
@@ -143,6 +156,12 @@ class PromptWeightTest(unittest.TestCase):
         self.assertEqual(
             apply_prompt_weight("1.5::1girl ::", 1.3),
             "1.5::1girl ::",
+        )
+
+    def test_mixed_weighted_text_is_kept_valid(self) -> None:
+        self.assertEqual(
+            apply_prompt_weight("1girl, 1.5::blue_hair ::, night", 1.3),
+            "1.3::1girl ::, 1.5::blue_hair ::, 1.3::night ::",
         )
 
     def test_trailing_comma_is_trimmed(self) -> None:

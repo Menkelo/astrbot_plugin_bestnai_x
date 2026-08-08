@@ -68,6 +68,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
 
+    def test_canvas_uses_cad_style_left_selection_and_middle_pan(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn("AutoCAD-style window selection", editor)
+        self.assertIn("const middlePan = event.pointerType === \"mouse\" && event.button === 1", editor)
+        self.assertIn("const toggle = !!(event.ctrlKey || event.metaKey)", editor)
+        self.assertIn("const additive = !!event.shiftKey", editor)
+        self.assertIn("finishBoxSelection(startWorld, endEvent", editor)
+        self.assertIn(".selection-box.crossing", styles)
+
+    def test_mobile_toolbar_keeps_clear_action_on_the_same_row(self) -> None:
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", styles)
+
     def test_editor_persists_resized_notes_prompts_and_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
@@ -124,7 +139,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertNotIn("function retagAndGenerateFromImage", editor)
         self.assertNotIn('makeAction("scan-search", "反推并生成"', editor)
-        self.assertIn("if (!cachedRetag && !state.config.retagConfigured)", editor)
+        self.assertIn("Do not gate this action on the vision-provider flag", editor)
         self.assertNotIn("retagFromNode(node.id, true)", editor)
         self.assertIn("function runPromptNode(id)", editor)
         self.assertIn("? retagFromNode(id, true)", editor)
@@ -250,11 +265,24 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("object-fit: contain;", styles)
         self.assertIn("object-fit: cover;", styles)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", styles)
-        # 三列对齐靠 CSS 自己算：卡片正方形、左右留一样的边、缩略图脱离文档流
-        self.assertIn("aspect-ratio: 1;", styles)
+        # 卡片按面板实宽计算固定高度，网格行保持 auto，让懒加载提示不会占满整张卡片。
         self.assertIn("padding: 0 3px;", styles)
-        self.assertNotIn("--asset-card-height", styles)
-        self.assertNotIn("updateAssetGridMetrics", editor)
+        self.assertIn("grid-auto-rows: auto;", styles)
+        self.assertIn("height: var(--asset-card-height, 112px);", styles)
+        self.assertIn("function updateAssetGridMetrics()", editor)
+        self.assertIn('els.assetGrid.style.setProperty("--asset-card-height"', editor)
+        self.assertIn("window.requestAnimationFrame(updateAssetGridMetrics);", editor)
+        self.assertIn("function setAssetPanelExpanded", editor)
+        self.assertIn("assetPanelExpanded", editor)
+        self.assertIn("gridTemplateColumns", editor)
+        self.assertIn("确认后放入画布", editor)
+        self.assertIn("const debugRect", editor)
+        self.assertIn("if (state.assetPanelExpanded)", editor)
+        self.assertIn("setAssetPanelExpanded(false)", editor)
+        self.assertIn("closeImageViewer();", editor)
+        self.assertIn("const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);", editor)
+        self.assertIn("y: point.y - nodeHeight / 2", editor)
+        self.assertIn("node.meta?.seed || node.meta?.retagSeed", editor)
         self.assertIn("function alignAssetPanel()", editor)
         self.assertIn("function alignedPanelEdges()", editor)
         self.assertIn("buttonRect.left", editor)
@@ -265,6 +293,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetSelectModeBtn"', html)
         self.assertIn('id="assetLibraryCount"', html)
+        self.assertIn('id="assetExpandBtn"', html)
         self.assertIn('id="assetDeleteCancel"', html)
         self.assertIn('id="assetDeleteConfirm"', html)
         self.assertLess(html.index('id="assetDeleteConfirm"'), html.index('id="assetDeleteCancel"'))
@@ -293,6 +322,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("rootMargin: \"240px 0px\"", editor)
         self.assertNotIn('id="assetPanelClose"', html)
         self.assertIn('id="imageViewerPlaceBtn"', html)
+        self.assertIn(".image-viewer-place-btn {", styles)
+        self.assertIn("display: inline-flex;", styles)
         self.assertIn("viewerLibraryAsset: null", editor)
         self.assertIn('event.pointerType === "touch"', editor)
         self.assertIn("{ libraryAsset: item }", editor)

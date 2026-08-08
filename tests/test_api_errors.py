@@ -35,6 +35,15 @@ class DescribeApiErrorTest(unittest.TestCase):
 
         self.assertIn("没通过服务商的审核", message)
 
+    def test_cloudflare_origin_failure_is_localized(self) -> None:
+        message = describe_api_error(
+            "The origin web server returned an invalid or incomplete response to Cloudflare.",
+            "生图",
+        )
+
+        self.assertIn("上游服务器暂时不可用", message)
+        self.assertNotIn("origin web server", message)
+
     def test_auth_and_quota_have_their_own_advice(self) -> None:
         auth = describe_api_error("Incorrect API key provided: sk-***", "提示词翻译")
         quota = describe_api_error(

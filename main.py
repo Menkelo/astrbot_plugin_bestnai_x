@@ -32,7 +32,15 @@ from .core.generator import (
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
 from .core.safety import SafetyModerator
-from .core.translator import PromptTranslator, has_chinese, resolve_translation_cache
+from .core.translator import (
+    DanbooruTagRetriever,
+    PromptTranslator,
+    TranslatedPrompt,
+    has_chinese,
+    prompt_has_tag,
+    resolve_character_candidate,
+    resolve_translation_cache,
+)
 from .image_store import send_image_best_effort
 from .models.config import GenerationConfig, PluginConfig
 from .services.artist_gallery import ArtistGalleryService
@@ -60,7 +68,7 @@ from .services.prompt_builder import (
     save_image_to_temp,
 )
 from .services.prompt_merge import merge_retag_prompt
-from .services.nai_metadata import read_image_generation_info
+from .services.nai_metadata import read_image_generation_info, read_image_generation_info_any
 from .services.runtime_state import RuntimeStateService
 
 
@@ -100,6 +108,8 @@ def _merge_canvas_retag_prompt(
     retag_prompt: str,
     *,
     original_user_prompt: str = "",
+    user_character: str = "",
+    user_series: str = "",
     source_character: str = "",
     source_series: str = "",
 ) -> str:
@@ -107,6 +117,8 @@ def _merge_canvas_retag_prompt(
         translated_user_prompt,
         retag_prompt,
         original_user_prompt=original_user_prompt,
+        user_character=user_character,
+        user_series=user_series,
         source_character=source_character,
         source_series=source_series,
         weight_user=True,
@@ -293,10 +305,19 @@ class BestNAIPlugin(Star):
         source_seed = source_info.get("seed")
         source_prompt = strip_control_tags(str(source_info.get("prompt") or "").strip())
 
-        if source_seed and source_prompt:
+        if source_seed is not None and source_prompt:
             logger.info(
                 f"[BestNAI/Canvas] 图片自带 NovelAI 参数，直接复用：seed={source_seed}"
             )
+
+            # PNG metadata already contains the canonical prompt, but it does
+            # not carry the structured character/series fields used by the
+            # overlay merger.  Resolve exact tags once so replacing a role in
+            # a metadata-backed image cannot leave the old identity behind.
+            with trace.stage("原图角色标签检索"):
+                source_character, source_series = (
+                    await self._resolve_prompt_identity(source_prompt, timeout=3.0)
+                )
 
             # Return only image tags. The caller translates and weights the
             # current hand-written hint exactly once during generation.
@@ -305,6 +326,12 @@ class BestNAIPlugin(Star):
             trace.note("走的分支", "命中原图内嵌参数，未调用视觉模型")
             trace.note("手写提示词（不送反推）", user_hint or "(空)")
             trace.note("原图图片 tags", image_tags)
+            trace.note(
+                "原图角色",
+                ", ".join(
+                    part for part in (source_character, source_series) if part
+                ) or "(未识别)",
+            )
             trace.note(
                 "原图内嵌参数",
                 {
@@ -318,8 +345,8 @@ class BestNAIPlugin(Star):
                 trace,
                 {
                     "prompt": image_tags,
-                    "character": "",
-                    "series": "",
+                    "character": source_character,
+                    "series": source_series,
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
@@ -340,7 +367,11 @@ class BestNAIPlugin(Star):
             "反推提供商",
             {
                 "provider": retag_config.provider_id or "(手动配置)",
-                "model": retag_config.model or "(默认)",
+                # The selected provider owns the vision model.  Older config
+                # versions exposed a model field on ImageRetagConfig, but the
+                # current schema intentionally does not; never dereference it
+                # directly when an external canvas image enters this branch.
+                "model": getattr(retag_config, "model", "") or "(provider default)",
             },
         )
 
@@ -435,6 +466,12 @@ class BestNAIPlugin(Star):
         retag_prompt = str(payload.get("retagPrompt") or "").strip()
         retag_character = str(payload.get("retagCharacter") or "").strip()
         retag_series = str(payload.get("retagSeries") or "").strip()
+        if retag_character and not prompt_has_tag(retag_prompt, retag_character):
+            # Do not trust stale structured metadata after an older retag
+            # result was edited or migrated; the prompt itself is authoritative.
+            retag_character = ""
+        if retag_series and not prompt_has_tag(retag_prompt, retag_series):
+            retag_series = ""
         ratio = str(payload.get("ratio") or self.default_ratio).strip()
         artist_name = str(payload.get("artist") or "").strip()
         raw_mode = bool(payload.get("raw", False))
@@ -455,6 +492,14 @@ class BestNAIPlugin(Star):
 
         translated_prompt = ""
         working_prompt = clean_prompt
+        translated_character = str(
+            payload.get("cachedTranslationCharacter") or ""
+        ).strip()
+        translated_series = str(
+            payload.get("cachedTranslationSeries") or ""
+        ).strip()
+        identity_checked = bool(translated_character)
+        translation_cache_reused = False
 
         trace = DebugTrace("canvas.generate", bool(payload.get("debug")))
         trace.note("输入提示词", prompt)
@@ -470,6 +515,7 @@ class BestNAIPlugin(Star):
                     str(payload.get("cachedTranslation") or ""),
                 )
             )
+            translation_cache_reused = bool(translated_source)
             trace.note("送翻译的原文", translation_source or "(空)")
             trace.note(
                 "翻译来源",
@@ -488,6 +534,13 @@ class BestNAIPlugin(Star):
                             apply_safety_filter=False,
                         )
                     )
+                    translated_character = str(
+                        getattr(translated_source, "character_tag", "") or ""
+                    ).strip()
+                    translated_series = str(
+                        getattr(translated_source, "series_tag", "") or ""
+                    ).strip()
+                    identity_checked = True
                 translated_source = translated_source or ""
                 if not translated_source:
                     raise ValueError(failure_reason or "提示词翻译失败，请检查翻译提供商")
@@ -503,6 +556,9 @@ class BestNAIPlugin(Star):
         else:
             translation_source = ""
             translated_source = ""
+            translated_character = ""
+            translated_series = ""
+            identity_checked = False
             trace.note("翻译", "提示词无中文，未走翻译")
 
         # Retag tags are already English output from the single vision/tagging
@@ -510,10 +566,35 @@ class BestNAIPlugin(Star):
         # translation provider never receives the mixed/weighted string.
         if retag_prompt:
             translated_user_prompt = translated_prompt or working_prompt
+            if translated_user_prompt and (
+                translation_cache_reused or not identity_checked
+            ):
+                # Cached identity metadata may have been produced by an older
+                # resolver. Re-check it for retag overlays so a fixed matcher
+                # takes effect without requiring the user to edit the node.
+                if translation_cache_reused:
+                    translated_character = ""
+                    translated_series = ""
+                with trace.stage("角色标签检索"):
+                    translated_character, translated_series = (
+                        await self._resolve_prompt_identity(clean_prompt)
+                    )
+                identity_checked = True
+                if translated_character:
+                    trace.note(
+                        "覆盖角色",
+                        ", ".join(
+                            part
+                            for part in (translated_character, translated_series)
+                            if part
+                        ),
+                    )
             working_prompt = _merge_canvas_retag_prompt(
                 translated_user_prompt,
                 retag_prompt,
                 original_user_prompt=prompt,
+                user_character=translated_character,
+                user_series=translated_series,
                 source_character=retag_character,
                 source_series=retag_series,
             )
@@ -596,6 +677,8 @@ class BestNAIPlugin(Star):
                 "translatedPrompt": working_prompt,
                 "translationSource": translation_source,
                 "translationResult": translated_source,
+                "translationCharacter": translated_character,
+                "translationSeries": translated_series,
                 "finalPrompt": final_prompt,
                 "ratio": self._display_ratio_label(
                     ratio,
@@ -1418,6 +1501,28 @@ class BestNAIPlugin(Star):
         text = re.sub(r"\s*[,，;；]\s*[,，;；]\s*", ", ", text)
         return text.strip(" ,，;；").strip()
 
+    async def _resolve_prompt_identity(
+        self,
+        text: str,
+        *,
+        timeout: float = 8.0,
+    ) -> Tuple[str, str]:
+        """Resolve an English/unchanged retag overlay without invoking an LLM."""
+        query = str(text or "").strip()
+        api_url = str(getattr(self.plugin_config, "danbooru_api_url", "") or "").strip()
+        if not query or not api_url:
+            return "", ""
+
+        retriever = DanbooruTagRetriever(base_url=api_url, timeout=timeout)
+        results = await retriever.retrieve(query)
+        character, series = resolve_character_candidate(query, results)
+        if character:
+            logger.info(
+                f"[BestNAI] tags 站确认角色标签：{character}"
+                f"{f'（{series}）' if series else ''}"
+            )
+        return character, series
+
     async def _translate_prompt(
         self,
         text: str,
@@ -1487,7 +1592,17 @@ class BestNAIPlugin(Star):
         if not translated:
             return None, "翻译结果被安全过滤清空了，请换个说法再试"
 
-        return translated, ""
+        if translator.last_character_tag and not prompt_has_tag(
+            str(translated), translator.last_character_tag
+        ):
+            translator.last_character_tag = ""
+            translator.last_series_tag = ""
+
+        return TranslatedPrompt(
+            str(translated),
+            character_tag=translator.last_character_tag,
+            series_tag=translator.last_series_tag,
+        ), ""
 
     async def _send_images(
         self,
@@ -1523,6 +1638,7 @@ class BestNAIPlugin(Star):
         followup_messages: Optional[List[str]] = None,
         fallback_ratio: str = "",
         user_ratio_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
     ) -> AsyncGenerator:
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
@@ -1743,7 +1859,11 @@ class BestNAIPlugin(Star):
                 )
 
             async with self._generation_semaphore:
-                result = await self.generator.generate(final_prompt, gen_config)
+                result = await self.generator.generate(
+                    final_prompt,
+                    gen_config,
+                    seed=seed,
+                )
 
             images = result.images
             safe_images: List[Tuple[str, bytes]] = []
@@ -1811,13 +1931,23 @@ class BestNAIPlugin(Star):
                 )
 
         if image_src:
-            if not self.plugin_config.image_retag.enabled:
+            # Original NovelAI PNGs can carry their own prompt and seed. Use
+            # that deterministic path before requiring a vision retag
+            # provider; QQ often exposes the image as a URL.
+            source_info = await read_image_generation_info_any(image_src)
+            source_seed = source_info.get("seed")
+            source_prompt = strip_control_tags(
+                str(source_info.get("prompt") or "").strip()
+            )
+            metadata_retag = source_seed is not None and bool(source_prompt)
+
+            if not metadata_retag and not self.plugin_config.image_retag.enabled:
                 yield event.plain_result(
                     "❌ 检测到图片或 @ 头像，但图片反推功能未开启。请在配置中启用“图片反推提示词”。"
                 )
                 return
 
-            if not self.plugin_config.image_retag.is_configured():
+            if not metadata_retag and not self.plugin_config.image_retag.is_configured():
                 yield event.plain_result(
                     "❌ 图片反推功能未配置。请在 image_retag_config 中选择图片反推接口提供商。"
                 )
@@ -1873,7 +2003,23 @@ class BestNAIPlugin(Star):
             yield event.plain_result(retag_progress)
 
             try:
-                retag_result = await self.image_retagger.retag_details(image_src)
+                if metadata_retag:
+                    source_character, source_series = await self._resolve_prompt_identity(
+                        source_prompt,
+                        timeout=3.0,
+                    )
+                    retag_result = {
+                        "prompt": source_prompt,
+                        "character": source_character,
+                        "series": source_series,
+                        "seed": source_seed,
+                        "fromMetadata": True,
+                    }
+                    logger.info(
+                        f"[BestNAI/ImageRetag] QQ 图片读取 NovelAI 内嵌参数：seed={source_seed}"
+                    )
+                else:
+                    retag_result = await self.image_retagger.retag_details(image_src)
                 retag_prompt = str(retag_result.get("prompt") or "").strip()
 
             except ImageRetagError as e:
@@ -1897,6 +2043,8 @@ class BestNAIPlugin(Star):
                 )
 
                 user_prompt_for_merge = desc_part
+                user_character = ""
+                user_series = ""
 
                 if desc_part and has_chinese(desc_part):
                     tr_cfg = self.plugin_config.translator
@@ -1926,13 +2074,25 @@ class BestNAIPlugin(Star):
                             show_messages.append(f"🔎 翻译结果：\n{translated}")
 
                     user_prompt_for_merge = translated
+                    user_character = str(
+                        getattr(translated, "character_tag", "") or ""
+                    ).strip()
+                    user_series = str(
+                        getattr(translated, "series_tag", "") or ""
+                    ).strip()
                 else:
                     user_prompt_for_merge = user_prompt_for_merge or ""
+                    if desc_part:
+                        user_character, user_series = (
+                            await self._resolve_prompt_identity(desc_part)
+                        )
 
                 merged_overlay = merge_retag_prompt(
                     user_prompt_for_merge,
                     retag_prompt,
                     original_user_prompt=prompt,
+                    user_character=user_character,
+                    user_series=user_series,
                     source_character=str(retag_result.get("character") or ""),
                     source_series=str(retag_result.get("series") or ""),
                     weight_user=True,
@@ -1964,6 +2124,7 @@ class BestNAIPlugin(Star):
                 followup_messages=show_messages,
                 fallback_ratio=inferred_ratio,
                 user_ratio_prompt=prompt,
+                seed=source_seed if metadata_retag else None,
             ):
                 yield result
 

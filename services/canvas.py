@@ -18,6 +18,10 @@ from PIL import Image as PILImage
 from astrbot.api import logger
 from astrbot.api.web import error_response, file_response, json_response, request
 
+try:  # Support both plugin-package imports and the legacy top-level test import.
+    from ..constants import MAX_SEED
+except ImportError:  # pragma: no cover - exercised by standalone ``services`` imports
+    from constants import MAX_SEED
 from .runtime_state import get_astrbot_plugin_data_dir
 
 
@@ -442,15 +446,21 @@ class CanvasStore:
                     "translatedPrompt": _short_text(raw_meta.get("translatedPrompt"), 6000),
                     "translationSource": _short_text(raw_meta.get("translationSource"), 6000),
                     "translationResult": _short_text(raw_meta.get("translationResult"), 6000),
+                    "translationCharacter": _short_text(raw_meta.get("translationCharacter"), 240),
+                    "translationSeries": _short_text(raw_meta.get("translationSeries"), 240),
                     "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
                     "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
                     "retagCharacter": _short_text(raw_meta.get("retagCharacter"), 240),
                     "retagSeries": _short_text(raw_meta.get("retagSeries"), 240),
                     "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
                     "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
-                    "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, 2_147_483_647)),
+                    "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, MAX_SEED)),
+                    "retagSeedPrompt": _short_text(raw_meta.get("retagSeedPrompt"), 6000),
+                    "retagSeedRatio": _short_text(raw_meta.get("retagSeedRatio"), 32),
+                    "retagSeedArtist": _short_text(raw_meta.get("retagSeedArtist"), 120),
+                    "retagSeedRaw": bool(raw_meta.get("retagSeedRaw", False)),
                     "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
-                    "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, 2_147_483_647)),
+                    "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, MAX_SEED)),
                     "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
                     "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                     "retagged": bool(raw_meta.get("retagged", False)),
@@ -745,7 +755,7 @@ class CanvasStore:
                     "tags": _short_text(tags, 6000),
                     "artist": _short_text(artist, 120),
                     "ratio": _short_text(ratio, 32),
-                    "seed": int(_bounded_number(seed, entry.get("seed", 0), 0, 2_147_483_647)),
+                    "seed": int(_bounded_number(seed, entry.get("seed", 0), 0, MAX_SEED)),
                 }
             )
             if existing is None:

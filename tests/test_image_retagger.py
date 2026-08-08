@@ -103,6 +103,14 @@ class ComposeRetagPromptTest(unittest.TestCase):
             "1girl, blue hair",
         )
 
+    def test_weighted_groups_keep_inner_commas_and_filter_controls(self) -> None:
+        self.assertEqual(
+            strip_control_tags(
+                "1.2::blue_hair, best quality, night ::, 1girl"
+            ),
+            "1.2::blue_hair, night ::, 1girl",
+        )
+
     def test_character_and_series_lead_the_prompt(self) -> None:
         self.assertEqual(
             compose_retag_prompt("hatsune_miku", "vocaloid", "1girl, solo"),
@@ -113,6 +121,16 @@ class ComposeRetagPromptTest(unittest.TestCase):
         self.assertEqual(
             compose_retag_prompt("rem", "re_zero", "1girl, rem, blue hair"),
             "re_zero, 1girl, rem, blue hair",
+        )
+
+    def test_duplicate_character_inside_weighted_group_is_not_prepended_twice(self) -> None:
+        self.assertEqual(
+            compose_retag_prompt(
+                "rem",
+                "re_zero",
+                "1.2::1girl, rem ::, blue hair",
+            ),
+            "re_zero, 1.2::1girl, rem ::, blue hair",
         )
 
     def test_missing_character_leaves_tags_untouched(self) -> None:

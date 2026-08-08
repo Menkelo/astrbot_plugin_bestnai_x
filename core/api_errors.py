@@ -17,6 +17,21 @@ _RAW_LIMIT = 200
 # 顺序有意义：审核放最前，它的报文里常常也带着 "policy"、"blocked" 之外的词。
 _SIGNATURES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     (
+        "上游服务器暂时不可用。Cloudflare 没有收到完整响应，请稍后重试或检查接口提供商的源站配置",
+        (
+            "cloudflare",
+            "origin web server",
+            "invalid or incomplete response",
+            "bad gateway",
+            "gateway time-out",
+            "error 520",
+            "error 521",
+            "error 522",
+            "error 523",
+            "error 524",
+        ),
+    ),
+    (
         "内容没通过服务商的审核。换个说法、去掉敏感词或换张图再试",
         (
             "flagged",

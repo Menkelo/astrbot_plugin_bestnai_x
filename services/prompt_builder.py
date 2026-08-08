@@ -9,6 +9,7 @@ from typing import List, Tuple
 from astrbot.api import logger
 
 from ..core.safety import append_safe_negative
+from ..core.prompt_tokens import rebuild_weighted_token, split_prompt_tokens, weighted_token_parts
 from ..models.config import GenerationConfig, PluginConfig
 
 
@@ -47,11 +48,31 @@ def apply_prompt_weight(text: str, weight: float = RETAG_USER_PROMPT_WEIGHT) -> 
     if not (value > 1.0):
         return content
 
-    # 已经带了数值权重就不再套一层，避免 1.3::1.3::xxx :: ::
-    if re.match(r"^-?\d+(?:\.\d+)?::", content) and content.endswith("::"):
-        return content
+    segments = split_prompt_tokens(content)
+    if not any(weighted_token_parts(segment)[2] for segment in segments):
+        return f"{value:g}::{content} ::"
 
-    return f"{value:g}::{content} ::"
+    # Preserve existing NAI groups and weight only the unweighted runs around
+    # them.  Wrapping the whole string would produce invalid nested syntax such
+    # as ``1.3::1.2::tag ::, other ::``.
+    weighted_parts: list[str] = []
+    pending: list[str] = []
+
+    def flush_pending() -> None:
+        if not pending:
+            return
+        weighted_parts.append(f"{value:g}::{', '.join(pending)} ::")
+        pending.clear()
+
+    for segment in segments:
+        existing_weight, inner, weighted = weighted_token_parts(segment)
+        if weighted:
+            flush_pending()
+            weighted_parts.append(rebuild_weighted_token(existing_weight, inner))
+        else:
+            pending.append(segment)
+    flush_pending()
+    return ", ".join(part for part in weighted_parts if part)
 
 
 def cleanup_file(file_path: str) -> None:
