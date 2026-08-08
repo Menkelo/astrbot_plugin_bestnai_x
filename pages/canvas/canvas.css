@@ -544,6 +544,11 @@ select:focus-visible,
   position: absolute;
   inset: 0;
   overflow: hidden;
+  /* The 6000×4000 world must never turn the board into a native scroll
+     container. Focused overlay controls can otherwise make Chromium scroll
+     the board even though the scrollbar is hidden, shifting every fixed HUD
+     element away from its visual position. */
+  overflow: clip;
   background-color: var(--page);
   background-image: radial-gradient(var(--grid) 1px, transparent 1px);
   background-position: 0 0;
@@ -2410,11 +2415,16 @@ select:focus-visible,
 .debug-bar {
   position: absolute;
   z-index: 44;
-  right: 18px;
-  bottom: 16px;
+  right: 228px;
+  /* Match the minimap's bottom edge so the two fixed HUD elements form one
+     visual baseline when the diagnostics body is collapsed or expanded. */
+  bottom: 22px;
   left: 18px;
-  width: min(760px, calc(100% - 36px));
-  margin: 0 auto;
+  display: flex;
+  width: auto;
+  max-height: calc(100% - 110px);
+  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2431,6 +2441,7 @@ select:focus-visible,
   display: flex;
   width: 100%;
   min-height: 34px;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   padding: 0 11px;
@@ -2463,13 +2474,28 @@ select:focus-visible,
 }
 
 .debug-bar-body {
+  min-height: 0;
   border: 1px solid var(--line);
   border-width: 1px 0 0;
   padding: 10px 12px 12px;
+  overflow: hidden;
 }
 
 .debug-empty {
   padding: 2px 0;
   color: var(--muted);
   font-size: 9.5px;
+}
+
+@media (max-width: 620px) {
+  .debug-bar {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-height: calc(100% - 132px);
+  }
+
+  .debug-body {
+    max-height: min(280px, 34vh);
+  }
 }

@@ -32,7 +32,7 @@ from astrbot_plugin_bestnai_x.services.nai_metadata import (
     read_image_generation_info_any,
 )
 from astrbot_plugin_bestnai_x.services.prompt_builder import apply_prompt_weight
-from astrbot_plugin_bestnai_x.constants import MAX_SEED
+from astrbot_plugin_bestnai_x.constants import MAX_SEED, normalize_nai_seed
 from astrbot_plugin_bestnai_x.core.generator import ImageGenerator
 
 
@@ -128,10 +128,26 @@ class NaiMetadataTest(unittest.TestCase):
         info = parse_nai_info({"Comment": json.dumps({"seed": 0})})
         self.assertNotIn("seed", info)
 
+    def test_negative_fractional_boolean_and_oversized_seeds_are_rejected(self) -> None:
+        for value in (-1, 1.5, True, MAX_SEED + 1, "1.5"):
+            with self.subTest(value=value):
+                info = parse_nai_info({"Comment": json.dumps({"seed": value})})
+                self.assertNotIn("seed", info)
+
+    def test_seed_can_be_received_as_an_integer_string(self) -> None:
+        info = parse_nai_info({"Comment": json.dumps({"seed": "3405988762"})})
+        self.assertEqual(info["seed"], 3405988762)
+
     def test_seed_range_keeps_unsigned_32_bit_values(self) -> None:
         self.assertEqual(MAX_SEED, 4_294_967_295)
         self.assertLess(3405988762, MAX_SEED)
         self.assertEqual(ImageGenerator._resolve_seed(3405988762), 3405988762)
+
+    def test_shared_seed_normalizer_has_one_boundary_rule(self) -> None:
+        self.assertEqual(normalize_nai_seed("3405988762"), 3405988762)
+        self.assertIsNone(normalize_nai_seed(True))
+        self.assertIsNone(normalize_nai_seed(1.5))
+        self.assertIsNone(normalize_nai_seed(MAX_SEED + 1))
 
 
 class PromptWeightTest(unittest.TestCase):

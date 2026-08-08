@@ -19,6 +19,7 @@ from .constants import (
     PLUGIN_NAME,
     PLUGIN_REPO,
     PLUGIN_VERSION,
+    normalize_nai_seed,
 )
 from .core.api_errors import describe_api_error
 from .core.debug_trace import DebugTrace
@@ -81,6 +82,7 @@ MIN_STEPS = 1
 MAX_STEPS = 28
 MIN_SCALE = 1.0
 MAX_SCALE = 10.0
+
 
 # NovelAI 4.5-compatible canvas presets. Every dimension is a 64 multiple and
 # stays below the plugin's ~1.1 MP safety limit.
@@ -172,6 +174,7 @@ class BestNAIPlugin(Star):
         self.image_retagger = ImageRetagger(
             self.plugin_config.image_retag,
             context=self.context,
+            extra_control_tags=self.plugin_config.get_retag_control_prompts(),
         )
 
         self._generation_semaphore = asyncio.Semaphore(
@@ -291,6 +294,8 @@ class BestNAIPlugin(Star):
         image_path: str,
         user_hint: str,
         debug: bool = False,
+        source_seed: Optional[int] = None,
+        source_prompt_hint: str = "",
     ) -> Dict[str, object]:
         retag_config = self.plugin_config.image_retag
         trace = DebugTrace("canvas.retag", bool(debug))
@@ -302,12 +307,33 @@ class BestNAIPlugin(Star):
         with trace.stage("读原图内嵌参数"):
             source_info = await asyncio.to_thread(read_image_generation_info, image_path)
 
-        source_seed = source_info.get("seed")
-        source_prompt = strip_control_tags(str(source_info.get("prompt") or "").strip())
+        retag_control_prompts = self.plugin_config.get_retag_control_prompts()
+        embedded_seed = normalize_nai_seed(source_info.get("seed"))
+        cached_seed = normalize_nai_seed(source_seed)
+        source_seed = embedded_seed or cached_seed
+        embedded_prompt = strip_control_tags(
+            str(source_info.get("prompt") or "").strip(),
+            extra_control_tags=retag_control_prompts,
+        )
+        cached_prompt = strip_control_tags(
+            str(source_prompt_hint or "").strip(),
+            extra_control_tags=retag_control_prompts,
+        )
+        source_prompt = embedded_prompt or (cached_prompt if cached_seed else "")
+        from_metadata = bool(embedded_seed and embedded_prompt)
+        # A canvas cache can fill either half of the pair (seed or prompt).
+        # Treat that mixed case as a cache hit too; labeling it as embedded
+        # metadata makes the debug panel claim a source that was not present.
+        from_canvas_cache = bool(source_prompt and source_seed) and not from_metadata
 
         if source_seed is not None and source_prompt:
+            source_label = (
+                "画布缓存参数"
+                if from_canvas_cache
+                else "原图内嵌参数"
+            )
             logger.info(
-                f"[BestNAI/Canvas] 图片自带 NovelAI 参数，直接复用：seed={source_seed}"
+                f"[BestNAI/Canvas] 命中{source_label}，直接复用：seed={source_seed}"
             )
 
             # PNG metadata already contains the canonical prompt, but it does
@@ -323,9 +349,16 @@ class BestNAIPlugin(Star):
             # current hand-written hint exactly once during generation.
             image_tags = source_prompt
 
-            trace.note("走的分支", "命中原图内嵌参数，未调用视觉模型")
+            trace.note(
+                "走的分支",
+                "命中画布缓存参数，未调用视觉模型"
+                if from_canvas_cache
+                else "命中原图内嵌参数，未调用视觉模型",
+            )
             trace.note("手写提示词（不送反推）", user_hint or "(空)")
             trace.note("原图图片 tags", image_tags)
+            if from_canvas_cache:
+                trace.note("画布缓存提示词", cached_prompt)
             trace.note(
                 "原图角色",
                 ", ".join(
@@ -333,8 +366,9 @@ class BestNAIPlugin(Star):
                 ) or "(未识别)",
             )
             trace.note(
-                "原图内嵌参数",
+                "可复用参数",
                 {
+                    "来源": source_label,
                     "seed": source_seed,
                     "steps": source_info.get("steps"),
                     "scale": source_info.get("scale"),
@@ -350,7 +384,8 @@ class BestNAIPlugin(Star):
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
-                    "fromMetadata": True,
+                    "fromMetadata": from_metadata,
+                    "fromCanvasCache": from_canvas_cache,
                     "steps": source_info.get("steps"),
                     "scale": source_info.get("scale"),
                 },
@@ -367,11 +402,6 @@ class BestNAIPlugin(Star):
             "反推提供商",
             {
                 "provider": retag_config.provider_id or "(手动配置)",
-                # The selected provider owns the vision model.  Older config
-                # versions exposed a model field on ImageRetagConfig, but the
-                # current schema intentionally does not; never dereference it
-                # directly when an external canvas image enters this branch.
-                "model": getattr(retag_config, "model", "") or "(provider default)",
             },
         )
 
@@ -411,6 +441,7 @@ class BestNAIPlugin(Star):
                 "ratio": ratio,
                 "seed": source_seed,
                 "fromMetadata": False,
+                "fromCanvasCache": False,
             },
         )
 
@@ -1935,9 +1966,10 @@ class BestNAIPlugin(Star):
             # that deterministic path before requiring a vision retag
             # provider; QQ often exposes the image as a URL.
             source_info = await read_image_generation_info_any(image_src)
-            source_seed = source_info.get("seed")
+            source_seed = normalize_nai_seed(source_info.get("seed"))
             source_prompt = strip_control_tags(
-                str(source_info.get("prompt") or "").strip()
+                str(source_info.get("prompt") or "").strip(),
+                extra_control_tags=self.plugin_config.get_retag_control_prompts(),
             )
             metadata_retag = source_seed is not None and bool(source_prompt)
 

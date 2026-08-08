@@ -55,6 +55,21 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         self.assertEqual(config.safety.prompt_block_words, [])
 
+    def test_retag_controls_include_artist_presets_and_quality_suffix(self) -> None:
+        config = PluginConfig.from_dict(
+            {
+                "prompt_config": {
+                    "artist_presets": ["watercolor:{hokori sakuni}, {ciloranko}"],
+                    "quality_prompt": "masterpiece, highres",
+                }
+            }
+        )
+
+        self.assertEqual(
+            config.get_retag_control_prompts(),
+            ["{hokori sakuni}, {ciloranko}", "masterpiece, highres"],
+        )
+
     def test_schema_exposes_the_current_builtin_words(self) -> None:
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
         prompt_words = schema["safety_config"]["items"]["prompt_block_words"]

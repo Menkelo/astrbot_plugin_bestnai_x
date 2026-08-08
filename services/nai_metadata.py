@@ -20,9 +20,9 @@ import aiohttp
 from PIL import Image as PILImage
 
 try:  # Support both plugin-package imports and direct ``services`` imports.
-    from ..constants import MAX_SEED
+    from ..constants import normalize_nai_seed
 except ImportError:  # pragma: no cover - compatibility path for standalone tests
-    from constants import MAX_SEED
+    from constants import normalize_nai_seed
 
 
 # Comment JSON 里我们关心的数值字段
@@ -74,9 +74,11 @@ def parse_nai_info(info: Dict[str, Any]) -> Dict[str, Any]:
 
         if isinstance(comment, dict):
             for key in _INT_FIELDS:
-                number = _coerce_int(comment.get(key))
-                if key == "seed" and number is not None and number > MAX_SEED:
-                    number = None
+                number = (
+                    normalize_nai_seed(comment.get(key))
+                    if key == "seed"
+                    else _coerce_int(comment.get(key))
+                )
                 if number is not None:
                     result[key] = number
 

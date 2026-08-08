@@ -68,6 +68,7 @@ class CanvasStoreTest(unittest.TestCase):
                         "retagSeedRatio": "2:3",
                         "retagSeedArtist": "default",
                         "retagSeedRaw": False,
+                        "retagFromCanvasCache": True,
                         "tags": "1girl, hatsune_miku, vocaloid",
                     },
                     "dataUrl": "data:image/png;base64,not-persisted",
@@ -127,6 +128,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedArtist"], "default")
         self.assertFalse(loaded["nodes"][0]["meta"]["retagSeedRaw"])
+        self.assertTrue(loaded["nodes"][0]["meta"]["retagFromCanvasCache"])
         self.assertEqual(loaded["nodes"][0]["meta"]["retagRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)
@@ -138,6 +140,22 @@ class CanvasStoreTest(unittest.TestCase):
         node = {"id": "same", "type": "note"}
         with self.assertRaises(CanvasValidationError):
             self.store.sanitize_workspace({"nodes": [node, node], "connections": []})
+
+    def test_workspace_drops_malformed_seed_values_instead_of_clamping_them(self) -> None:
+        workspace = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "seed_bad",
+                        "type": "image",
+                        "meta": {"seed": 1.5, "retagSeed": 4_294_967_296},
+                    }
+                ],
+                "connections": [],
+            }
+        )
+        self.assertEqual(workspace["nodes"][0]["meta"]["seed"], 0)
+        self.assertEqual(workspace["nodes"][0]["meta"]["retagSeed"], 0)
 
     def test_debug_trace_survives_round_trip_and_is_bounded(self) -> None:
         long_value = "x" * 5000
@@ -271,6 +289,12 @@ class CanvasStoreTest(unittest.TestCase):
         # that was already collected from the NovelAI image.
         self.store.add_image_to_library(image, "再次收录", "generated", seed=0)
         self.assertEqual(self.store.list_library()["images"][0]["seed"], 987654321)
+        self.store.add_image_to_library(image, "", "", "", "", "", "", seed=0)
+        preserved = self.store.list_library()["images"][0]
+        self.assertEqual(preserved["prompt"], "蓝色天空")
+        self.assertEqual(preserved["tags"], "blue sky, clouds")
+        self.assertEqual(preserved["ratio"], "3:2")
+        self.assertEqual(preserved["artist"], "里番")
         self.assertEqual(library["prompts"][0]["prompt"], "1girl, backlight")
 
         self.store.remove_image_from_library(image["id"])
@@ -438,6 +462,95 @@ class CanvasStoreTest(unittest.TestCase):
             ),
             routes,
         )
+
+
+class CanvasRetagEndpointTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.service = CanvasService(
+            "test_plugin",
+            generate_callback=lambda _payload: None,
+            config_callback=lambda: {},
+            data_dir=Path(self.temp_dir.name),
+        )
+        buffer = BytesIO()
+        Image.new("RGB", (16, 16), (40, 80, 120)).save(buffer, format="PNG")
+        self.asset = self.service.store.store_asset(buffer.getvalue())
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    async def _invoke(self, callback, payload):
+        old_request = canvas_module.request
+        old_json_response = canvas_module.json_response
+        old_error_response = canvas_module.error_response
+
+        class FakeRequest:
+            async def json(self, default=None):
+                return payload
+
+        canvas_module.request = FakeRequest()
+        canvas_module.json_response = lambda value: value
+        canvas_module.error_response = lambda message, status_code=500: {
+            "error": message,
+            "status": status_code,
+        }
+        self.service.retag_callback = callback
+        try:
+            return await self.service.retag()
+        finally:
+            canvas_module.request = old_request
+            canvas_module.json_response = old_json_response
+            canvas_module.error_response = old_error_response
+
+    async def test_current_callback_receives_cached_seed_and_prompt(self) -> None:
+        seen = {}
+
+        async def callback(path, hint, debug, seed, source_prompt):
+            seen.update(
+                path=path,
+                hint=hint,
+                debug=debug,
+                seed=seed,
+                source_prompt=source_prompt,
+            )
+            return {"prompt": "1girl, blue hair", "seed": seed}
+
+        result = await self._invoke(
+            callback,
+            {
+                "assetId": self.asset["id"],
+                "debug": True,
+                "seed": 4_294_967_295,
+                "sourcePrompt": "1girl, blue hair",
+            },
+        )
+
+        self.assertEqual(seen["seed"], 4_294_967_295)
+        self.assertEqual(seen["source_prompt"], "1girl, blue hair")
+        self.assertTrue(seen["debug"])
+        self.assertEqual(result["seed"], 4_294_967_295)
+
+    async def test_legacy_identity_callback_keeps_old_signature(self) -> None:
+        seen = {}
+
+        async def callback(path, hint, keep_character, character_name):
+            seen.update(
+                path=path,
+                hint=hint,
+                keep_character=keep_character,
+                character_name=character_name,
+            )
+            return {"prompt": "1girl"}
+
+        result = await self._invoke(
+            callback,
+            {"assetId": self.asset["id"], "seed": 123, "sourcePrompt": "cached"},
+        )
+
+        self.assertEqual(result["prompt"], "1girl")
+        self.assertFalse(seen["keep_character"])
+        self.assertEqual(seen["character_name"], "")
 
 
 if __name__ == "__main__":

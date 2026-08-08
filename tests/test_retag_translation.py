@@ -57,7 +57,8 @@ class RetagTranslationTest(unittest.TestCase):
 
     def test_canvas_retag_trace_does_not_require_removed_config_model_field(self) -> None:
         self.assertNotIn("retag_config.model", self.retag)
-        self.assertIn('getattr(retag_config, "model", "")', self.retag)
+        self.assertNotIn('getattr(retag_config, "model", "")', self.retag)
+        self.assertIn('"provider": retag_config.provider_id', self.retag)
 
     def test_qq_retag_has_metadata_seed_shortcut_before_vision_provider(self) -> None:
         command = self.main[self.main.index("async def _handle_nai_command"):]

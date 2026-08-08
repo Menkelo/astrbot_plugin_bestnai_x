@@ -153,7 +153,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('retagPrompt: node.meta?.retagPrompt || ""', editor)
         self.assertIn("function cachedRetagResult", editor)
         self.assertIn("cachedRetagResult(node, sourceImage, basePrompt)", editor)
-        self.assertIn('String(meta.retagBasePrompt || "") !== String(basePrompt || "")', editor)
+        # The cached tag result describes the source image, so editing the
+        # handwritten overlay must not invalidate it or call the vision model
+        # a second time.  ``retagBasePrompt`` remains a migration/debug field,
+        # but it is intentionally not part of the cache-hit predicate.
+        self.assertNotIn(
+            'String(meta.retagBasePrompt || "") !== String(basePrompt || "")',
+            editor,
+        )
+        self.assertIn("Retagging describes the source image", editor)
         retag_body = editor.split("async function retagFromNode", 1)[1].split(
             "async function ensureAssetLoaded", 1
         )[0]
@@ -165,7 +173,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'prompt.addEventListener("keydown"', 1
         )[0]
         self.assertNotIn("retagPrompt: _retagPrompt", prompt_input)
-        self.assertIn("clearRetagCache(node)", prompt_input)
+        self.assertIn("clearTranslationCache(node)", prompt_input)
         # 英文 tags 只读框已删除，但翻译结果仍要留在 meta 里供复用
         self.assertNotIn("translated-prompt-text", editor)
         self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
@@ -282,7 +290,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("closeImageViewer();", editor)
         self.assertIn("const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);", editor)
         self.assertIn("y: point.y - nodeHeight / 2", editor)
-        self.assertIn("node.meta?.seed || node.meta?.retagSeed", editor)
+        self.assertIn(
+            "normalizeNaiSeed(node.meta?.seed) || normalizeNaiSeed(node.meta?.retagSeed)",
+            editor,
+        )
         self.assertIn("function alignAssetPanel()", editor)
         self.assertIn("function alignedPanelEdges()", editor)
         self.assertIn("buttonRect.left", editor)
@@ -334,7 +345,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "async function saveImageToLibrary", 1
         )[0]
         self.assertNotIn("setAssetPanel(false)", place_body)
-        self.assertIn("seed: Number(item.seed) || 0", place_body)
+        self.assertIn("seed: normalizeNaiSeed(item.seed)", place_body)
         self.assertIn('retagged: item.source === "retagged"', place_body)
         self.assertNotIn("asset-thumb-seed", editor)
         self.assertNotIn(".asset-thumb-seed", styles)
@@ -566,6 +577,60 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("overscroll-behavior: contain;", prompt_styles)
         logo_styles = styles.split(".canvas-mark {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 999px;", logo_styles)
+
+    def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn("overflow: clip;", styles)
+        self.assertIn('els.viewport.addEventListener("scroll", resetNativeCanvasScroll', editor)
+        self.assertIn("event.stopPropagation();", editor.split(
+            'els.debugBar?.addEventListener("wheel"', 1
+        )[1].split("});", 1)[0])
+        debug_body = styles.split(".debug-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-y: auto;", debug_body)
+        self.assertIn("overscroll-behavior: contain;", debug_body)
+
+    def test_retag_cache_is_independent_of_handwritten_overlay(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        cache_body = editor.split("function cachedRetagResult", 1)[1].split(
+            "function runPromptNode", 1
+        )[0]
+        input_body = editor.split('prompt.addEventListener("input"', 1)[1].split(
+            'prompt.addEventListener("keydown"', 1
+        )[0]
+
+        self.assertNotIn("retagBasePrompt", cache_body)
+        self.assertIn("clearTranslationCache(node);", input_body)
+        self.assertNotIn("clearRetagCache(node);", input_body)
+        self.assertIn("seed: retagged ? reusableRetagSeed(node) : undefined", editor)
+        self.assertIn("The seed belongs to the source image", editor)
+
+    def test_debug_bar_shares_minimap_bottom_baseline(self) -> None:
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        debug = styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
+        self.assertIn("bottom: 22px;", debug)
+
+    def test_source_image_seed_and_tags_are_recovered_for_library_round_trip(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        self.assertIn("sourceImage.meta =", editor)
+        self.assertIn("linkedRetag.retagPrompt", editor)
+        self.assertIn("normalizeNaiSeed(node?.meta?.seed)", editor)
+        self.assertIn("normalizeNaiSeed(item.seed)", editor)
+        self.assertIn("meta.tags || meta.finalPrompt || meta.retagPrompt", editor)
+
+    def test_removing_or_replacing_image_source_clears_retag_cache(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        delete_body = editor.split("function deleteConnection", 1)[1].split(
+            "function duplicateNode", 1
+        )[0]
+        replace_body = editor.split("function attachConnectionPort", 1)[1].split(
+            "function renderViewport", 1
+        )[0]
+
+        self.assertIn("clearRetagCache(target);", delete_body)
+        self.assertIn("clearRetagCache(destinationNode);", replace_body)
+        self.assertIn("source-specific retag state", editor)
 
     def test_quick_toolbar_is_icon_only(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")

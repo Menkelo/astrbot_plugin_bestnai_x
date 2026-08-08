@@ -13,7 +13,7 @@ import aiohttp
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
-from ..constants import MAX_SEED
+from ..constants import MAX_SEED, normalize_nai_seed
 from ..models.config import GenerationConfig, PluginConfig
 
 
@@ -122,12 +122,8 @@ class ImageGenerator:
     @staticmethod
     def _resolve_seed(seed: Optional[int]) -> int:
         """指定了合法种子就复用，否则随机一个。"""
-        try:
-            value = int(seed)
-        except (TypeError, ValueError):
-            value = 0
-
-        if 1 <= value <= MAX_SEED:
+        value = normalize_nai_seed(seed)
+        if value is not None:
             return value
 
         return random.randint(1, MAX_SEED)

@@ -111,6 +111,28 @@ class ComposeRetagPromptTest(unittest.TestCase):
             "1.2::blue_hair, night ::, 1girl",
         )
 
+    def test_configured_bare_artist_tags_are_removed(self) -> None:
+        self.assertEqual(
+            strip_control_tags(
+                "{hokori sakuni}, {ciloranko}, 1girl, blue hair, best quality",
+                extra_control_tags=[
+                    "{hokori sakuni}, {ciloranko}, {ke-ta}",
+                    "best quality",
+                ],
+            ),
+            "1girl, blue hair",
+        )
+
+    def test_fallback_plain_response_uses_the_same_control_filter(self) -> None:
+        character, series, tags = parse_retag_response(
+            "{ciloranko}, 1girl, solo, rating:safe",
+            extra_control_tags="{ciloranko}",
+        )
+
+        self.assertEqual(character, "")
+        self.assertEqual(series, "")
+        self.assertEqual(tags, "1girl, solo")
+
     def test_character_and_series_lead_the_prompt(self) -> None:
         self.assertEqual(
             compose_retag_prompt("hatsune_miku", "vocaloid", "1girl, solo"),

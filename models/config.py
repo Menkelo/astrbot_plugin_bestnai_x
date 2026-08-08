@@ -354,6 +354,25 @@ class PluginConfig:
         first_name = next(iter(presets.keys()))
         return presets.get(first_name, "")
 
+    def get_retag_control_prompts(self) -> List[str]:
+        """Return configured prompt fragments that must stay out of retag tags.
+
+        Retagging describes the source image, while the normal generation
+        pipeline appends the selected artist preset and quality suffix later.
+        Supplying every configured fragment lets the metadata and vision paths
+        remove bare artist tags such as ``{hokori sakuni}`` as well as explicit
+        ``artist:...`` controls before they are merged back into a prompt.
+        """
+        prompts = [
+            str(prompt).strip()
+            for prompt in self.get_all_artist_slots_map().values()
+            if str(prompt).strip()
+        ]
+        suffix = str(self.prompt_suffix or "").strip()
+        if suffix:
+            prompts.append(suffix)
+        return prompts
+
     def get_saved_artist_presets_map(self) -> Dict[str, str]:
         return self.get_artist_presets_map()
 

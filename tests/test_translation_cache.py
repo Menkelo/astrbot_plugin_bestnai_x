@@ -15,6 +15,7 @@ sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
 from astrbot_plugin_bestnai_x.core.translator import (
     _result_items,
     apply_character_candidate,
+    normalize_translation_text,
     prompt_has_tag,
     resolve_character_candidate,
     resolve_translation_cache,
@@ -22,6 +23,10 @@ from astrbot_plugin_bestnai_x.core.translator import (
 
 
 class TranslationCacheTest(unittest.TestCase):
+    def test_short_hair_color_terms_are_expanded_for_provider_requests(self) -> None:
+        self.assertEqual(normalize_translation_text("蓝发少女"), "蓝头发少女")
+        self.assertEqual(normalize_translation_text("蓝头发少女"), "蓝头发少女")
+
     def test_unchanged_chinese_prompt_reuses_translation(self) -> None:
         source, suffix, cached = resolve_translation_cache(
             "蓝发少女",

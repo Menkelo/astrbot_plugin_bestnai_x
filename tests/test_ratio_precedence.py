@@ -166,9 +166,9 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
         self.assertIn('"seed": result.seed', self.main)
         self.assertNotIn("steps: node.meta?.steps", self.editor)
         self.assertNotIn("scale: node.meta?.scale", self.editor)
-        self.assertIn("seed: reusableRetagSeed(node)", self.editor)
         self.assertIn("function reusableRetagSeed(node)", self.editor)
         self.assertIn("function clearRetagSeed(node)", self.editor)
+        self.assertIn("seed: retagged ? reusableRetagSeed(node) : undefined", self.editor)
 
     def test_canvas_uses_plugin_generation_defaults(self) -> None:
         # 画布不再提供步数 / 引导系数覆盖，统一使用插件配置。
@@ -188,6 +188,7 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
             "retagSeedArtist",
             "retagSeedRaw",
             "retagFromMetadata",
+            "retagFromCanvasCache",
             '"seed"',
             '"steps"',
             '"scale"',

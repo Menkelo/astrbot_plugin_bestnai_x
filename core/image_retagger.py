@@ -5,7 +5,7 @@ import base64
 import json
 import os
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Iterable, Tuple
 
 import aiohttp
 
@@ -139,9 +139,46 @@ def _clean_tag_token(value: str) -> str:
     return token
 
 
-def strip_control_tags(text: str) -> str:
-    """Remove artist/quality/rating controls from a retag prompt."""
+def _tag_key(value: str) -> str:
+    """Return a stable comparison key without prompt grouping brackets."""
+    return re.sub(r"\s+", " ", re.sub(r"[\[\]{}()]+", "", str(value or "").lower())).strip()
+
+
+def _extra_control_tag_keys(extra_control_tags: Iterable[str] | str | None) -> set[str]:
+    """Expand configured artist/quality prompts into exact tag keys.
+
+    Some artist presets use bare tags wrapped in braces rather than the usual
+    ``artist:`` prefix.  They cannot be identified safely by a generic regex,
+    so callers may provide the configured control prompts and we compare their
+    atomic tags exactly.
+    """
+    if not extra_control_tags:
+        return set()
+    values = (extra_control_tags,) if isinstance(extra_control_tags, str) else extra_control_tags
+    keys: set[str] = set()
+    for value in values or ():
+        for segment in split_prompt_tokens(_clean_tags(str(value or ""))):
+            _, atoms, _weighted = weighted_token_parts(segment)
+            for atom in atoms:
+                key = _tag_key(atom).strip(" ,;")
+                if key:
+                    keys.add(key)
+    return keys
+
+
+def strip_control_tags(
+    text: str,
+    *,
+    extra_control_tags: Iterable[str] | str | None = None,
+) -> str:
+    """Remove artist/quality/rating controls from a retag prompt.
+
+    ``extra_control_tags`` is used for configured presets whose artist names
+    are bare tags (for example ``{hokori sakuni}``) and therefore cannot be
+    recognized from the tag text alone.
+    """
     cleaned = _clean_tags(text)
+    extra_keys = _extra_control_tag_keys(extra_control_tags)
     kept = []
     seen = set()
     for token_segment in split_prompt_tokens(cleaned):
@@ -152,10 +189,10 @@ def strip_control_tags(text: str) -> str:
             if not token:
                 continue
             lowered = token.lower()
-            plain = re.sub(r"[\[\]{}()]+", "", lowered).strip()
+            plain = _tag_key(token)
             if "artist:" in lowered or re.search(r"\bartist(?:_|\s)", lowered):
                 continue
-            if plain in _CONTROL_TAGS or any(
+            if plain in extra_keys or plain in _CONTROL_TAGS or any(
                 phrase in plain for phrase in ("quality", "aesthetic", "absurdres")
             ):
                 continue
@@ -175,7 +212,11 @@ def strip_control_tags(text: str) -> str:
     return ", ".join(kept).strip(" ,;")
 
 
-def parse_retag_response(text: str) -> Tuple[str, str, str]:
+def parse_retag_response(
+    text: str,
+    *,
+    extra_control_tags: Iterable[str] | str | None = None,
+) -> Tuple[str, str, str]:
     """解析反推模型输出，返回 (角色 tag, 作品 tag, 其余 tags)。
 
     模型被要求返回 {"character","series","tags"}。拿不到结构化结果时
@@ -201,7 +242,10 @@ def parse_retag_response(text: str) -> Tuple[str, str, str]:
                 data = None
 
     if not isinstance(data, dict) or "tags" not in data:
-        return "", "", _clean_tags(raw)
+        return "", "", strip_control_tags(
+            raw,
+            extra_control_tags=extra_control_tags,
+        )
 
     tags_value = data.get("tags")
 
@@ -210,7 +254,10 @@ def parse_retag_response(text: str) -> Tuple[str, str, str]:
 
     character = _clean_tag_token(data.get("character", ""))
     series = _clean_tag_token(data.get("series", ""))
-    tags = strip_control_tags(str(tags_value or ""))
+    tags = strip_control_tags(
+        str(tags_value or ""),
+        extra_control_tags=extra_control_tags,
+    )
 
     return character, series, tags
 
@@ -447,9 +494,19 @@ def _extract_chat_content(data: Any) -> str:
 
 
 class ImageRetagger:
-    def __init__(self, config, context) -> None:
+    def __init__(
+        self,
+        config,
+        context,
+        extra_control_tags: Iterable[str] | str | None = None,
+    ) -> None:
         self.config = config
         self.context = context
+        self.extra_control_tags = tuple(
+            (extra_control_tags,)
+            if isinstance(extra_control_tags, str)
+            else (extra_control_tags or ())
+        )
         self.timeout = 180
 
     async def retag(
@@ -608,7 +665,10 @@ class ImageRetagger:
             raise ImageRetagError(f"图片反推失败：{e}") from e
 
         content = _extract_chat_content(data)
-        character, series, tags = parse_retag_response(content)
+        character, series, tags = parse_retag_response(
+            content,
+            extra_control_tags=self.extra_control_tags,
+        )
 
         if not tags and not character:
             logger.warning(f"[BestNAI/ImageRetag] 空反推结果，raw={str(data)[:1000]}")

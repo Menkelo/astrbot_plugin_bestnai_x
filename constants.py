@@ -19,3 +19,25 @@ PLUGIN_REPO = "https://github.com/Menkelo/astrbot_plugin_bestnai_x"
 # module prevents the generator, canvas persistence, and library from silently
 # disagreeing about valid seeds above 2^31-1.
 MAX_SEED = 4_294_967_295
+
+
+def normalize_nai_seed(value: object) -> int | None:
+    """Return a valid NovelAI seed, or ``None`` for malformed input.
+
+    JSON clients occasionally send seeds as strings.  Accept integer strings
+    and integral numeric values, but reject booleans and fractional numbers so
+    a malformed value cannot be silently truncated into a different seed.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value.isdigit():
+            return None
+    try:
+        seed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return seed if 1 <= seed <= MAX_SEED else None

@@ -705,6 +705,18 @@ function deleteNodes(ids) {
   const deleteIds = new Set(ids.filter((id) => !!findNode(id)));
   if (!deleteIds.size) return;
   pushHistory();
+  // Removing an image also removes its source-specific retag state from any
+  // prompt that survives the deletion. Otherwise the orphaned prompt can
+  // reuse tags/seed from an image that is no longer connected to it.
+  state.connections.forEach((edge) => {
+    if (!deleteIds.has(edge.source) || deleteIds.has(edge.target)) return;
+    const source = findNode(edge.source);
+    const target = findNode(edge.target);
+    if (source?.type === "image" && target?.type === "prompt") {
+      clearRetagCache(target);
+      target.statusText = "";
+    }
+  });
   state.nodes = state.nodes.filter((node) => !deleteIds.has(node.id));
   state.connections = state.connections.filter(
     (edge) => !deleteIds.has(edge.source) && !deleteIds.has(edge.target),
@@ -728,6 +740,7 @@ function deleteConnection(sourceId, targetId) {
   const source = findNode(sourceId);
   const target = findNode(targetId);
   if (source?.type === "image" && target?.type === "prompt") {
+    clearRetagCache(target);
     target.statusText = "";
   }
   renderAll();
@@ -860,9 +873,10 @@ function renderPromptNode(node) {
     node.prompt = prompt.value;
     node.error = "";
     clearDebugTrace(node);
-    if (node.meta?.translatedPrompt || node.meta?.retagPrompt || node.meta?.retagSeed) {
-      clearRetagCache(node);
-    }
+    // Translation depends on the handwritten text, but image retagging does
+    // not.  Keep the source tags/seed cached so changing an overlay prompt
+    // never sends the same image to the tagger a second time.
+    clearTranslationCache(node);
     scheduleSave();
   });
   prompt.addEventListener("keydown", (event) => {
@@ -1180,7 +1194,7 @@ function renderImageNode(node) {
   meta.className = "image-meta";
   const title = document.createElement("strong");
   // 种子比提示词更有用：提示词在卡片里本来就看得到，种子是唯一能复现这张图的信息
-  const seed = Number(node.meta?.seed) || 0;
+  const seed = normalizeNaiSeed(node.meta?.seed) || normalizeNaiSeed(node.meta?.retagSeed);
   title.textContent = seed ? `seed ${seed}` : (node.title || "图片资源");
   title.title = seed ? `种子 ${seed}（点击图片可查看完整提示词）` : title.textContent;
   const detail = document.createElement("span");
@@ -1522,9 +1536,15 @@ function attachConnectionPort(port, nodeId, role) {
         if (!exists) {
           pushHistory();
           if (findNode(destination)?.type === "prompt") {
+            const destinationNode = findNode(destination);
             state.connections = state.connections.filter(
               (edge) => edge.target !== destination || findNode(edge.source)?.type !== "image",
             );
+            // A prompt can have only one image source. Drop the previous
+            // source-specific retag/translation cache when replacing it so a
+            // later generation cannot display or persist stale tags.
+            clearRetagCache(destinationNode);
+            if (destinationNode) destinationNode.statusText = "";
           }
           state.connections.push({ source, target: destination });
           scheduleSave();
@@ -1544,6 +1564,7 @@ function attachConnectionPort(port, nodeId, role) {
 }
 
 function renderViewport() {
+  resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   els.viewport.style.backgroundPosition = `${x}px ${y}px`;
@@ -1882,6 +1903,17 @@ function finishBoxSelection(
   renderAll();
 }
 
+function resetNativeCanvasScroll() {
+  if (!els.viewport.scrollLeft && !els.viewport.scrollTop) return;
+  els.viewport.scrollLeft = 0;
+  els.viewport.scrollTop = 0;
+}
+
+// Chromium may still attempt focus-driven scrolling for an ``overflow: clip``
+// element in older embedded builds. The infinite world is navigated only by
+// state.viewport, so any native board scroll is always accidental.
+els.viewport.addEventListener("scroll", resetNativeCanvasScroll, { passive: true });
+
 function arrangeSelectedNodes() {
   const nodes = selectedNodeIds().map(findNode).filter(Boolean);
   if (nodes.length < 2) return;
@@ -1987,7 +2019,10 @@ async function generateFromNode(id, {
       cachedTranslationSeries: node.meta?.translationSeries || "",
       debug: debugModeEnabled(),
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
-       seed: reusableRetagSeed(node),
+      // A seed collected from an image belongs to the retag flow.  If the
+      // source connection was removed, a plain prompt generation must not
+      // silently inherit that old seed.
+      seed: retagged ? reusableRetagSeed(node) : undefined,
     });
     const assets = Array.isArray(result?.assets) ? result.assets : [];
     if (!assets.length) throw new Error("服务未返回图片");
@@ -2030,7 +2065,7 @@ async function generateFromNode(id, {
           width: sourceWidth,
           height: sourceHeight,
           finalPrompt: result.meta?.finalPrompt || "",
-          seed: result.meta?.seed || 0,
+          seed: normalizeNaiSeed(result.meta?.seed),
           steps: result.meta?.steps || 0,
           scale: result.meta?.scale || 0,
         },
@@ -2078,6 +2113,7 @@ function clearRetagCache(node) {
     retagSeedArtist: _retagSeedArtist,
     retagSeedRaw: _retagSeedRaw,
     retagFromMetadata: _retagFromMetadata,
+    retagFromCanvasCache: _retagFromCanvasCache,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
     translationResult: _translationResult,
@@ -2085,6 +2121,19 @@ function clearRetagCache(node) {
     translationSeries: _translationSeries,
     ...meta
   } = node.meta || {};
+  node.meta = meta;
+}
+
+function clearTranslationCache(node) {
+  if (!node?.meta) return;
+  const {
+    translatedPrompt: _translatedPrompt,
+    translationSource: _translationSource,
+    translationResult: _translationResult,
+    translationCharacter: _translationCharacter,
+    translationSeries: _translationSeries,
+    ...meta
+  } = node.meta;
   node.meta = meta;
 }
 
@@ -2107,26 +2156,36 @@ function clearDebugTrace(node) {
   node.meta = meta;
 }
 
+function normalizeNaiSeed(value) {
+  if (value === null || value === undefined || typeof value === "boolean") return 0;
+  if (typeof value === "string" && !/^\d+$/.test(value.trim())) return 0;
+  const seed = Number(value);
+  return Number.isInteger(seed) && seed >= 1 && seed <= 4_294_967_295 ? seed : 0;
+}
+
+function sourceImageSeed(node) {
+  return normalizeNaiSeed(node?.meta?.seed) || normalizeNaiSeed(node?.meta?.retagSeed);
+}
+
+function sourceImageRetagPrompt(node) {
+  if (!sourceImageSeed(node)) return "";
+  const meta = node?.meta || {};
+  // A filename stored in ``meta.prompt`` is not a reliable NovelAI prompt.
+  // Only use fields that are explicitly populated with generation tags; if
+  // none exist, the backend can still inspect embedded PNG metadata or fall
+  // back to the vision provider instead of bypassing it with a filename.
+  return String(meta.tags || meta.finalPrompt || meta.retagPrompt || "").trim();
+}
+
 function reusableRetagSeed(node) {
   const meta = node?.meta || {};
-  const seed = Number(meta.retagSeed) || 0;
+  const seed = normalizeNaiSeed(meta.retagSeed);
   if (!seed) return undefined;
 
-  // Workspaces created before the fingerprint fields existed can still use
-  // their saved seed. A changed prompt invalidates the retag cache (and its
-  // seed) at input time; ratio/artist/raw changes intentionally keep the seed
-  // so NovelAI can preserve composition direction across style variants.
-  const hasFingerprint = [
-    "retagSeedPrompt",
-    "retagSeedRatio",
-    "retagSeedArtist",
-    "retagSeedRaw",
-  ].some((key) => Object.prototype.hasOwnProperty.call(meta, key));
-  if (!hasFingerprint) return seed;
-
-  if (String(meta.retagSeedPrompt || "") !== String(node.prompt || "").trim()) {
-    return undefined;
-  }
+  // The seed belongs to the source image, not to the handwritten overlay.
+  // Keep it when the user replaces a character, outfit, pose, ratio, or
+  // artist preset; NovelAI uses the same initial noise to preserve a useful
+  // composition direction while still allowing the prompt to change.
   return seed;
 }
 
@@ -2136,15 +2195,27 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
   if (
     !meta.retagPrompt
     || meta.retagAssetId !== sourceImage.assetId
-    || String(meta.retagBasePrompt || "") !== String(basePrompt || "")
   ) return null;
+  const cachedSeed = normalizeNaiSeed(meta.retagSeed);
+  // A legacy workspace may have cached tags but no seed even though the
+  // source image now carries one (for example after restoring it from the
+  // library).  Refresh once through the backend so the deterministic path can
+  // recover that seed instead of silently generating with a random one.
+  if (!cachedSeed && sourceImageSeed(sourceImage) && sourceImageRetagPrompt(sourceImage)) {
+    return null;
+  }
+  // Retagging describes the source image, not the handwritten overlay.  A
+  // prompt edit must therefore keep this result reusable instead of sending
+  // the same image to the tagger again.  ``basePrompt`` remains part of the
+  // seed fingerprint and is refreshed when the cached result is applied.
   return {
     prompt: String(meta.retagPrompt).trim(),
     ratio: String(meta.retagRatio || "").trim(),
     character: String(meta.retagCharacter || "").trim(),
     series: String(meta.retagSeries || "").trim(),
-    seed: Number(meta.retagSeed) || 0,
+    seed: cachedSeed,
     fromMetadata: !!meta.retagFromMetadata,
+    fromCanvasCache: !!meta.retagFromCanvasCache,
   };
 }
 
@@ -2192,12 +2263,16 @@ async function retagFromNode(id, generateAfter = false) {
 
   let succeeded = false;
   try {
+    const sourceSeed = sourceImageSeed(sourceImage);
     const result = cachedRetag || await bridge.apiPost("canvas/retag", {
       assetId: sourceImage.assetId,
       debug: debugModeEnabled(),
+      seed: sourceSeed || undefined,
+      sourcePrompt: sourceSeed ? sourceImageRetagPrompt(sourceImage) : "",
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
+    const recoveredSeed = normalizeNaiSeed(result?.seed);
 
     pushHistory();
     node.meta = {
@@ -2208,22 +2283,37 @@ async function retagFromNode(id, generateAfter = false) {
       retagSeries: String(result?.series || "").trim(),
       retagAssetId: sourceImage.assetId,
       retagRatio: result.ratio || "",
-      retagSeed: Number(result.seed) || 0,
+      retagSeed: recoveredSeed,
       retagSeedPrompt: basePrompt,
       retagSeedRatio: node.ratio || "",
       retagSeedArtist: node.artist || "",
       retagSeedRaw: !!node.raw,
       retagFromMetadata: !!result.fromMetadata,
+      retagFromCanvasCache: !!result.fromCanvasCache,
       translatedPrompt: retagPrompt,
+    };
+    // Keep the source image self-describing after the first retag.  This is
+    // important for uploaded/re-encoded images whose PNG metadata is absent:
+    // saving that image to the library and placing it back later must still
+    // carry the recovered seed and canonical tags.
+    sourceImage.meta = {
+      ...(sourceImage.meta || {}),
+      ...(recoveredSeed ? { seed: recoveredSeed } : {}),
+      tags: sourceImage.meta?.tags || retagPrompt,
+      ratio: sourceImage.meta?.ratio || result?.ratio || "",
     };
     recordRunDebug(node, "retag", result.debug);
     node.statusText = result.fromMetadata
-      ? `已读取原图内嵌参数 · 种子 ${result.seed}`
-      : "已提取原图 tags，准备生成";
+      ? `已读取原图内嵌参数 · 种子 ${recoveredSeed || "未知"}`
+      : result.fromCanvasCache
+        ? `已复用画布保存参数 · 种子 ${recoveredSeed || "未知"}`
+        : "已提取原图 tags，准备生成";
     toast(
       result.fromMetadata
         ? "已读取原图内嵌的 NovelAI 参数"
-        : (cachedRetag ? "已复用反推结果" : "原图 tags 已提取"),
+        : result.fromCanvasCache
+          ? "已复用画布保存的 NovelAI 参数"
+          : (cachedRetag ? "已复用反推结果" : "原图 tags 已提取"),
     );
     scheduleSave();
     succeeded = true;
@@ -2749,7 +2839,7 @@ async function openLibraryImageViewer(item) {
         width: item.width,
         height: item.height,
         ratio: item.ratio || "",
-        seed: Number(item.seed) || 0,
+        seed: normalizeNaiSeed(item.seed),
       },
     }, { libraryAsset: item });
   } catch (error) {
@@ -2779,7 +2869,7 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
         width: item.width,
         height: item.height,
         ratio: item.ratio || "",
-        seed: Number(item.seed) || 0,
+        seed: normalizeNaiSeed(item.seed),
         retagged: item.source === "retagged",
         source: item.source || "",
       },
@@ -2794,17 +2884,23 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
 async function saveImageToLibrary(node) {
   if (!node?.assetId) return;
   try {
+    const linkedPrompt = state.connections
+      .filter((edge) => edge.source === node.id && findNode(edge.target)?.type === "prompt")
+      .map((edge) => findNode(edge.target))
+      .find((candidate) => candidate?.meta?.retagAssetId === node.assetId);
+    const linkedRetag = linkedPrompt?.meta || {};
+    const seed = sourceImageSeed(node) || normalizeNaiSeed(linkedRetag.retagSeed);
     const result = await bridge.apiPost("canvas/library/image/add", {
       assetId: node.assetId,
       name: node.title || node.meta?.prompt || "画布图片",
       source: node.meta?.retagged ? "retagged" : "generated",
       prompt: node.meta?.prompt || "",
-      tags: node.meta?.tags || node.meta?.finalPrompt || "",
+      tags: node.meta?.tags || node.meta?.finalPrompt || linkedRetag.retagPrompt || "",
       artist: node.meta?.artist || "",
-      ratio: node.meta?.ratio || "",
+      ratio: node.meta?.ratio || linkedRetag.retagRatio || "",
       // A source image may only reveal its seed during the retag pass; keep
       // that value when the image itself is later collected into the library.
-      seed: Number(node.meta?.seed || node.meta?.retagSeed) || 0,
+      seed,
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
@@ -3244,7 +3340,8 @@ els.viewport.addEventListener("contextmenu", (event) => {
 });
 
 function dataTransferHasFiles(dataTransfer) {
-  return Array.from(dataTransfer?.types || []).includes("Files");
+  return Array.from(dataTransfer?.types || []).includes("Files")
+    || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
 function clearDropOverlay() {

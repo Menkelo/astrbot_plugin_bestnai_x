@@ -19,9 +19,9 @@ from astrbot.api import logger
 from astrbot.api.web import error_response, file_response, json_response, request
 
 try:  # Support both plugin-package imports and the legacy top-level test import.
-    from ..constants import MAX_SEED
+    from ..constants import normalize_nai_seed
 except ImportError:  # pragma: no cover - exercised by standalone ``services`` imports
-    from constants import MAX_SEED
+    from constants import normalize_nai_seed
 from .runtime_state import get_astrbot_plugin_data_dir
 
 
@@ -30,7 +30,10 @@ GenerateCallback = Callable[
     Awaitable[Tuple[List[Tuple[str, bytes]], Dict[str, Any]]],
 ]
 ConfigCallback = Callable[[], Dict[str, Any]]
-RetagCallback = Callable[[str, str, bool], Awaitable[Dict[str, Any]]]
+# The current callback accepts ``(path, hint, debug, source_seed, source_prompt)``.
+# Keep this open-ended so older plugin hosts with the former three-argument
+# callback can still register the canvas service during a hot reload.
+RetagCallback = Callable[..., Awaitable[Dict[str, Any]]]
 
 MAX_NODES = 160
 MAX_CONNECTIONS = 320
@@ -515,13 +518,14 @@ class CanvasStore:
                 "retagSeries": _short_text(raw_meta.get("retagSeries"), 240),
                 "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
                 "retagRatio": _short_text(raw_meta.get("retagRatio"), 32),
-                "retagSeed": int(_bounded_number(raw_meta.get("retagSeed"), 0, 0, MAX_SEED)),
+                "retagSeed": normalize_nai_seed(raw_meta.get("retagSeed")) or 0,
                 "retagSeedPrompt": _short_text(raw_meta.get("retagSeedPrompt"), 6000),
                 "retagSeedRatio": _short_text(raw_meta.get("retagSeedRatio"), 32),
                 "retagSeedArtist": _short_text(raw_meta.get("retagSeedArtist"), 120),
                 "retagSeedRaw": bool(raw_meta.get("retagSeedRaw", False)),
                 "retagFromMetadata": bool(raw_meta.get("retagFromMetadata", False)),
-                "seed": int(_bounded_number(raw_meta.get("seed"), 0, 0, MAX_SEED)),
+                "retagFromCanvasCache": bool(raw_meta.get("retagFromCanvasCache", False)),
+                "seed": normalize_nai_seed(raw_meta.get("seed")) or 0,
                 "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
                 "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                 "retagged": bool(raw_meta.get("retagged", False)),
@@ -825,19 +829,23 @@ class CanvasStore:
             library = self._library()
             existing = next((item for item in library["images"] if item.get("id") == asset_id), None)
             entry = existing or {"id": asset_id, "createdAt": self._timestamp()}
-            incoming_seed = int(_bounded_number(seed, 0, 0, MAX_SEED))
-            previous_seed = int(_bounded_number(entry.get("seed"), 0, 0, MAX_SEED))
+            incoming_seed = normalize_nai_seed(seed) or 0
+            previous_seed = normalize_nai_seed(entry.get("seed")) or 0
+            def _keep_text(value: Any, key: str, limit: int) -> str:
+                incoming = _short_text(value, limit).strip()
+                return incoming or _short_text(entry.get(key), limit).strip()
+
             entry.update(
                 {
-                    "name": _short_text(name, 160).strip() or entry.get("name") or f"图片 {asset_id[:8]}",
+                    "name": _keep_text(name, "name", 160) or f"图片 {asset_id[:8]}",
                     "width": int(_bounded_number(asset.get("width"), entry.get("width", 0), 0, 20_000)),
                     "height": int(_bounded_number(asset.get("height"), entry.get("height", 0), 0, 20_000)),
-                    "format": _short_text(asset.get("format"), 16),
-                    "source": _short_text(source, 80),
-                    "prompt": _short_text(prompt, 6000),
-                    "tags": _short_text(tags, 6000),
-                    "artist": _short_text(artist, 120),
-                    "ratio": _short_text(ratio, 32),
+                    "format": _keep_text(asset.get("format"), "format", 16),
+                    "source": _keep_text(source, "source", 80),
+                    "prompt": _keep_text(prompt, "prompt", 6000),
+                    "tags": _keep_text(tags, "tags", 6000),
+                    "artist": _keep_text(artist, "artist", 120),
+                    "ratio": _keep_text(ratio, "ratio", 32),
                     # Zero is the canvas sentinel for “no known NovelAI seed”.
                     # Never let a later save erase a valid seed already stored
                     # for the same asset.
@@ -1159,6 +1167,8 @@ class CanvasService:
 
         asset_id = str(payload.get("assetId") or "")
         user_hint = _short_text(payload.get("userHint"), 6000).strip()
+        source_seed = normalize_nai_seed(payload.get("seed"))
+        source_prompt = _short_text(payload.get("sourcePrompt"), 6000).strip()
 
         try:
             if self.retag_callback is None:
@@ -1168,14 +1178,42 @@ class CanvasService:
             debug = bool(payload.get("debug", False))
             callback = self.retag_callback
             try:
-                accepts_debug = len(inspect.signature(callback).parameters) >= 3
+                parameters = list(inspect.signature(callback).parameters.values())
+                positional = [
+                    item
+                    for item in parameters
+                    if item.kind in (
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    )
+                ]
+                has_varargs = any(
+                    item.kind is inspect.Parameter.VAR_POSITIONAL
+                    for item in parameters
+                )
             except (TypeError, ValueError):
-                accepts_debug = True
-            result = await (
-                callback(str(asset_path), user_hint, debug)
-                if accepts_debug
-                else callback(str(asset_path), user_hint)
+                positional = []
+                has_varargs = True
+
+            # Older canvas hosts used
+            # ``(path, hint, keep_character, character_name)``. Keep that
+            # callback shape working while the current callback receives the
+            # optional cached seed and prompt after the debug flag.
+            legacy_identity_callback = (
+                len(positional) >= 4
+                and positional[2].name in {"keep_character", "character_name"}
             )
+            if legacy_identity_callback:
+                callback_args = [str(asset_path), user_hint, False, ""]
+            else:
+                callback_args = [str(asset_path), user_hint]
+                if has_varargs or len(positional) >= 3:
+                    callback_args.append(debug)
+                if has_varargs or len(positional) >= 4:
+                    callback_args.append(source_seed)
+                if has_varargs or len(positional) >= 5:
+                    callback_args.append(source_prompt)
+            result = await callback(*callback_args)
             return json_response(result)
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)
