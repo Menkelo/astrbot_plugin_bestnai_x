@@ -1805,6 +1805,11 @@ function worldCenter() {
   return clientToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
 }
 
+function focusCanvasSurface() {
+  if (document.activeElement === els.viewport) return;
+  els.viewport.focus({ preventScroll: true });
+}
+
 function nodeRect(node) {
   const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
   return {
@@ -1838,17 +1843,25 @@ function rectanglesOverlap(first, second, gap = 36) {
 }
 
 function findOpenGeneratedPosition(sourceNode, width, height) {
+  const horizontalGap = 64;
   const candidate = {
-    x: sourceNode.x + (sourceNode.width || 320) + 100,
+    x: sourceNode.x + (sourceNode.width || 320) + horizontalGap,
     y: sourceNode.y,
     width,
     height,
   };
-  const occupied = state.nodes.map(nodeRect);
+  const occupied = state.nodes
+    .filter((node) => node.id !== sourceNode.id)
+    .map(nodeRect);
   for (let attempt = 0; attempt < occupied.length + 1; attempt += 1) {
     const collisions = occupied.filter((rect) => rectanglesOverlap(candidate, rect));
     if (!collisions.length) return { x: candidate.x, y: candidate.y };
-    candidate.y = Math.max(...collisions.map((rect) => rect.y + rect.height + 36));
+    // The first result belongs beside its prompt. When that lane is occupied,
+    // continue to the right instead of sending the image far down the canvas.
+    candidate.x = Math.max(
+      candidate.x + horizontalGap,
+      ...collisions.map((rect) => rect.x + rect.width + horizontalGap),
+    );
   }
   return { x: candidate.x, y: candidate.y };
 }
@@ -2665,19 +2678,19 @@ function alignAssetPanel() {
     : { height: 0 };
   const gap = 14;
   if (state.assetPanelExpanded) {
-    const margin = 12;
-    els.assetPanel.style.left = `${margin}px`;
-    els.assetPanel.style.width = `${Math.max(240, viewportRect.width - margin * 2)}px`;
+    // Full-width mode follows the status bar's actual edges at every desktop
+    // breakpoint instead of switching to an unrelated fixed page margin.
+    els.assetPanel.style.left = `${topbarRect.left - viewportRect.left}px`;
+    els.assetPanel.style.width = `${topbarRect.width}px`;
   } else {
     els.assetPanel.style.left = `${left - viewportRect.left}px`;
     els.assetPanel.style.width = `${right - left}px`;
   }
   els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
   const bottomOffsets = [12];
-  // The expanded library may fill the board, but the fixed navigation HUD
-  // must remain reachable. Reserve both the minimap and diagnostics bar in
-  // every desktop layout instead of letting the panel cover either one.
-  if (minimapRect.height > 0) {
+  // Expanded mode hides the minimap and uses the space it occupied. The
+  // compact drawer still stops above the preview so both remain usable.
+  if (!state.assetPanelExpanded && minimapRect.height > 0) {
     bottomOffsets.push(viewportRect.bottom - minimapRect.top + gap);
   }
   if (debugRect.height > 0) {
@@ -3221,6 +3234,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
   ) return;
 
   if (middlePan) event.preventDefault();
+  if (event.pointerType !== "touch") focusCanvasSurface();
   setCanvasContextMenu(false);
   if (middlePan) setProjectMenu(false);
 
@@ -3726,6 +3740,7 @@ document.addEventListener("keydown", (event) => {
   if (!editing && (event.key === "Delete" || event.key === "Backspace") && selectedNodeIds().length) {
     event.preventDefault();
     deleteNodes(selectedNodeIds());
+    focusCanvasSurface();
   }
 });
 

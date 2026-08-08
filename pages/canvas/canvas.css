@@ -561,6 +561,10 @@ select:focus-visible,
   cursor: grabbing;
 }
 
+.board:focus {
+  outline: none;
+}
+
 .world {
   position: absolute;
   top: 0;
@@ -1534,6 +1538,11 @@ select:focus-visible,
   height: 14px;
 }
 
+body.asset-library-expanded .minimap,
+body.asset-library-expanded .minimap-arrange-btn {
+  display: none;
+}
+
 .asset-panel {
   position: absolute;
   z-index: 41;
@@ -1835,7 +1844,8 @@ select:focus-visible,
      一倍半高再被卡片裁掉，同一行三张图的缩放比例就对不上了 */
   position: absolute;
   inset: 0;
-  object-fit: contain;
+  object-fit: cover;
+  object-position: center;
   background: var(--soft-2);
 }
 

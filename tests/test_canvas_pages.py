@@ -283,8 +283,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
             ".asset-grid.compact-layout .asset-thumb img {", 1
         )[1].split("}", 1)[0]
         self.assertIn("position: absolute;", compact_thumb)
-        self.assertIn("object-fit: contain;", compact_thumb)
-        self.assertIn("object-fit: cover;", styles)
+        self.assertIn("object-fit: cover;", compact_thumb)
+        self.assertIn("object-position: center;", compact_thumb)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", styles)
         # 卡片按面板实宽计算固定高度，网格行保持 auto，让懒加载提示不会占满整张卡片。
         self.assertIn("padding: 0 3px;", styles)
@@ -316,8 +316,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         align_body = editor.split("function alignAssetPanel()", 1)[1].split(
             "function updateAssetGridMetrics", 1
         )[0]
-        self.assertIn("if (minimapRect.height > 0)", align_body)
-        self.assertNotIn("!state.assetPanelExpanded && minimapRect.height", align_body)
+        self.assertIn("topbarRect.left - viewportRect.left", align_body)
+        self.assertIn('els.assetPanel.style.width = `${topbarRect.width}px`', align_body)
+        self.assertIn("if (!state.assetPanelExpanded && minimapRect.height > 0)", align_body)
+        self.assertIn("body.asset-library-expanded .minimap", styles)
         self.assertIn("max-width: calc(100vw - 24px);", styles)
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetSelectModeBtn"', html)
@@ -429,6 +431,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn("function findOpenGeneratedPosition", editor)
         self.assertIn("function findNextGeneratedPosition", editor)
+        open_position = editor.split("function findOpenGeneratedPosition", 1)[1].split(
+            "function findNextGeneratedPosition", 1
+        )[0]
+        self.assertIn("const horizontalGap = 64", open_position)
+        self.assertIn("candidate.x = Math.max(", open_position)
+        self.assertNotIn("candidate.y = Math.max", open_position)
         self.assertIn("const latestEdge = [...state.connections].reverse().find", editor)
         self.assertIn("x: latestImage.x + 56", editor)
         self.assertIn("y: latestImage.y - 36", editor)
@@ -439,6 +447,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("y: position.y", editor)
         self.assertIn("const editing = !!target?.closest", editor)
         self.assertIn("if (editing) return;", editor)
+        self.assertIn('id="board" class="board" tabindex="-1"', html)
+        self.assertIn("function focusCanvasSurface()", editor)
+        self.assertIn('if (event.pointerType !== "touch") focusCanvasSurface();', editor)
+        self.assertIn("deleteNodes(selectedNodeIds());\n    focusCanvasSurface();", editor)
         self.assertNotIn('id="saveSelectedPromptBtn"', html)
         self.assertNotIn("saveSelectedPrompt", editor)
         self.assertNotIn(".asset-save-prompt", styles)
