@@ -34,6 +34,7 @@ from .core.generator import (
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
 from .core.safety import SafetyModerator
 from .core.translator import (
+    apply_character_candidate,
     DanbooruTagRetriever,
     PromptTranslator,
     TranslatedPrompt,
@@ -68,8 +69,17 @@ from .services.prompt_builder import (
     PromptBuilder,
     save_image_to_temp,
 )
-from .services.prompt_merge import merge_retag_prompt
-from .services.nai_metadata import read_image_generation_info, read_image_generation_info_any
+from .services.prompt_merge import (
+    extract_retag_mode,
+    merge_retag_prompt,
+    merge_retag_prompt_details,
+    normalize_retag_mode,
+)
+from .services.nai_metadata import (
+    is_trusted_nai_generation_info,
+    read_image_generation_info,
+    read_image_generation_info_any,
+)
 from .services.runtime_state import RuntimeStateService
 
 
@@ -114,6 +124,7 @@ def _merge_canvas_retag_prompt(
     user_series: str = "",
     source_character: str = "",
     source_series: str = "",
+    mode: str = "edit",
 ) -> str:
     return merge_retag_prompt(
         translated_user_prompt,
@@ -124,6 +135,7 @@ def _merge_canvas_retag_prompt(
         source_character=source_character,
         source_series=source_series,
         weight_user=True,
+        mode=mode,
     )
 
 
@@ -311,22 +323,31 @@ class BestNAIPlugin(Star):
         embedded_seed = normalize_nai_seed(source_info.get("seed"))
         cached_seed = normalize_nai_seed(source_seed)
         source_seed = embedded_seed or cached_seed
-        embedded_prompt = strip_control_tags(
+        raw_embedded_prompt = strip_control_tags(
             str(source_info.get("prompt") or "").strip(),
             extra_control_tags=retag_control_prompts,
+        )
+        embedded_prompt = (
+            raw_embedded_prompt
+            if is_trusted_nai_generation_info(source_info)
+            else ""
         )
         cached_prompt = strip_control_tags(
             str(source_prompt_hint or "").strip(),
             extra_control_tags=retag_control_prompts,
         )
-        source_prompt = embedded_prompt or (cached_prompt if cached_seed else "")
-        from_metadata = bool(embedded_seed and embedded_prompt)
+        # A NovelAI prompt is useful even when a re-encoded PNG lost its seed.
+        # The seed is needed for deterministic reproduction, but it is not
+        # needed to avoid a second vision/tagging request.  Prefer embedded
+        # metadata, then the source-image cache supplied by the canvas.
+        source_prompt = embedded_prompt or cached_prompt
+        from_metadata = bool(embedded_prompt)
         # A canvas cache can fill either half of the pair (seed or prompt).
-        # Treat that mixed case as a cache hit too; labeling it as embedded
-        # metadata makes the debug panel claim a source that was not present.
-        from_canvas_cache = bool(source_prompt and source_seed) and not from_metadata
+        # Keep the provenance separate so the diagnostics never claim that a
+        # prompt came from PNG metadata when only the canvas cache had it.
+        from_canvas_cache = bool(cached_prompt) and not from_metadata
 
-        if source_seed is not None and source_prompt:
+        if source_prompt:
             source_label = (
                 "画布缓存参数"
                 if from_canvas_cache
@@ -497,6 +518,7 @@ class BestNAIPlugin(Star):
         retag_prompt = str(payload.get("retagPrompt") or "").strip()
         retag_character = str(payload.get("retagCharacter") or "").strip()
         retag_series = str(payload.get("retagSeries") or "").strip()
+        retag_mode = normalize_retag_mode(payload.get("retagMode"))
         if retag_character and not prompt_has_tag(retag_prompt, retag_character):
             # Do not trust stale structured metadata after an older retag
             # result was edited or migrated; the prompt itself is authoritative.
@@ -534,6 +556,7 @@ class BestNAIPlugin(Star):
 
         trace = DebugTrace("canvas.generate", bool(payload.get("debug")))
         trace.note("输入提示词", prompt)
+        trace.note("反推模式", retag_mode)
         if retag_prompt:
             trace.note("反推标签（独立输入）", retag_prompt)
 
@@ -607,8 +630,27 @@ class BestNAIPlugin(Star):
                     translated_character = ""
                     translated_series = ""
                 with trace.stage("角色标签检索"):
-                    translated_character, translated_series = (
-                        await self._resolve_prompt_identity(clean_prompt)
+                    (
+                        translated_character,
+                        translated_series,
+                        identity_results,
+                    ) = await self._resolve_prompt_identity_details(clean_prompt)
+                if translation_cache_reused and translated_character:
+                    # A saved translation may come from an older resolver and
+                    # still contain a wrong character candidate or ``year
+                    # 2025``.  Re-apply the current deterministic tag result
+                    # before merging so stale cache data cannot reintroduce a
+                    # second role beside the confirmed replacement.
+                    translated_source = apply_character_candidate(
+                        translated_source,
+                        translated_character,
+                        translated_series,
+                        identity_results,
+                    )
+                    translated_user_prompt = ", ".join(
+                        part
+                        for part in (translated_source, untranslated_suffix)
+                        if part
                     )
                 identity_checked = True
                 if translated_character:
@@ -620,7 +662,7 @@ class BestNAIPlugin(Star):
                             if part
                         ),
                     )
-            working_prompt = _merge_canvas_retag_prompt(
+            merge_details = merge_retag_prompt_details(
                 translated_user_prompt,
                 retag_prompt,
                 original_user_prompt=prompt,
@@ -628,7 +670,11 @@ class BestNAIPlugin(Star):
                 user_series=translated_series,
                 source_character=retag_character,
                 source_series=retag_series,
+                mode=retag_mode,
+                weight_user=True,
             )
+            working_prompt = str(merge_details.get("prompt") or "")
+            trace.note("提示词冲突处理", merge_details)
             trace.note("合并后提示词", working_prompt)
 
         try:
@@ -719,6 +765,7 @@ class BestNAIPlugin(Star):
                 "width": gen_config.width,
                 "height": gen_config.height,
                 "artist": resolved_artist_name,
+                "retagMode": retag_mode,
                 "raw": raw_mode,
                 "model": FIXED_MODEL,
                 "seed": result.seed,
@@ -1539,10 +1586,23 @@ class BestNAIPlugin(Star):
         timeout: float = 8.0,
     ) -> Tuple[str, str]:
         """Resolve an English/unchanged retag overlay without invoking an LLM."""
+        character, series, _results = await self._resolve_prompt_identity_details(
+            text,
+            timeout=timeout,
+        )
+        return character, series
+
+    async def _resolve_prompt_identity_details(
+        self,
+        text: str,
+        *,
+        timeout: float = 8.0,
+    ) -> Tuple[str, str, Dict[str, List[Dict]]]:
+        """Resolve identity and retain candidates for cleaning stale translations."""
         query = str(text or "").strip()
         api_url = str(getattr(self.plugin_config, "danbooru_api_url", "") or "").strip()
         if not query or not api_url:
-            return "", ""
+            return "", "", {"search": [], "related": []}
 
         retriever = DanbooruTagRetriever(base_url=api_url, timeout=timeout)
         results = await retriever.retrieve(query)
@@ -1552,7 +1612,7 @@ class BestNAIPlugin(Star):
                 f"[BestNAI] tags 站确认角色标签：{character}"
                 f"{f'（{series}）' if series else ''}"
             )
-        return character, series
+        return character, series, results
 
     async def _translate_prompt(
         self,
@@ -1945,6 +2005,7 @@ class BestNAIPlugin(Star):
         command_name = "nai0" if raw_mode else "nai"
 
         prompt = self._strip_named_command_prefix(event.message_str, command_name)
+        retag_mode, prompt = extract_retag_mode(prompt)
 
         image_src = extract_image_from_event_best_effort(event)
 
@@ -1967,11 +2028,18 @@ class BestNAIPlugin(Star):
             # provider; QQ often exposes the image as a URL.
             source_info = await read_image_generation_info_any(image_src)
             source_seed = normalize_nai_seed(source_info.get("seed"))
-            source_prompt = strip_control_tags(
+            raw_source_prompt = strip_control_tags(
                 str(source_info.get("prompt") or "").strip(),
                 extra_control_tags=self.plugin_config.get_retag_control_prompts(),
             )
-            metadata_retag = source_seed is not None and bool(source_prompt)
+            # A prompt embedded in a NovelAI PNG remains useful even if a
+            # re-encoder dropped the seed.  Skip the vision call whenever the
+            # canonical source prompt is available; the seed is only used
+            # later when deterministic reproduction is possible.
+            metadata_retag = bool(raw_source_prompt) and is_trusted_nai_generation_info(
+                source_info
+            )
+            source_prompt = raw_source_prompt if metadata_retag else ""
 
             if not metadata_retag and not self.plugin_config.image_retag.enabled:
                 yield event.plain_result(
@@ -2119,7 +2187,7 @@ class BestNAIPlugin(Star):
                             await self._resolve_prompt_identity(desc_part)
                         )
 
-                merged_overlay = merge_retag_prompt(
+                merge_details = merge_retag_prompt_details(
                     user_prompt_for_merge,
                     retag_prompt,
                     original_user_prompt=prompt,
@@ -2128,7 +2196,14 @@ class BestNAIPlugin(Star):
                     source_character=str(retag_result.get("character") or ""),
                     source_series=str(retag_result.get("series") or ""),
                     weight_user=True,
+                    mode=retag_mode,
                 )
+                merged_overlay = str(merge_details.get("prompt") or "")
+                if merge_details.get("conflicts"):
+                    logger.info(
+                        f"[BestNAI/ImageRetag] 模式={retag_mode}，已处理提示词冲突："
+                        f"{merge_details['conflicts']}"
+                    )
                 controls = []
                 if prompt_has_explicit_ratio(
                     prompt,

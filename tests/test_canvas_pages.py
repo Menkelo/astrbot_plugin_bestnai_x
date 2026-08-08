@@ -160,6 +160,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("function mergeRetagPrompt", editor)
         self.assertIn("retagPrompt: requestRetagPrompt", editor)
         self.assertIn('retagPrompt: node.meta?.retagPrompt || ""', editor)
+        self.assertIn('retagMode: node.retagMode || "edit"', editor)
+        self.assertIn('retagMode: "edit"', editor)
+        self.assertIn('"复刻（保留原图）"', editor)
+        self.assertIn('"改图（覆盖冲突）"', editor)
+        self.assertIn("prompt-mode-field", styles)
+        self.assertIn('"retagMode":', service)
         self.assertIn("function cachedRetagResult", editor)
         self.assertIn("cachedRetagResult(node, sourceImage, basePrompt)", editor)
         # The cached tag result describes the source image, so editing the
@@ -658,9 +664,47 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("els.debugBar.hidden = false;", render)
         self.assertIn('"调试信息 · 等待下一次画布请求"', render)
 
+    def test_debug_bar_groups_prompt_merge_details(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn("function makeDebugMergeSummary(details)", editor)
+        self.assertIn('"提示词冲突处理"', editor)
+        self.assertIn('appendDebugTagGroup(section, "新增提示词", details.added', editor)
+        self.assertIn('appendDebugTagGroup(section, "删除冲突", details.removed', editor)
+        self.assertIn('appendDebugTagGroup(section, "保留原图", details.retained', editor)
+        self.assertIn('appendDebugTagGroup(section, "重复去重", details.duplicates', editor)
+        self.assertIn(".debug-merge-summary {", styles)
+        self.assertIn(".debug-merge-category-row {", styles)
+
+    def test_debug_bar_follows_prompt_selection_without_full_render(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        selection = editor.split("function setSelection", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        render = editor.split("function renderDebugBar() {", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        recorder = editor.split("function recordRunDebug", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+
+        self.assertIn("state.selectedId =", selection)
+        self.assertIn("renderDebugBar();", selection)
+        self.assertIn('selectedNode?.type === "image"', render)
+        self.assertIn("linkedPrompts", render)
+        self.assertIn(
+            "linkedPrompts.find((item) => item.id === state.lastDebugNodeId)",
+            render,
+        )
+        self.assertIn("lastDebugNodeId", render)
+        self.assertIn("state.lastDebugNodeId = node.id;", recorder)
+
     def test_source_image_seed_and_tags_are_recovered_for_library_round_trip(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn("sourceImage.meta =", editor)
+        self.assertIn("tags: retagPrompt,", editor)
+        self.assertNotIn("tags: sourceImage.meta?.tags || retagPrompt", editor)
         self.assertIn("linkedRetag.retagPrompt", editor)
         self.assertIn("normalizeNaiSeed(node?.meta?.seed)", editor)
         self.assertIn("normalizeNaiSeed(item.seed)", editor)
@@ -872,6 +916,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('yield event.plain_result("🎨 正在生图，请稍候...")', main)
         self.assertIn('progress_verb: str = "生图"', main)
         self.assertIn('progress_verb="反推"', main)
+        self.assertIn("extract_retag_mode", main)
+        self.assertIn("merge_retag_prompt_details", main)
+        self.assertIn("mode=retag_mode", main)
         self.assertIn("def _format_generation_progress", main)
         self.assertIn("followup_messages=show_messages", main)
         image_branch = main.split("        if image_src:", 1)[1].split(

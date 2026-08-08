@@ -49,6 +49,7 @@ class CanvasStoreTest(unittest.TestCase):
                     "width": 9999,
                     "prompt": "1girl",
                     "height": 490,
+                    "retagMode": "replicate",
                     "meta": {
                         "translatedPrompt": "1girl, blue hair",
                         "translationSource": "蓝发少女",
@@ -128,6 +129,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["retagSeedArtist"], "default")
         self.assertFalse(loaded["nodes"][0]["meta"]["retagSeedRaw"])
+        self.assertEqual(loaded["nodes"][0]["retagMode"], "replicate")
         self.assertTrue(loaded["nodes"][0]["meta"]["retagFromCanvasCache"])
         self.assertEqual(loaded["nodes"][0]["meta"]["retagRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
@@ -193,6 +195,42 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(debug["notes"]["nested"], {"keep": True})
         self.assertNotIn("untrusted", debug)
         self.assertEqual(saved["nodes"][0]["meta"]["debug"], debug)
+
+    def test_named_debug_runs_survive_round_trip(self) -> None:
+        """画布同时保存反推和生图流水时，不能把嵌套结构误当成单条流水。"""
+        payload = {
+            "nodes": [
+                {
+                    "id": "prompt_debug_runs",
+                    "type": "prompt",
+                    "meta": {
+                        "debug": {
+                            "retag": {
+                                "scope": "canvas.retag",
+                                "totalMs": 31,
+                                "stages": [{"name": "反推", "ms": 31}],
+                                "notes": {"反推 tags": "1girl, blue_hair"},
+                            },
+                            "generate": {
+                                "scope": "canvas.generate",
+                                "totalMs": 82,
+                                "stages": [{"name": "生图", "ms": 82}],
+                                "notes": {"最终提示词": "1girl, blue_hair"},
+                            },
+                            "unsafe key": {"scope": "should be ignored"},
+                        },
+                    },
+                }
+            ],
+            "connections": [],
+        }
+
+        loaded = self.store.save_workspace(payload)
+        debug = loaded["nodes"][0]["meta"]["debug"]
+
+        self.assertEqual(set(debug), {"retag", "generate"})
+        self.assertEqual(debug["retag"]["scope"], "canvas.retag")
+        self.assertEqual(debug["generate"]["stages"][0]["name"], "生图")
 
     def test_valid_png_asset_is_stored_and_returned(self) -> None:
         buffer = BytesIO()

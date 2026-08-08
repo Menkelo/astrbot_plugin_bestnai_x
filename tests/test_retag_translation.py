@@ -32,14 +32,14 @@ class RetagTranslationTest(unittest.TestCase):
 
     def test_metadata_branch_does_not_translate(self) -> None:
         # Embedded NAI prompts do not need a second translation request.
-        start = self.retag.index("if source_seed is not None and source_prompt:")
+        start = self.retag.index("if source_prompt:")
         end = self.retag.index("if not retag_config.enabled:")
         metadata_branch = self.retag[start:end]
 
         self.assertNotIn("self._translate_canvas_hint(user_hint)", metadata_branch)
 
     def test_metadata_branch_resolves_source_identity_without_llm(self) -> None:
-        start = self.retag.index("if source_seed is not None and source_prompt:")
+        start = self.retag.index("if source_prompt:")
         end = self.retag.index("if not retag_config.enabled:")
         metadata_branch = self.retag[start:end]
 
@@ -52,6 +52,19 @@ class RetagTranslationTest(unittest.TestCase):
         self.assertIn("self.image_retagger.retag_details(", self.retag)
         self.assertNotIn("self._translate_canvas_hint(user_hint)", self.retag)
 
+    def test_cached_translation_is_recleaned_with_current_identity_candidates(self) -> None:
+        generate_start = self.main.index("async def _canvas_generate")
+        generate_end = self.main.index("@staticmethod\n    def _clamp_steps", generate_start)
+        generate = self.main[generate_start:generate_end]
+
+        self.assertIn("self._resolve_prompt_identity_details(clean_prompt)", generate)
+        self.assertIn("if translation_cache_reused and translated_character:", generate)
+        self.assertIn("translated_source = apply_character_candidate(", generate)
+        self.assertIn(
+            "part for part in (translated_source, untranslated_suffix)",
+            generate,
+        )
+
     def test_canvas_trace_marks_hint_as_generation_only(self) -> None:
         self.assertIn("手写提示词（不送反推）", self.retag)
 
@@ -63,7 +76,8 @@ class RetagTranslationTest(unittest.TestCase):
     def test_qq_retag_has_metadata_seed_shortcut_before_vision_provider(self) -> None:
         command = self.main[self.main.index("async def _handle_nai_command"):]
         self.assertIn("read_image_generation_info_any(image_src)", command)
-        self.assertIn("metadata_retag = source_seed is not None and bool(source_prompt)", command)
+        self.assertIn("is_trusted_nai_generation_info(", command)
+        self.assertIn("source_prompt = raw_source_prompt if metadata_retag else", command)
         self.assertIn(
             "if not metadata_retag and not self.plugin_config.image_retag.enabled:",
             command,

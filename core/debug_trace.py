@@ -17,6 +17,7 @@ from .api_errors import mask_secrets
 
 # 提示词最长 6000 字，整串塞进调试面板既看不完也撑大存档，截到够看清为止
 _VALUE_LIMIT = 2000
+_COLLECTION_LIMIT = 64
 
 
 def _clean(value: Any) -> Any:
@@ -25,7 +26,13 @@ def _clean(value: Any) -> Any:
         return value
 
     if isinstance(value, dict):
-        return {str(key): _clean(item) for key, item in value.items()}
+        return {
+            str(key): _clean(item)
+            for key, item in list(value.items())[:_COLLECTION_LIMIT]
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [_clean(item) for item in list(value)[:_COLLECTION_LIMIT]]
 
     text = mask_secrets(str(value))
 

@@ -110,6 +110,21 @@ class DebugTraceTest(unittest.TestCase):
         self.assertLess(len(notes["最终提示词"]), 2200)
         self.assertIn("共 5000 字", notes["最终提示词"])
 
+    def test_nested_lists_remain_structured_for_debug_ui(self) -> None:
+        trace = DebugTrace("canvas.generate", True)
+        trace.note(
+            "提示词冲突处理",
+            {
+                "added": ["izumi_sagiri", "white_dress"],
+                "conflicts": {"identity": ["kasugano_sora"]},
+            },
+        )
+
+        details = trace.payload()["notes"]["提示词冲突处理"]
+
+        self.assertEqual(details["added"], ["izumi_sagiri", "white_dress"])
+        self.assertEqual(details["conflicts"]["identity"], ["kasugano_sora"])
+
     def test_timed_awaits_and_records(self) -> None:
         trace = DebugTrace("canvas.retag", True)
 
@@ -210,6 +225,29 @@ class DebugModeWiringTest(unittest.TestCase):
         self.assertNotIn("panel.open", render)
         self.assertNotIn("debug-bar-details", self.styles)
         self.assertIn("max-height: min(320px, 38vh);", self.styles)
+
+    def test_frontend_accepts_legacy_flat_debug_trace(self) -> None:
+        runs = self.editor.split("function debugRunsForNode(node)", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+
+        self.assertIn("const legacyRun = node.meta?.debug;", runs)
+        self.assertIn('includes("retag") ? "反推" : "生图"', runs)
+
+    def test_editing_inputs_clears_the_visible_stale_trace(self) -> None:
+        clear = self.editor.split("function clearDebugTrace(node)", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+
+        self.assertIn("renderDebugBar();", clear)
+        self.assertIn("debug: _debug", self.editor.split("function clearRetagCache", 1)[1].split(
+            "\nfunction ", 1
+        )[0])
+        render = self.editor.split("function renderDebugBar()", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn('selectedNode?.type === "prompt"', render)
+        self.assertIn("等待下一次画布请求", render)
 
 
 if __name__ == "__main__":

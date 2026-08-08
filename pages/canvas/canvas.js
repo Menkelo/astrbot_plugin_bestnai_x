@@ -113,6 +113,7 @@ const state = {
     try { return localStorage.getItem("bestnaiCanvasDebug") === "1"; } catch (_) { return false; }
   })(),
   debugBarOpen: false,
+  lastDebugNodeId: "",
   preferencesSaveChain: Promise.resolve(),
   contextMenuPoint: null,
   viewerLibraryAsset: null,
@@ -377,6 +378,7 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
     ? workspace.nodes.map(normalizeLoadedNodeDimensions)
     : [];
   state.connections = Array.isArray(workspace?.connections) ? workspace.connections : [];
+  state.lastDebugNodeId = "";
   state.viewport = workspace?.viewport || { x: 160, y: 120, scale: 1 };
   state.selectedId = "";
   state.selectedIds = [];
@@ -459,6 +461,7 @@ function serializableWorkspace() {
       note: node.note || "",
       ratio: node.ratio || "",
       artist: node.artist || "",
+      retagMode: node.retagMode || "edit",
       raw: !!node.raw,
       assetId: node.assetId || "",
       createdAt: node.createdAt || "",
@@ -491,6 +494,7 @@ function restoreSnapshot(raw) {
     ? data.nodes.map(normalizeLoadedNodeDimensions)
     : [];
   state.connections = Array.isArray(data.connections) ? data.connections : [];
+  state.lastDebugNodeId = "";
   state.viewport = data.viewport || { x: 160, y: 120, scale: 1 };
   state.selectedId = data.selectedId || "";
   state.selectedIds = Array.isArray(data.selectedIds) ? data.selectedIds : (state.selectedId ? [state.selectedId] : []);
@@ -568,6 +572,7 @@ function createPromptNode(point = null) {
     prompt: "",
     ratio: state.promptDefaults.ratio || state.config.defaultRatio || "2:3",
     artist: state.promptDefaults.artist,
+    retagMode: "edit",
     raw: false,
     createdAt: new Date().toISOString(),
   };
@@ -691,6 +696,11 @@ function setSelection(ids, primaryId = "") {
     ? primaryId
     : state.selectedIds[state.selectedIds.length - 1] || "";
   updateSelectionControls();
+  // Selection changes normally update only the existing node shells instead
+  // of rebuilding the whole canvas. Keep the debug bar in the same state
+  // transition so switching prompt nodes never leaves another prompt's trace
+  // visible until the next full render.
+  renderDebugBar();
 }
 
 function clearSelection() {
@@ -911,6 +921,23 @@ function renderPromptNode(node) {
     scheduleSave();
   });
   options.append(ratioField, artistField);
+  if (sourceImage) {
+    const retagModeField = makeSelectField(
+      "反推模式",
+      [
+        { value: "edit", label: "改图（覆盖冲突）" },
+        { value: "replicate", label: "复刻（保留原图）" },
+      ],
+      node.retagMode === "replicate" ? "replicate" : "edit",
+      (value) => {
+        node.retagMode = value === "replicate" ? "replicate" : "edit";
+        clearDebugTrace(node);
+        scheduleSave();
+      },
+    );
+    retagModeField.classList.add("prompt-mode-field");
+    options.appendChild(retagModeField);
+  }
 
   const footer = document.createElement("div");
   footer.className = "node-footer";
@@ -973,6 +1000,30 @@ const DEBUG_SECTIONS = [
   { key: "generate", label: "生图" },
 ];
 
+const DEBUG_MERGE_NOTE_KEYS = ["提示词冲突处理", "mergeDetails", "promptMerge"];
+const DEBUG_CATEGORY_LABELS = {
+  identity: "角色 / 主体",
+  subject: "主体数量",
+  hair: "发型",
+  eyes: "眼睛",
+  skin: "皮肤 / 妆容",
+  traits: "身体特征",
+  accessory: "配饰",
+  clothing: "服装",
+  legwear: "腿部穿着",
+  footwear: "鞋子",
+  handwear: "手套",
+  pose: "姿势",
+  gaze: "视线",
+  gesture: "手势 / 动作",
+  expression: "表情",
+  composition: "构图",
+  background: "背景",
+  atmosphere: "氛围 / 天气",
+  lighting: "光照",
+  style: "风格",
+};
+
 function formatDebugMs(ms) {
   const value = Number(ms) || 0;
   return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${value}ms`;
@@ -980,12 +1031,166 @@ function formatDebugMs(ms) {
 
 function formatDebugValue(value) {
   if (value === null || value === undefined) return "(无)";
+  if (Array.isArray(value)) {
+    return value.map((item) => formatDebugValue(item)).join(", ");
+  }
   if (typeof value === "object") {
     return Object.entries(value)
       .map(([key, item]) => `${key}=${formatDebugValue(item)}`)
       .join("  ");
   }
   return String(value);
+}
+
+function debugMergeDetails(run) {
+  const notes = run?.notes;
+  if (!notes || typeof notes !== "object") return null;
+  for (const key of DEBUG_MERGE_NOTE_KEYS) {
+    const value = notes[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  }
+  return null;
+}
+
+function isDebugMergeNote(key) {
+  return DEBUG_MERGE_NOTE_KEYS.includes(String(key));
+}
+
+function debugMergeModeLabel(mode) {
+  return String(mode || "edit").toLowerCase() === "replicate"
+    ? "复刻（保留原图）"
+    : "改图（覆盖冲突）";
+}
+
+function debugMergeValues(value) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+}
+
+function appendDebugTagGroup(parent, label, values, className = "") {
+  const tags = debugMergeValues(values);
+  if (!tags.length) return;
+
+  const group = document.createElement("div");
+  group.className = `debug-merge-group${className ? ` ${className}` : ""}`;
+  const title = document.createElement("span");
+  title.className = "debug-merge-group-label";
+  title.textContent = label;
+  group.appendChild(title);
+
+  const tagList = document.createElement("div");
+  tagList.className = "debug-merge-tags";
+  const visible = tags.slice(0, 40);
+  visible.forEach((tag) => {
+    const chip = document.createElement("code");
+    chip.className = "debug-merge-tag";
+    chip.textContent = tag;
+    chip.title = tag;
+    tagList.appendChild(chip);
+  });
+  if (tags.length > visible.length) {
+    const more = document.createElement("span");
+    more.className = "debug-merge-more";
+    more.textContent = `+${tags.length - visible.length}`;
+    tagList.appendChild(more);
+  }
+  group.appendChild(tagList);
+  parent.appendChild(group);
+}
+
+function appendDebugCategoryGroups(parent, label, values, className = "") {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return;
+  const entries = Object.entries(values).filter(([, tags]) => debugMergeValues(tags).length);
+  if (!entries.length) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = `debug-merge-category-block${className ? ` ${className}` : ""}`;
+  const title = document.createElement("span");
+  title.className = "debug-merge-group-label";
+  title.textContent = label;
+  wrapper.appendChild(title);
+  entries.forEach(([category, tags]) => {
+    const row = document.createElement("div");
+    row.className = "debug-merge-category-row";
+    const name = document.createElement("span");
+    name.className = "debug-merge-category-name";
+    name.textContent = DEBUG_CATEGORY_LABELS[category] || category;
+    row.appendChild(name);
+    const list = document.createElement("div");
+    list.className = "debug-merge-tags";
+    debugMergeValues(tags).slice(0, 40).forEach((tag) => {
+      const chip = document.createElement("code");
+      chip.className = "debug-merge-tag";
+      chip.textContent = tag;
+      chip.title = tag;
+      list.appendChild(chip);
+    });
+    row.appendChild(list);
+    wrapper.appendChild(row);
+  });
+  parent.appendChild(wrapper);
+}
+
+function makeDebugMergeSummary(details) {
+  if (!details || typeof details !== "object") return null;
+  const section = document.createElement("section");
+  section.className = "debug-merge-summary";
+
+  const head = document.createElement("div");
+  head.className = "debug-merge-head";
+  head.textContent = `提示词冲突处理 · ${debugMergeModeLabel(details.mode)}`;
+  section.appendChild(head);
+
+  const counts = document.createElement("div");
+  counts.className = "debug-merge-counts";
+  [
+    ["新增", details.added],
+    ["删除", details.removed],
+    ["保留", details.retained],
+    ["去重", details.duplicates],
+  ].forEach(([label, values]) => {
+    const item = document.createElement("span");
+    item.className = "debug-merge-count";
+    item.textContent = `${label} ${debugMergeValues(values).length}`;
+    counts.appendChild(item);
+  });
+  section.appendChild(counts);
+
+  appendDebugTagGroup(section, "新增提示词", details.added, "is-added");
+  appendDebugTagGroup(section, "删除冲突", details.removed, "is-removed");
+  appendDebugTagGroup(section, "保留原图", details.retained, "is-retained");
+  appendDebugTagGroup(section, "重复去重", details.duplicates, "is-duplicates");
+  appendDebugCategoryGroups(section, "覆盖分类", details.overrides, "is-overrides");
+  appendDebugCategoryGroups(section, "冲突分类", details.conflicts, "is-conflicts");
+  return section;
+}
+
+function debugMergePlainText(details) {
+  if (!details || typeof details !== "object") return [];
+  const lines = [`  提示词冲突处理：${debugMergeModeLabel(details.mode)}`];
+  [
+    ["新增", details.added],
+    ["删除冲突", details.removed],
+    ["保留原图", details.retained],
+    ["重复已去重", details.duplicates],
+  ].forEach(([label, values]) => {
+    const tags = debugMergeValues(values);
+    if (tags.length) lines.push(`    ${label}: ${tags.join(", ")}`);
+  });
+  [
+    ["覆盖分类", details.overrides],
+    ["冲突分类", details.conflicts],
+  ].forEach(([label, groups]) => {
+    if (!groups || typeof groups !== "object" || Array.isArray(groups)) return;
+    Object.entries(groups).forEach(([category, values]) => {
+      const tags = debugMergeValues(values);
+      if (tags.length) {
+        lines.push(`    ${label} / ${DEBUG_CATEGORY_LABELS[category] || category}: ${tags.join(", ")}`);
+      }
+    });
+  });
+  return lines;
 }
 
 function debugPlainText(runs) {
@@ -995,7 +1200,9 @@ function debugPlainText(runs) {
     (run.stages || []).forEach((stage) => {
       lines.push(`  · ${stage.name} ${stage.ms}ms${stage.error ? ` · 失败：${stage.error}` : ""}`);
     });
+    lines.push(...debugMergePlainText(debugMergeDetails(run)));
     Object.entries(run.notes || {}).forEach(([key, value]) => {
+      if (isDebugMergeNote(key)) return;
       lines.push(`  ${key}: ${formatDebugValue(value)}`);
     });
     lines.push("");
@@ -1005,9 +1212,21 @@ function debugPlainText(runs) {
 
 function debugRunsForNode(node) {
   if (!node) return [];
-  return DEBUG_SECTIONS
+  const namedRuns = DEBUG_SECTIONS
     .map((section) => ({ label: section.label, run: node.meta?.debug?.[section.key] }))
     .filter((item) => item.run && typeof item.run === "object");
+  if (namedRuns.length) return namedRuns;
+
+  // Compatibility with workspaces saved by early debug builds, where one
+  // trace was stored directly under ``meta.debug`` instead of being grouped
+  // as ``retag`` / ``generate``.
+  const legacyRun = node.meta?.debug;
+  if (!legacyRun || typeof legacyRun !== "object") return [];
+  if (!(legacyRun.scope || legacyRun.stages || legacyRun.notes)) return [];
+  return [{
+    label: String(legacyRun.scope || "").includes("retag") ? "反推" : "生图",
+    run: legacyRun,
+  }];
 }
 
 /** 调试模式专用：状态栏自己负责折叠，这里只渲染实际流水内容。 */
@@ -1045,7 +1264,11 @@ function makeDebugPanel(node) {
       section.appendChild(line);
     });
 
-    Object.entries(run.notes || {}).forEach(([key, value]) => {
+    const mergeDetails = debugMergeDetails(run);
+    const mergeSummary = makeDebugMergeSummary(mergeDetails);
+    if (mergeSummary) section.appendChild(mergeSummary);
+
+    Object.entries(run.notes || {}).filter(([key]) => !isDebugMergeNote(key)).forEach(([key, value]) => {
       const row = document.createElement("div");
       row.className = "debug-row";
       const name = document.createElement("span");
@@ -1102,17 +1325,41 @@ function renderDebugBar() {
     }
     return;
   }
-  const candidates = [
-    findNode(state.selectedId),
-    ...[...state.nodes].reverse(),
-  ].filter((node, index, list) => node && list.indexOf(node) === index);
-  const node = candidates.find((item) => item?.meta?.debug);
+  const selectedNode = findNode(state.selectedId);
+  const candidates = [...state.nodes].reverse();
+  const linkedPrompts = selectedNode?.type === "image"
+    ? state.connections
+      .filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id)
+      .map((edge) => findNode(edge.source === selectedNode.id ? edge.target : edge.source))
+      .filter((item) => item?.type === "prompt" && item.meta?.debug)
+    : [];
+  const linkedPrompt = linkedPrompts.find((item) => item.id === state.lastDebugNodeId)
+    || linkedPrompts[0]
+    || null;
+  const lastDebugNode = findNode(state.lastDebugNodeId);
+  // When a prompt is selected, the bar belongs to that prompt even before it
+  // has a trace. Falling through to another node would show stale diagnostics
+  // immediately after the user edits the selected prompt or switches mode.
+  const node = selectedNode?.type === "prompt"
+    ? selectedNode
+    : linkedPrompt
+      || (lastDebugNode?.meta?.debug ? lastDebugNode : null)
+      || candidates.find((item) => item?.meta?.debug);
   const runs = debugRunsForNode(node);
   const total = runs.reduce((sum, item) => sum + (Number(item.run.totalMs) || 0), 0);
+  const mergeDetails = runs.map(({ run }) => debugMergeDetails(run)).find(Boolean);
+  const conflictCount = mergeDetails
+    ? debugMergeValues(mergeDetails.removed).length
+    : 0;
   els.debugBar.hidden = false;
   els.debugBarSummary.textContent = node && runs.length
     ? `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`
-    : "调试信息 · 等待下一次画布请求";
+      + (mergeDetails
+        ? ` · ${debugMergeModeLabel(mergeDetails.mode)}${conflictCount ? ` · 冲突 ${conflictCount}` : ""}`
+        : "")
+    : node?.type === "prompt"
+      ? `调试信息 · ${node.title || "提示词节点"} · 等待下一次画布请求`
+      : "调试信息 · 等待下一次画布请求";
   els.debugBarBody.replaceChildren();
   const panel = makeDebugPanel(node);
   if (panel) {
@@ -1358,6 +1605,7 @@ function normalizeLoadedNodeDimensions(node) {
     node.height = clamp(Number(node.height) || 360, 300, 800);
     if (node.artist === "__none__") node.artist = "";
     node.artist = normalizedArtistSelection(node.artist);
+    node.retagMode = node.retagMode === "replicate" ? "replicate" : "edit";
   }
   if (node.type === "note") {
     node.width = clamp(Number(node.width) || 260, 220, 640);
@@ -2035,6 +2283,7 @@ async function generateFromNode(id, {
       retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
       ratio: node.ratio,
       artist: node.artist,
+      retagMode: node.retagMode || "edit",
       raw: !!node.raw,
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
@@ -2124,6 +2373,7 @@ function sourceImageForPrompt(promptId) {
 }
 
 function clearRetagCache(node) {
+  if (state.lastDebugNodeId === node?.id) state.lastDebugNodeId = "";
   const {
     retagAssetId: _retagAssetId,
     retagRatio: _retagRatio,
@@ -2143,6 +2393,7 @@ function clearRetagCache(node) {
     translationResult: _translationResult,
     translationCharacter: _translationCharacter,
     translationSeries: _translationSeries,
+    debug: _debug,
     ...meta
   } = node.meta || {};
   node.meta = meta;
@@ -2176,8 +2427,10 @@ function clearRetagSeed(node) {
 
 function clearDebugTrace(node) {
   if (!node?.meta?.debug) return;
+  if (state.lastDebugNodeId === node.id) state.lastDebugNodeId = "";
   const { debug: _debug, ...meta } = node.meta;
   node.meta = meta;
+  if (debugModeEnabled()) renderDebugBar();
 }
 
 function normalizeNaiSeed(value) {
@@ -2192,12 +2445,13 @@ function sourceImageSeed(node) {
 }
 
 function sourceImageRetagPrompt(node) {
-  if (!sourceImageSeed(node)) return "";
   const meta = node?.meta || {};
   // A filename stored in ``meta.prompt`` is not a reliable NovelAI prompt.
   // Only use fields that are explicitly populated with generation tags; if
   // none exist, the backend can still inspect embedded PNG metadata or fall
-  // back to the vision provider instead of bypassing it with a filename.
+  // back to the vision provider instead of bypassing it with a filename.  A
+  // seed is optional here: re-encoded PNGs may retain the prompt but lose the
+  // seed, and the prompt alone is still enough to skip a redundant retag call.
   return String(meta.tags || meta.finalPrompt || meta.retagPrompt || "").trim();
 }
 
@@ -2253,11 +2507,12 @@ function runPromptNode(id) {
 }
 
 function recordRunDebug(node, stage, payload) {
-  if (!debugModeEnabled()) return;
+  if (!debugModeEnabled() || !payload || typeof payload !== "object" || Array.isArray(payload)) return;
   node.meta = {
     ...(node.meta || {}),
     debug: { ...(node.meta?.debug || {}), [stage]: payload || null },
   };
+  state.lastDebugNodeId = node.id;
 }
 
 async function retagFromNode(id, generateAfter = false) {
@@ -2292,7 +2547,7 @@ async function retagFromNode(id, generateAfter = false) {
       assetId: sourceImage.assetId,
       debug: debugModeEnabled(),
       seed: sourceSeed || undefined,
-      sourcePrompt: sourceSeed ? sourceImageRetagPrompt(sourceImage) : "",
+      sourcePrompt: sourceImageRetagPrompt(sourceImage),
     });
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
@@ -2323,8 +2578,12 @@ async function retagFromNode(id, generateAfter = false) {
     sourceImage.meta = {
       ...(sourceImage.meta || {}),
       ...(recoveredSeed ? { seed: recoveredSeed } : {}),
-      tags: sourceImage.meta?.tags || retagPrompt,
-      ratio: sourceImage.meta?.ratio || result?.ratio || "",
+      // The backend result has already removed artist/quality controls and is
+      // authoritative over legacy node metadata.  Keeping an older non-empty
+      // value here would make the same dirty tags reappear after a library
+      // round trip.
+      tags: retagPrompt,
+      ratio: result?.ratio || sourceImage.meta?.ratio || "",
     };
     recordRunDebug(node, "retag", result.debug);
     node.statusText = result.fromMetadata
@@ -3598,6 +3857,7 @@ els.workspaceInput.addEventListener("change", async () => {
     pushHistory();
     state.nodes = (workspace.nodes || []).map(normalizeLoadedNodeDimensions);
     state.connections = workspace.connections || [];
+    state.lastDebugNodeId = "";
     state.viewport = workspace.viewport || state.viewport;
     clearSelection();
     renderAll();

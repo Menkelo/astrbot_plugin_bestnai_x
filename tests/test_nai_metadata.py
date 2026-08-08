@@ -27,6 +27,7 @@ sys.modules.setdefault("astrbot", astrbot_module)
 sys.modules.setdefault("astrbot.api", astrbot_api_module)
 
 from astrbot_plugin_bestnai_x.services.nai_metadata import (
+    is_trusted_nai_generation_info,
     parse_nai_info,
     read_image_generation_info,
     read_image_generation_info_any,
@@ -114,6 +115,37 @@ class NaiMetadataTest(unittest.TestCase):
         info = read_image_generation_info(path)
         self.assertEqual(info["prompt"], "1girl, solo")
         self.assertNotIn("seed", info)
+
+    def test_plain_description_is_not_trusted_as_novelai_prompt(self) -> None:
+        self.assertFalse(
+            is_trusted_nai_generation_info({"prompt": "ordinary image caption"})
+        )
+
+    def test_seed_or_novelai_software_makes_prompt_trusted(self) -> None:
+        self.assertTrue(
+            is_trusted_nai_generation_info({"prompt": "1girl", "seed": 123})
+        )
+        self.assertTrue(
+            is_trusted_nai_generation_info(
+                {"prompt": "1girl", "software": "NovelAI"}
+            )
+        )
+
+    def test_seedless_generation_fields_can_still_be_trusted(self) -> None:
+        self.assertTrue(
+            is_trusted_nai_generation_info(
+                {
+                    "prompt": "1girl, solo",
+                    "steps": 28,
+                    "sampler": "k_euler_ancestral",
+                }
+            )
+        )
+        self.assertFalse(
+            is_trusted_nai_generation_info(
+                {"prompt": "ordinary image caption", "width": 1024, "height": 768}
+            )
+        )
 
     def test_invalid_numbers_are_dropped(self) -> None:
         info = parse_nai_info(

@@ -889,6 +889,10 @@ select:focus-visible,
   margin-top: 9px;
 }
 
+.prompt-mode-field {
+  grid-column: 1 / -1;
+}
+
 .field-label {
   display: flex;
   min-width: 0;
@@ -2385,6 +2389,114 @@ body.asset-library-expanded .minimap-arrange-btn {
   overflow-wrap: anywhere;
 }
 
+.debug-merge-summary {
+  margin-top: 8px;
+  padding: 8px 9px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(248, 250, 252, .82);
+  background: color-mix(in srgb, var(--soft-2) 58%, transparent);
+}
+
+.debug-merge-head {
+  color: var(--text);
+  font-size: 9.5px;
+  font-weight: 850;
+}
+
+.debug-merge-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.debug-merge-count {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card-solid);
+  color: var(--muted);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+
+.debug-merge-group,
+.debug-merge-category-block {
+  margin-top: 7px;
+}
+
+.debug-merge-group-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 800;
+}
+
+.debug-merge-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+
+.debug-merge-tag {
+  max-width: 100%;
+  padding: 2px 5px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card-solid);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+}
+
+.debug-merge-group.is-added .debug-merge-tag {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.debug-merge-group.is-removed .debug-merge-tag,
+.debug-merge-category-block.is-conflicts .debug-merge-tag {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
+.debug-merge-group.is-retained .debug-merge-tag {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.debug-merge-more {
+  padding: 2px 4px;
+  color: var(--faint);
+  font-size: 8.5px;
+}
+
+.debug-merge-category-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  margin-top: 4px;
+}
+
+.debug-merge-category-name {
+  padding-top: 2px;
+  color: var(--faint);
+  font-size: 8.5px;
+  font-weight: 750;
+}
+
 .debug-row {
   display: flex;
   margin-top: 4px;
@@ -2516,5 +2628,9 @@ body.asset-library-expanded .minimap-arrange-btn {
 
   .debug-body {
     max-height: min(280px, 34vh);
+  }
+
+  .debug-merge-category-row {
+    grid-template-columns: 62px minmax(0, 1fr);
   }
 }

@@ -110,6 +110,43 @@ def parse_nai_info(info: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def is_trusted_nai_generation_info(info: Dict[str, Any]) -> bool:
+    """Return whether ``info['prompt']`` is credible NovelAI metadata.
+
+    PNG ``Description`` is a generic text field used by many applications, so
+    its presence alone must not bypass the vision retagger.  A valid seed is
+    sufficient, as is an explicit NovelAI software marker.  For seedless NAI
+    files, require at least two generation-specific fields and one strong NAI
+    marker such as sampler, negative prompt, or noise schedule.
+    """
+
+    if not isinstance(info, dict) or not str(info.get("prompt") or "").strip():
+        return False
+
+    if normalize_nai_seed(info.get("seed")) is not None:
+        return True
+
+    software = str(info.get("software") or "").strip().casefold()
+    if "novelai" in software or "novel ai" in software:
+        return True
+
+    generation_fields = {
+        key
+        for key in (
+            "steps",
+            "width",
+            "height",
+            "scale",
+            "sampler",
+            "noise_schedule",
+            "negativePrompt",
+        )
+        if info.get(key) not in (None, "")
+    }
+    strong_fields = {"sampler", "noise_schedule", "negativePrompt"}
+    return len(generation_fields) >= 2 and bool(generation_fields & strong_fields)
+
+
 def read_image_generation_info(path: str | Path) -> Dict[str, Any]:
     """读取图片文件里的生成参数，读不到返回空 dict。"""
     try:

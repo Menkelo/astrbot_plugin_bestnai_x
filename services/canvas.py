@@ -47,6 +47,7 @@ MAX_IMAGE_PIXELS = 30_000_000
 # renderer never expects).
 MAX_DEBUG_STAGES = 32
 MAX_DEBUG_NOTES = 64
+MAX_DEBUG_RUNS = 8
 MAX_DEBUG_DEPTH = 4
 MAX_DEBUG_KEY_LENGTH = 120
 MAX_DEBUG_VALUE_LENGTH = 2000
@@ -156,6 +157,38 @@ def _sanitize_debug_trace(value: Any) -> Dict[str, Any] | None:
         "stages": stages,
         "notes": notes,
     }
+
+
+def _sanitize_debug_payload(value: Any) -> Dict[str, Any] | None:
+    """Sanitize one trace or the frontend's collection of named traces.
+
+    The canvas keeps the retag and generate traces together as
+    ``meta.debug = {retag: {...}, generate: {...}}``.  Older workspaces (and
+    a few third-party clients) may still send a single trace directly.  The
+    previous sanitizer treated the collection as a trace and silently dropped
+    both named runs when the workspace was re-opened, which made the debug bar
+    appear empty after a save/load round-trip.
+    """
+    if not isinstance(value, dict):
+        return None
+
+    # Backward-compatible flat trace shape.
+    if any(key in value for key in ("scope", "totalMs", "stages", "notes")):
+        trace = _sanitize_debug_trace(value)
+        return trace
+
+    runs: Dict[str, Any] = {}
+    for index, (key, raw_trace) in enumerate(value.items()):
+        if index >= MAX_DEBUG_RUNS:
+            break
+        name = _short_text(key, MAX_DEBUG_KEY_LENGTH).strip()
+        if not name or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+            continue
+        trace = _sanitize_debug_trace(raw_trace)
+        if trace is not None:
+            runs[name] = trace
+
+    return runs or None
 
 
 class CanvasStore:
@@ -531,7 +564,7 @@ class CanvasStore:
                 "retagged": bool(raw_meta.get("retagged", False)),
                 "userResized": bool(raw_meta.get("userResized", False)),
             }
-            debug = _sanitize_debug_trace(raw_meta.get("debug"))
+            debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:
                 meta["debug"] = debug
 
@@ -547,6 +580,12 @@ class CanvasStore:
                 "note": _short_text(raw_node.get("note"), 6000),
                 "ratio": _short_text(raw_node.get("ratio"), 32),
                 "artist": _short_text(raw_node.get("artist"), 120),
+                "retagMode": (
+                    "replicate"
+                    if str(raw_node.get("retagMode") or "").strip().casefold()
+                    == "replicate"
+                    else "edit"
+                ),
                 "raw": bool(raw_node.get("raw", False)),
                 "assetId": asset_id,
                 "createdAt": _short_text(raw_node.get("createdAt"), 64),
