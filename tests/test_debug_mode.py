@@ -209,12 +209,16 @@ class DebugModeWiringTest(unittest.TestCase):
         # 关着开关时返回体一个字段都不能多
         self.assertIn("if debug is None:\n            return result", with_debug)
 
-    def test_frontend_renders_the_panel_only_in_debug_mode(self) -> None:
+    def test_frontend_keeps_the_recorder_visible_and_gates_only_details(self) -> None:
         self.assertIn("function makeDebugPanel(node)", self.editor)
         self.assertIn("if (!debugModeEnabled() || !runs.length) return null;", self.editor)
         self.assertIn('recordRunDebug(node, "generate", result.meta?.debug)', self.editor)
         self.assertIn('recordRunDebug(node, "retag", result.debug)', self.editor)
         self.assertIn(".debug-bar {", self.styles)
+        self.assertIn("els.debugBar.hidden = false;", self.editor)
+        self.assertIn("const OPERATION_LOG_KEY", self.editor)
+        self.assertIn("persistOperationLog()", self.editor)
+        self.assertIn("if (debugModeEnabled())", self.editor)
         self.assertNotIn(".prompt-debug {", self.styles)
 
     def test_bottom_bar_has_one_working_disclosure_layer(self) -> None:
@@ -247,7 +251,7 @@ class DebugModeWiringTest(unittest.TestCase):
             "\nfunction ", 1
         )[0]
         self.assertIn('selectedNode?.type === "prompt"', render)
-        self.assertIn("等待下一次画布请求", render)
+        self.assertIn("操作记录 · ${latestText}", render)
 
 
 if __name__ == "__main__":

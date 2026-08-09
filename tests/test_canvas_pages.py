@@ -48,7 +48,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         self.assertIn("selectionInTextSurface", editor)
-        self.assertIn('targetElement?.closest(".debug-body")', editor)
+        self.assertIn('targetElement?.closest(".debug-body, .operation-log-list")', editor)
         self.assertIn(".prompt-text {", styles)
         self.assertIn("user-select: none;", styles)
 
@@ -337,7 +337,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         asset_grid = styles.split(".asset-grid {", 1)[1].split("}", 1)[0]
         self.assertIn("padding: 8px;", asset_grid)
         self.assertIn("border-radius: var(--asset-panel-inner-radius);", asset_grid)
-        self.assertIn("scrollbar-gutter: stable;", asset_grid)
+        self.assertIn("scrollbar-gutter: auto;", asset_grid)
         asset_empty = styles.split(".asset-empty {", 1)[1].split("}", 1)[0]
         self.assertIn("padding: 8px;", asset_empty)
         self.assertIn("border-radius: var(--asset-panel-inner-radius);", asset_empty)
@@ -347,6 +347,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('els.assetGrid.style.setProperty("--asset-card-height"', editor)
         self.assertIn("window.requestAnimationFrame(updateAssetGridMetrics);", editor)
         self.assertIn('card.title = "点击预览，拖到画布使用"', editor)
+        self.assertIn('id="assetRefreshBtn"', html)
+        self.assertIn("assetRefreshBtn", editor)
+        self.assertIn("asset-card-footer", editor)
+        self.assertIn("asset-thumb-source", editor)
+        self.assertIn("asset-card-name", styles)
         self.assertIn("const debugRect", editor)
         self.assertIn("closeImageViewer();", editor)
         self.assertIn("const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);", editor)
@@ -367,6 +372,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const panelRight = Math.min(viewportRect.right - 12, topbarRect.right);", align_body)
         self.assertIn("const panelLeft = Math.max(viewportRect.left + 12, topbarRect.left);", align_body)
         self.assertNotIn("minimapRect", align_body)
+        self.assertIn("alignDebugBar();", editor)
+        self.assertIn("function alignDebugBar()", editor)
+        self.assertIn("new ResizeObserver(scheduleOverlayAlignment)", editor)
         self.assertIn('document.body.classList.toggle("asset-library-open", open)', editor)
         self.assertNotIn("body.asset-library-open .minimap", styles)
         self.assertIn("width: auto;", styles.split(".asset-panel {", 1)[1].split("}", 1)[0])
@@ -394,7 +402,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('canvas/library/image/delete', editor)
         self.assertIn(".asset-select-indicator", styles)
         self.assertIn(".asset-panel.delete-mode .asset-image-card.selected", styles)
-        self.assertNotIn('name.className = "asset-card-name"', editor)
+        self.assertIn('name.className = "asset-card-name"', editor)
         self.assertIn("align-self: start;", styles)
         self.assertIn(".asset-grid.empty", styles)
         self.assertNotIn("ASSET_UI_KEY", editor)
@@ -407,7 +415,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("display: inline-flex;", styles)
         self.assertIn("viewerLibraryAsset: null", editor)
         self.assertIn('event.pointerType === "touch"', editor)
-        self.assertIn("{ libraryAsset: item }", editor)
+        self.assertIn('{ libraryAsset: item, operationLabel: "预览素材" }', editor)
         self.assertIn("els.imageViewerPlaceBtn.addEventListener", editor)
         self.assertIn("const placed = await placeImageAssetOnCanvas(item, worldCenter())", editor)
         self.assertIn("if (!placed) return", editor)
@@ -694,7 +702,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("seed: retagged ? reusableRetagSeed(node) : undefined", editor)
         self.assertIn("The seed belongs to the source image", editor)
 
-    def test_debug_bar_shares_minimap_bottom_baseline(self) -> None:
+    def test_debug_bar_is_a_persistent_aligned_recorder(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         debug = styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
@@ -706,7 +714,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "\nfunction ", 1
         )[0]
         self.assertIn("els.debugBar.hidden = false;", render)
-        self.assertIn('"调试信息 · 等待下一次画布请求"', render)
+        self.assertIn('`操作记录 · ${latestText}`', render)
+        self.assertIn("const OPERATION_LOG_KEY", editor)
+        self.assertIn("persistOperationLog()", editor)
+        self.assertIn("function alignDebugBar()", editor)
+        self.assertIn("topbarRect.left - viewportRect.left", editor)
 
     def test_minimap_is_removed_from_the_canvas(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
@@ -766,7 +778,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
 
         self.assertIn("state.selectedId =", selection)
-        self.assertIn("renderDebugBar();", selection)
+        self.assertIn("recordOperation(", selection)
+        self.assertIn("if (els.debugBar) renderDebugBar();", editor)
         self.assertIn('selectedNode?.type === "image"', render)
         self.assertIn("linkedPrompts", render)
         self.assertIn(

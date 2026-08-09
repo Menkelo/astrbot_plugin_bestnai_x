@@ -1762,6 +1762,14 @@ select:focus-visible {
   padding: 0 4px 2px;
 }
 
+.asset-panel-title-group {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+}
+
 .asset-panel-title {
   display: inline-flex;
   min-width: 0;
@@ -1784,14 +1792,87 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.asset-panel-subtitle {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-panel-head-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.asset-panel-icon-btn {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.asset-panel-icon-btn:hover:not(:disabled),
+.asset-panel-icon-btn:focus-visible {
+  border-color: var(--line);
+  background: var(--soft-2);
+  color: var(--text);
+}
+
+.asset-panel-icon-btn:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.asset-panel-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.asset-panel-icon-btn.spinning svg {
+  animation: asset-refresh-spin .75s linear infinite;
+}
+
 .asset-delete-toolbar {
+  display: flex;
+  min-height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.asset-panel-foot {
   display: flex;
   min-height: 32px;
   flex: 0 0 32px;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding-top: 2px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 4px 0;
+}
+
+.asset-panel-foot-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-panel.delete-mode .asset-panel-foot-hint {
+  display: none;
 }
 
 .asset-library-count {
@@ -1894,31 +1975,38 @@ select:focus-visible {
   background: rgba(248, 250, 252, .78);
   background: color-mix(in srgb, var(--soft-2) 64%, transparent);
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  /* Let the thumb sit over the edge instead of reserving a conspicuous blank
+     gutter on the right side of the library. */
+  scrollbar-gutter: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, .42) transparent;
+  scrollbar-color: rgba(100, 116, 139, .22) transparent;
 }
 
 .asset-grid::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .asset-grid::-webkit-scrollbar-track {
-  margin: 10px 2px;
+  margin: 8px 0;
   border-radius: 999px;
   background: transparent;
 }
 
 .asset-grid::-webkit-scrollbar-thumb {
   min-height: 34px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(100, 116, 139, .38);
+  background: rgba(100, 116, 139, .22);
   background-clip: padding-box;
 }
 
+.asset-grid:hover,
+.asset-grid:focus-within {
+  scrollbar-color: rgba(71, 85, 105, .46) transparent;
+}
+
 .asset-grid::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, .62);
+  background: rgba(71, 85, 105, .58);
   background-clip: padding-box;
 }
 
@@ -2056,6 +2144,55 @@ select:focus-visible {
   background: var(--soft-2);
 }
 
+.asset-thumb-source {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 7px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .48);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  backdrop-filter: blur(5px);
+}
+
+.asset-card-footer {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 9px;
+  border-top: 1px solid var(--line);
+  background: var(--card-solid);
+}
+
+.asset-card-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-card-meta {
+  max-width: 46%;
+  overflow: hidden;
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 8.5px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .asset-thumb-loading {
   padding: 16px 8px;
   color: var(--faint);
@@ -2157,6 +2294,12 @@ select:focus-visible {
 .asset-empty svg {
   width: 22px;
   height: 22px;
+}
+
+@keyframes asset-refresh-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 .toast-region {
@@ -2472,6 +2615,18 @@ select:focus-visible {
     backdrop-filter: none;
   }
 
+  .asset-panel-subtitle {
+    display: none;
+  }
+
+  .asset-panel-foot-hint {
+    max-width: 50%;
+  }
+
+  .asset-grid::-webkit-scrollbar {
+    width: 5px;
+  }
+
   .asset-image-card {
     cursor: pointer;
     touch-action: pan-y;
@@ -2778,11 +2933,13 @@ select:focus-visible {
 }
 
 .debug-bar {
+  --debug-bar-left: 24px;
+  --debug-bar-right: 24px;
   position: absolute;
   z-index: 44;
-  right: 24px;
+  right: var(--debug-bar-right);
   bottom: 22px;
-  left: 24px;
+  left: var(--debug-bar-left);
   display: flex;
   width: auto;
   max-height: calc(100% - 110px);
@@ -2917,6 +3074,9 @@ select:focus-visible {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .operation-log-entry {
@@ -2976,9 +3136,11 @@ select:focus-visible {
 
 @media (max-width: 620px) {
   .debug-bar {
-    right: 12px;
+    --debug-bar-left: 12px;
+    --debug-bar-right: 12px;
+    right: var(--debug-bar-right);
     bottom: 12px;
-    left: 12px;
+    left: var(--debug-bar-left);
     max-height: calc(100% - 132px);
   }
 

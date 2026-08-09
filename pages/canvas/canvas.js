@@ -50,6 +50,7 @@ const els = {
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
   assetLibraryCount: document.getElementById("assetLibraryCount"),
+  assetRefreshBtn: document.getElementById("assetRefreshBtn"),
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
   assetDeleteCount: document.getElementById("assetDeleteCount"),
@@ -66,7 +67,44 @@ const els = {
 };
 
 const GRID_STYLE_KEY = "bestnaiCanvasGridStyle";
-const OPERATION_LOG_LIMIT = 180;
+const OPERATION_LOG_KEY = "bestnaiCanvasOperationLog";
+const RECORDER_OPEN_KEY = "bestnaiCanvasRecorderOpen";
+const OPERATION_LOG_LIMIT = 240;
+const OPERATION_VISIBLE_LIMIT = 100;
+
+function maskOperationSecrets(value) {
+  return String(value || "")
+    .replace(/(authorization["']?\s*[:=]\s*)(?:bearer\s+)?["']?([^\s,;}"']+)["']?/gi, "$1***")
+    .replace(/((?:api[_-]?key|access[_-]?token|token)["']?\s*[:=]\s*)["']?([^\s,;}"']+)["']?/gi, "$1***")
+    .replace(/([?&](?:key|token|api_key)=)([^&\s]+)/gi, "$1***");
+}
+
+function loadOperationLog() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OPERATION_LOG_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((entry) => entry && typeof entry === "object")
+      .slice(-OPERATION_LOG_LIMIT)
+      .map((entry, index) => ({
+        id: Number.isInteger(entry.id) && entry.id > 0 ? entry.id : index + 1,
+        timestamp: String(entry.timestamp || new Date().toISOString()),
+        action: String(entry.action || "操作").replace(/\s+/g, " ").trim().slice(0, 120),
+        detail: maskOperationSecrets(entry.detail).replace(/\s+/g, " ").trim().slice(0, 360),
+        level: ["info", "success", "warning", "error"].includes(entry.level)
+          ? entry.level
+          : "info",
+      }));
+  } catch (_) {
+    return [];
+  }
+}
+
+const INITIAL_OPERATION_LOG = loadOperationLog();
+const INITIAL_OPERATION_SEQUENCE = INITIAL_OPERATION_LOG.reduce(
+  (max, entry) => Math.max(max, Number(entry.id) || 0),
+  0,
+);
 
 const state = {
   config: {
@@ -111,9 +149,14 @@ const state = {
   debugEnabled: (() => {
     try { return localStorage.getItem("bestnaiCanvasDebug") === "1"; } catch (_) { return false; }
   })(),
-  debugBarOpen: false,
-  operationLog: [],
-  operationSequence: 0,
+  // The recorder is a persistent CAD-like command line.  The detailed trace
+  // switch only controls diagnostic payloads; the operation history remains
+  // available even when detailed debug mode is off.
+  debugBarOpen: (() => {
+    try { return localStorage.getItem(RECORDER_OPEN_KEY) === "1"; } catch (_) { return false; }
+  })(),
+  operationLog: INITIAL_OPERATION_LOG,
+  operationSequence: INITIAL_OPERATION_SEQUENCE,
   gridStyle: (() => {
     try {
       const value = localStorage.getItem(GRID_STYLE_KEY);
@@ -124,6 +167,9 @@ const state = {
   })(),
   lastDebugNodeId: "",
   preferencesSaveChain: Promise.resolve(),
+  layoutObserver: null,
+  layoutAlignFrame: 0,
+  viewportRecordTimer: null,
   contextMenuPoint: null,
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
@@ -196,24 +242,36 @@ function operationText(value, fallback = "") {
   return String(value ?? fallback).replace(/\s+/g, " ").trim().slice(0, 360);
 }
 
+function persistOperationLog() {
+  try {
+    localStorage.setItem(OPERATION_LOG_KEY, JSON.stringify(state.operationLog.slice(-OPERATION_LOG_LIMIT)));
+  } catch (_) {
+    // Private browsing and embedded webviews may disable local storage.
+  }
+}
+
 function recordOperation(action, detail = "", level = "info") {
   const entry = {
     id: ++state.operationSequence,
     timestamp: new Date().toISOString(),
-    action: operationText(action, "操作"),
-    detail: operationText(detail),
+    action: operationText(action, "操作").slice(0, 120),
+    // Error messages can contain a query-string key when a provider fails.
+    // Keep the local recorder useful without turning it into a secret cache.
+    detail: maskOperationSecrets(operationText(detail)),
     level: ["info", "success", "warning", "error"].includes(level) ? level : "info",
   };
   state.operationLog.push(entry);
   if (state.operationLog.length > OPERATION_LOG_LIMIT) {
     state.operationLog.splice(0, state.operationLog.length - OPERATION_LOG_LIMIT);
   }
+  persistOperationLog();
   if (els.debugBar) renderDebugBar();
 }
 
 function clearOperationLog() {
   state.operationLog = [];
   state.operationSequence = 0;
+  persistOperationLog();
   recordOperation("记录器已清空", "新的操作会继续追加");
 }
 
@@ -405,6 +463,48 @@ function alignProjectMenu() {
   els.projectMenu.style.width = `${right - left}px`;
 }
 
+function alignDebugBar() {
+  const topbar = document.querySelector(".topbar");
+  if (!topbar || !els.viewport || !els.debugBar) return;
+  const topbarRect = topbar.getBoundingClientRect();
+  const viewportRect = els.viewport.getBoundingClientRect();
+  // The board owns the HUD, while the status bar may wrap or change margins
+  // at a responsive breakpoint. Calculate both offsets from actual rectangles
+  // instead of duplicating the CSS margins in a second place.
+  const left = clamp(topbarRect.left - viewportRect.left, 12, Math.max(12, viewportRect.width - 120));
+  const right = clamp(viewportRect.right - topbarRect.right, 12, Math.max(12, viewportRect.width - 120));
+  els.debugBar.style.left = `${left}px`;
+  els.debugBar.style.right = `${right}px`;
+}
+
+function alignOverlayPanels() {
+  alignDebugBar();
+  if (els.assetPanel.classList.contains("open")) {
+    alignAssetPanel();
+    updateAssetGridMetrics();
+  }
+  if (!els.projectMenu.hidden) alignProjectMenu();
+}
+
+function scheduleOverlayAlignment() {
+  if (state.layoutAlignFrame) return;
+  state.layoutAlignFrame = window.requestAnimationFrame(() => {
+    state.layoutAlignFrame = 0;
+    alignOverlayPanels();
+  });
+}
+
+function setupOverlayAlignment() {
+  alignOverlayPanels();
+  if (typeof ResizeObserver === "undefined") return;
+  const topbar = document.querySelector(".topbar");
+  if (!topbar || !els.viewport) return;
+  state.layoutObserver?.disconnect();
+  state.layoutObserver = new ResizeObserver(scheduleOverlayAlignment);
+  state.layoutObserver.observe(topbar);
+  state.layoutObserver.observe(els.viewport);
+}
+
 function projectIconButton(iconName, title, className = "") {
   const button = document.createElement("button");
   button.type = "button";
@@ -522,6 +622,7 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
   setProjectMenu(false);
   renderAll();
   renderProjectMenu();
+  recordOperation("切换项目", state.currentCanvasTitle);
 }
 
 async function navigateToCanvas(canvas) {
@@ -542,7 +643,9 @@ async function createCanvasProject() {
     if (!result?.canvas?.id) throw new Error("创建项目失败");
     state.canvases.push(result.canvas);
     await switchCanvas(result.canvas);
+    recordOperation("创建项目", title, "success");
   } catch (error) {
+    recordOperation("创建项目失败", error.message || "创建项目失败", "error");
     toast(error.message || "创建项目失败", "error");
   }
 }
@@ -555,6 +658,7 @@ async function deleteCanvasProject(id) {
     if (id !== canvasId) {
       renderProjectMenu();
       toast("项目已删除");
+      recordOperation("删除项目", id, "success");
       return;
     }
     let next = state.canvases[0];
@@ -569,7 +673,9 @@ async function deleteCanvasProject(id) {
     if (!next?.id) throw new Error("无法创建新的项目");
     await switchCanvas(next, { saveCurrent: false });
     toast("项目已删除");
+    recordOperation("删除项目", id, "success");
   } catch (error) {
+    recordOperation("删除项目失败", error.message || "删除项目失败", "error");
     toast(error.message || "删除项目失败", "error");
     renderProjectMenu();
   }
@@ -637,6 +743,7 @@ function undo() {
   state.future.push(snapshot());
   restoreSnapshot(state.history.pop());
   updateHistoryButtons();
+  recordOperation("撤销", "恢复上一步画布状态");
 }
 
 function redo() {
@@ -644,6 +751,7 @@ function redo() {
   state.history.push(snapshot());
   restoreSnapshot(state.future.pop());
   updateHistoryButtons();
+  recordOperation("重做", "恢复下一步画布状态");
 }
 
 function updateHistoryButtons() {
@@ -821,16 +929,23 @@ function isNodeSelected(id) {
 
 function setSelection(ids, primaryId = "") {
   setSelectionContextMenu(false);
+  const previous = state.selectedIds.join(",");
+  const previousPrimary = state.selectedId;
   state.selectedIds = [...new Set(ids)].filter((id) => !!findNode(id));
   state.selectedId = state.selectedIds.includes(primaryId)
     ? primaryId
     : state.selectedIds[state.selectedIds.length - 1] || "";
   updateSelectionControls();
-  // Selection changes normally update only the existing node shells instead
-  // of rebuilding the whole canvas. Keep the debug bar in the same state
-  // transition so switching prompt nodes never leaves another prompt's trace
-  // visible until the next full render.
-  renderDebugBar();
+  const next = state.selectedIds.join(",");
+  if (previous !== next || previousPrimary !== state.selectedId) {
+    const selected = findNode(state.selectedId);
+    // recordOperation refreshes the recorder, so selection and diagnostics
+    // move together without rebuilding the canvas or rendering the bar twice.
+    recordOperation(
+      state.selectedIds.length > 1 ? "多选节点" : state.selectedIds.length ? "选择节点" : "取消选择",
+      selected?.title || `${state.selectedIds.length} 个节点`,
+    );
+  }
 }
 
 function clearSelection() {
@@ -1025,8 +1140,10 @@ function renderPromptNode(node) {
   prompt.placeholder = "描述画面，支持中文自动翻译或 NAI tags…";
   prompt.value = node.prompt || "";
   prompt.maxLength = 6000;
+  let promptEdited = false;
   prompt.addEventListener("input", () => {
     node.prompt = prompt.value;
+    promptEdited = true;
     node.error = "";
     clearDebugTrace(node);
     // Translation depends on the handwritten text, but image retagging does
@@ -1034,6 +1151,12 @@ function renderPromptNode(node) {
     // never sends the same image to the tagger a second time.
     clearTranslationCache(node);
     scheduleSave();
+  });
+  prompt.addEventListener("blur", () => {
+    if (!promptEdited) return;
+    promptEdited = false;
+    const length = String(node.prompt || "").trim().length;
+    recordOperation("编辑提示词", `${node.title || "提示词节点"} · ${length} 字`);
   });
   prompt.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -1049,6 +1172,7 @@ function renderPromptNode(node) {
     clearDebugTrace(node);
     rememberPromptDefaults({ ratio: value });
     scheduleSave();
+    recordOperation("修改画幅", `${node.title || "提示词节点"} · ${value || "默认"}`);
   });
   const artistOptions = canvasArtistOptions();
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
@@ -1056,6 +1180,7 @@ function renderPromptNode(node) {
     clearDebugTrace(node);
     rememberPromptDefaults({ artist: value });
     scheduleSave();
+    recordOperation("修改画师", `${node.title || "提示词节点"} · ${value || "无预设"}`);
   });
   options.append(ratioField, artistField);
   const footer = document.createElement("div");
@@ -1070,6 +1195,7 @@ function renderPromptNode(node) {
     node.raw = raw.checked;
     clearDebugTrace(node);
     scheduleSave();
+    recordOperation("切换原始提示词", raw.checked ? "开启" : "关闭");
   });
   rawLabel.append(raw, document.createTextNode("原始提示词"));
 
@@ -1644,12 +1770,12 @@ function makeOperationLogPanel() {
 
   const head = document.createElement("div");
   head.className = "operation-log-head";
-  head.textContent = `操作记录 / Operations · ${state.operationLog.length}`;
+  head.textContent = `操作记录 · ${state.operationLog.length}`;
   section.appendChild(head);
 
   const list = document.createElement("div");
   list.className = "operation-log-list";
-  const entries = state.operationLog.slice(-80).reverse();
+  const entries = state.operationLog.slice(-OPERATION_VISIBLE_LIMIT).reverse();
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "operation-log-empty";
@@ -1683,11 +1809,14 @@ function makeOperationLogPanel() {
 
 function setDebugBarOpen(open) {
   state.debugBarOpen = !!open;
+  try { localStorage.setItem(RECORDER_OPEN_KEY, state.debugBarOpen ? "1" : "0"); } catch (_) { /* ignore */ }
   els.debugBarToggle?.setAttribute("aria-expanded", String(state.debugBarOpen));
+  els.debugBarToggle?.setAttribute("aria-label", state.debugBarOpen ? "收起操作记录" : "展开操作记录");
   els.debugBar?.classList.toggle("open", state.debugBarOpen);
   els.debugBarBody?.toggleAttribute("hidden", !state.debugBarOpen);
   const chevron = els.debugBarToggle?.querySelector(".debug-bar-chevron");
   chevron?.classList.toggle("rotated", state.debugBarOpen);
+  alignDebugBar();
   if (els.assetPanel.classList.contains("open")) {
     window.requestAnimationFrame(() => {
       alignAssetPanel();
@@ -1698,20 +1827,13 @@ function setDebugBarOpen(open) {
 
 function renderDebugBar() {
   if (!els.debugBar) return;
-  if (!debugModeEnabled()) {
-    els.debugBar.hidden = true;
-    els.debugBarBody.replaceChildren();
-    if (els.assetPanel.classList.contains("open")) {
-      window.requestAnimationFrame(() => {
-        alignAssetPanel();
-        updateAssetGridMetrics();
-      });
-    }
-    return;
-  }
+  // The command-line recorder is always present.  The debug switch controls
+  // only the expensive/verbose provider trace shown below the operation log.
+  els.debugBar.hidden = false;
   const selectedNode = findNode(state.selectedId);
-  const candidates = [...state.nodes].reverse();
+  const candidates = debugModeEnabled() ? [...state.nodes].reverse() : [];
   const linkedPrompts = selectedNode?.type === "image"
+    && debugModeEnabled()
     ? state.connections
       .filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id)
       .map((edge) => findNode(edge.source === selectedNode.id ? edge.target : edge.source))
@@ -1735,22 +1857,30 @@ function renderDebugBar() {
   const conflictCount = mergeDetails
     ? debugMergeValues(mergeDetails.removed).length
     : 0;
-  els.debugBar.hidden = false;
+  const latest = state.operationLog[state.operationLog.length - 1];
+  const latestText = latest
+    ? `${latest.action}${latest.detail ? ` · ${latest.detail}` : ""}`
+    : "就绪";
   els.debugBarSummary.textContent = node && runs.length
     ? `调试信息 · ${formatDebugMs(total)} · ${node.title || "提示词节点"}`
       + (mergeDetails && conflictCount ? ` · 冲突 ${conflictCount}` : "")
-    : node?.type === "prompt"
-      ? `调试信息 · ${node.title || "提示词节点"} · 等待下一次画布请求`
-      : "调试信息 · 等待下一次画布请求";
+    : `操作记录 · ${latestText}`;
   els.debugBarBody.replaceChildren();
   els.debugBarBody.appendChild(makeOperationLogPanel());
-  const panel = makeDebugPanel(node);
-  if (panel) {
-    els.debugBarBody.appendChild(panel);
+  if (debugModeEnabled()) {
+    const panel = makeDebugPanel(node);
+    if (panel) {
+      els.debugBarBody.appendChild(panel);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "debug-empty";
+      empty.textContent = "运行生成或反推后，这里会显示详细调试信息";
+      els.debugBarBody.appendChild(empty);
+    }
   } else {
     const empty = document.createElement("div");
     empty.className = "debug-empty";
-    empty.textContent = "运行生成或反推后，这里会显示详细调试信息";
+    empty.textContent = "详细调试模式未开启；点击顶部调试按钮查看生成链路";
     els.debugBarBody.appendChild(empty);
   }
   setDebugBarOpen(state.debugBarOpen);
@@ -1868,9 +1998,16 @@ function renderNoteNode(node) {
   note.placeholder = "记录构图方向、迭代想法或待办…";
   note.value = node.note || "";
   note.maxLength = 6000;
+  let noteEdited = false;
   note.addEventListener("input", () => {
     node.note = note.value;
+    noteEdited = true;
     scheduleSave();
+  });
+  note.addEventListener("blur", () => {
+    if (!noteEdited) return;
+    noteEdited = false;
+    recordOperation("编辑备注", `${node.title || "备注"} · ${String(node.note || "").trim().length} 字`);
   });
   body.appendChild(note);
   const resizeHandle = document.createElement("span");
@@ -2187,6 +2324,7 @@ function attachConnectionPort(port, nodeId, role) {
           }
           state.connections.push({ source, target: destination });
           scheduleSave();
+          recordOperation("连接节点", `${findNode(source)?.title || source} → ${findNode(destination)?.title || destination}`);
           renderAll();
           return;
         }
@@ -2597,6 +2735,11 @@ function setZoom(nextScale, clientX, clientY) {
   state.viewport.y = anchorY - rect.top - world.y * scale;
   renderViewport();
   scheduleSave(800);
+  window.clearTimeout(state.viewportRecordTimer);
+  state.viewportRecordTimer = window.setTimeout(() => {
+    state.viewportRecordTimer = null;
+    recordOperation("缩放画布", `${Math.round(scale * 100)}%`);
+  }, 420);
 }
 
 function fitView() {
@@ -2605,6 +2748,7 @@ function fitView() {
     state.viewport = { x: 160, y: 120, scale: 1 };
     renderAll();
     scheduleSave();
+    recordOperation("适配视图", "画布恢复默认视图");
     return;
   }
   pushHistory();
@@ -2624,6 +2768,7 @@ function fitView() {
   state.viewport.y = (rect.height - contentHeight * scale) / 2 - minY * scale;
   renderAll();
   scheduleSave();
+  recordOperation("适配视图", `已显示 ${state.nodes.length} 个节点`);
 }
 
 async function generateFromNode(id, {
@@ -3071,12 +3216,14 @@ async function downloadImage(node) {
       { id: node.assetId },
       `bestnai-${node.assetId}.${extension}`,
     );
+    recordOperation("下载图片", node.title || node.assetId, "success");
   } catch (error) {
+    recordOperation("下载图片失败", error.message || "图片下载失败", "error");
     toast(error.message || "图片下载失败", "error");
   }
 }
 
-function openImageViewer(node, { libraryAsset = null } = {}) {
+function openImageViewer(node, { libraryAsset = null, operationLabel = "打开图片预览" } = {}) {
   if (!node?.dataUrl) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
@@ -3093,6 +3240,7 @@ function openImageViewer(node, { libraryAsset = null } = {}) {
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
+  recordOperation(operationLabel, node.title || "图片");
 }
 
 function isPureEnglishPrompt(value) {
@@ -3101,6 +3249,7 @@ function isPureEnglishPrompt(value) {
 }
 
 function closeImageViewer() {
+  const wasOpen = !els.imageViewer.hidden;
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
   els.imageViewerPromptSection.hidden = false;
@@ -3108,6 +3257,7 @@ function closeImageViewer() {
   els.imageViewerTags.textContent = "暂无英文 tags 记录 / No English tags yet";
   state.viewerLibraryAsset = null;
   els.imageViewerPlaceBtn.hidden = true;
+  if (wasOpen) recordOperation("关闭图片预览");
 }
 
 async function ensureLibraryImageData(item) {
@@ -3162,8 +3312,10 @@ async function loadLibrary(render = true) {
     };
     preloadLibraryImages();
     if (render) renderAssetLibrary();
+    return true;
   } catch (error) {
     toast(error.message || "素材库读取失败", "error");
+    return false;
   }
 }
 
@@ -3191,6 +3343,7 @@ function setAssetPanel(open) {
 }
 
 function setAssetDeleteMode(enabled) {
+  const changed = state.assetDeleteMode !== !!enabled;
   state.assetDeleteMode = !!enabled;
   if (!state.assetDeleteMode) {
     state.selectedAssetIds.clear();
@@ -3203,6 +3356,7 @@ function setAssetDeleteMode(enabled) {
   els.assetSelectModeBtn.classList.toggle("active", state.assetDeleteMode);
   els.assetSelectModeBtn.setAttribute("aria-pressed", String(state.assetDeleteMode));
   updateAssetDeleteControls();
+  if (changed) recordOperation(state.assetDeleteMode ? "进入素材多选" : "退出素材多选");
 }
 
 function updateAssetDeleteControls() {
@@ -3299,6 +3453,7 @@ function renderAssetBatch(items, start) {
 }
 
 function alignAssetPanel() {
+  alignDebugBar();
   const { topbarRect } = alignedPanelEdges();
   const viewportRect = els.viewport.getBoundingClientRect();
   const debugRect = !els.debugBar.hidden
@@ -3343,6 +3498,25 @@ function updateAssetGridMetrics() {
   els.assetGrid.style.setProperty("--asset-card-height", `${tileHeight}px`);
 }
 
+function assetRatioLabel(item) {
+  const explicit = String(item?.ratio || "").trim();
+  if (explicit) return explicit;
+  const width = Number(item?.width) || 0;
+  const height = Number(item?.height) || 0;
+  if (!width || !height) return "";
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const divisor = gcd(Math.round(width), Math.round(height)) || 1;
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
+function assetSourceLabel(item) {
+  return item?.source === "retagged"
+    ? "反推"
+    : item?.source === "generated"
+      ? "生图"
+      : "图片";
+}
+
 function renderImageAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
@@ -3370,13 +3544,11 @@ function renderImageAssetCard(item, container = els.assetGrid) {
     loading.textContent = "图片读取失败";
   });
   thumb.append(loading, image);
-  if (item.artist) {
-    const artist = document.createElement("span");
-    artist.className = "asset-thumb-artist";
-    artist.textContent = item.artist;
-    artist.title = `画师预设：${item.artist}`;
-    thumb.appendChild(artist);
-  }
+  const sourceBadge = document.createElement("span");
+  sourceBadge.className = "asset-thumb-source";
+  sourceBadge.textContent = assetSourceLabel(item);
+  sourceBadge.title = item.source === "retagged" ? "反推素材" : "生成或上传素材";
+  thumb.appendChild(sourceBadge);
   const selected = document.createElement("span");
   selected.className = "asset-select-indicator";
   selected.setAttribute("aria-hidden", "true");
@@ -3388,7 +3560,19 @@ function renderImageAssetCard(item, container = els.assetGrid) {
   }).catch(() => {
     if (loading.isConnected) loading.textContent = "图片读取失败";
   });
-  card.appendChild(thumb);
+  const footer = document.createElement("footer");
+  footer.className = "asset-card-footer";
+  const name = document.createElement("strong");
+  name.className = "asset-card-name";
+  name.textContent = String(item.name || "未命名素材").trim() || "未命名素材";
+  name.title = name.textContent;
+  const meta = document.createElement("span");
+  meta.className = "asset-card-meta";
+  const metaParts = [assetRatioLabel(item), String(item.artist || "").trim()].filter(Boolean);
+  meta.textContent = metaParts.join(" · ") || "无附加信息";
+  meta.title = meta.textContent;
+  footer.append(name, meta);
+  card.append(thumb, footer);
   attachLibraryImageDrag(card, item);
   container.appendChild(card);
 }
@@ -3490,8 +3674,9 @@ async function openLibraryImageViewer(item) {
         ratio: item.ratio || "",
         seed: normalizeNaiSeed(item.seed),
       },
-    }, { libraryAsset: item });
+      }, { libraryAsset: item, operationLabel: "预览素材" });
   } catch (error) {
+    recordOperation("预览素材失败", error.message || "图片素材读取失败", "error");
     toast(error.message || "图片素材读取失败", "error");
   }
 }
@@ -3523,8 +3708,10 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
         source: item.source || "",
       },
     });
+    recordOperation("放入画布", item.name || "素材图片", "success");
     return true;
   } catch (error) {
+    recordOperation("放入画布失败", error.message || "添加图片素材失败", "error");
     toast(error.message || "添加图片素材失败", "error");
     return false;
   }
@@ -3555,7 +3742,9 @@ async function saveImageToLibrary(node) {
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
     if (els.assetPanel.classList.contains("open")) renderAssetLibrary();
     toast("图片已保存到素材库");
+    recordOperation("收录素材", node.title || "画布图片", "success");
   } catch (error) {
+    recordOperation("收录素材失败", error.message || "图片保存失败", "error");
     toast(error.message || "图片保存失败", "error");
   }
 }
@@ -3616,6 +3805,9 @@ async function loadInitialState() {
   state.debugEnabled = savedDebug === "1";
   els.debugModeBtn?.setAttribute("aria-pressed", String(debugModeEnabled()));
   els.debugModeBtn?.classList.toggle("active", debugModeEnabled());
+  const debugLabel = debugModeEnabled() ? "关闭详细调试模式" : "开启详细调试模式";
+  els.debugModeBtn?.setAttribute("aria-label", debugLabel);
+  if (els.debugModeBtn) els.debugModeBtn.title = debugLabel;
   loadPromptDefaults(preferences || {});
   const plugin = state.config.plugin || {};
   els.pluginDisplayName.textContent = plugin.name || "NAI Diffusion X";
@@ -3770,6 +3962,7 @@ function handleCanvasTouchEnd(event) {
   canvasTouchGesture = null;
   els.viewport.classList.remove("panning");
   scheduleSave(800);
+  recordOperation("平移画布", "触控视图");
 }
 
 els.viewport.addEventListener("pointerdown", (event) => {
@@ -3867,6 +4060,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
     els.viewport.removeEventListener("pointerup", end);
     els.viewport.removeEventListener("pointercancel", end);
     scheduleSave(800);
+    recordOperation("平移画布", "鼠标中键拖动");
   };
   els.viewport.addEventListener("pointermove", move);
   els.viewport.addEventListener("pointerup", end);
@@ -3978,14 +4172,14 @@ function isSelectableTextTarget(target) {
   const selectionInTextSurface = selectionNodes.some((node) => {
     const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
     return element?.closest?.(
-      ".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer, .debug-body",
+      ".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer, .debug-body, .operation-log-list",
     );
   });
   return !!(
     targetElement?.closest(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")
-    || targetElement?.closest(".debug-body")
+    || targetElement?.closest(".debug-body, .operation-log-list")
     || document.activeElement?.closest?.(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")
-    || document.activeElement?.closest?.(".debug-body")
+    || document.activeElement?.closest?.(".debug-body, .operation-log-list")
     || selectionInTextSurface
   );
 }
@@ -4085,7 +4279,13 @@ els.debugModeBtn?.addEventListener("click", () => {
   try { localStorage.setItem("bestnaiCanvasDebug", state.debugEnabled ? "1" : "0"); } catch (_) { /* ignore */ }
   els.debugModeBtn.setAttribute("aria-pressed", String(debugModeEnabled()));
   els.debugModeBtn.classList.toggle("active", debugModeEnabled());
-  recordOperation(next ? "开启调试模式" : "关闭调试模式", next ? "详细流水已显示在画布底部" : "调试信息已隐藏");
+  const debugLabel = next ? "关闭详细调试模式" : "开启详细调试模式";
+  els.debugModeBtn.title = debugLabel;
+  els.debugModeBtn.setAttribute("aria-label", debugLabel);
+  recordOperation(
+    next ? "开启调试模式" : "关闭调试模式",
+    next ? "详细诊断已显示在画布底部" : "详细诊断已关闭，操作记录仍会保留",
+  );
   renderDebugBar();
   renderAll();
 });
@@ -4141,6 +4341,25 @@ document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((b
     setAssetPanel(!els.assetPanel.classList.contains("open"));
   });
 });
+els.assetRefreshBtn?.addEventListener("click", async (event) => {
+  event.stopPropagation();
+  if (els.assetRefreshBtn.disabled) return;
+  els.assetRefreshBtn.disabled = true;
+  els.assetRefreshBtn.classList.add("spinning");
+  recordOperation("刷新素材库");
+  try {
+    const refreshed = await loadLibrary(true);
+    recordOperation(
+      refreshed ? "素材库已刷新" : "素材库刷新失败",
+      refreshed ? `已收录 ${state.library.images.length} 张素材` : "读取服务失败",
+      refreshed ? "success" : "error",
+    );
+  } finally {
+    els.assetRefreshBtn.disabled = false;
+    els.assetRefreshBtn.classList.remove("spinning");
+    refreshIcons(els.assetRefreshBtn);
+  }
+});
 els.assetSelectModeBtn.addEventListener("click", () => setAssetDeleteMode(true));
 els.assetDeleteCancel.addEventListener("click", () => setAssetDeleteMode(false));
 els.assetDeleteConfirm.addEventListener("click", deleteSelectedLibraryAssets);
@@ -4155,7 +4374,9 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   await saveWorkspace();
   try {
     await bridge.download("canvas/workspace/export", { id: canvasId }, `${state.currentCanvasTitle || "bestnai-canvas"}.json`);
+    recordOperation("导出工作区", state.currentCanvasTitle, "success");
   } catch (error) {
+    recordOperation("导出工作区失败", error.message || "导出失败", "error");
     toast(error.message, "error");
   }
 });
@@ -4179,7 +4400,9 @@ els.workspaceInput.addEventListener("change", async () => {
     renderAll();
     scheduleSave(0);
     toast("工作区导入完成");
+    recordOperation("导入工作区", `${state.nodes.length} 个节点`, "success");
   } catch (error) {
+    recordOperation("导入工作区失败", error.message || "导入失败", "error");
     toast(error.message, "error");
   }
 });
@@ -4195,7 +4418,9 @@ document.getElementById("cancelClearBtn").addEventListener("click", () => {
 });
 document.getElementById("confirmClearBtn").addEventListener("click", () => {
   clearModal.hidden = true;
+  const count = state.nodes.length;
   deleteNodes(state.nodes.map((node) => node.id));
+  recordOperation("清空画布", `${count} 个节点`);
 });
 clearModal.addEventListener("pointerdown", (event) => {
   if (event.target === clearModal) clearModal.hidden = true;
@@ -4329,11 +4554,7 @@ window.addEventListener("resize", () => {
   setNodeContextMenu(false);
   setSelectionContextMenu(false);
   alignToastRegion();
-  if (!els.projectMenu.hidden) alignProjectMenu();
-  if (els.assetPanel.classList.contains("open")) {
-    alignAssetPanel();
-    updateAssetGridMetrics();
-  }
+  scheduleOverlayAlignment();
 });
 window.addEventListener("online", checkConnection);
 window.addEventListener("offline", () => setConnectionState("offline"));
@@ -4363,6 +4584,7 @@ window.addEventListener("beforeunload", (event) => {
 applyGridStyle();
 renderDebugBar();
 refreshIcons();
+setupOverlayAlignment();
 setupLogoEasterEgg();
 setupCompositionGuard();
 loadInitialState().catch((error) => {
