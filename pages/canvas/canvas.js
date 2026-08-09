@@ -160,7 +160,8 @@ const state = {
   gridStyle: (() => {
     try {
       const value = localStorage.getItem(GRID_STYLE_KEY);
-      return ["dots", "lines", "blank"].includes(value) ? value : "dots";
+      // 3.3.5 只保留点阵与空白两档；旧版的 lines 状态自动回到点阵。
+      return value === "blank" ? "blank" : "dots";
     } catch (_) {
       return "dots";
     }
@@ -198,10 +199,9 @@ function refreshIcons(root = document) {
   }
 }
 
-const GRID_STYLE_ORDER = ["dots", "lines", "blank"];
+const GRID_STYLE_ORDER = ["dots", "blank"];
 const GRID_STYLE_LABELS = {
-  dots: "点",
-  lines: "格",
+  dots: "点阵",
   blank: "空白",
 };
 
@@ -939,11 +939,14 @@ function setSelection(ids, primaryId = "") {
   const next = state.selectedIds.join(",");
   if (previous !== next || previousPrimary !== state.selectedId) {
     const selected = findNode(state.selectedId);
+    const detail = state.selectedIds.length > 1
+      ? `${state.selectedIds.length} 个节点`
+      : selected?.title || `${state.selectedIds.length} 个节点`;
     // recordOperation refreshes the recorder, so selection and diagnostics
     // move together without rebuilding the canvas or rendering the bar twice.
     recordOperation(
       state.selectedIds.length > 1 ? "多选节点" : state.selectedIds.length ? "选择节点" : "取消选择",
-      selected?.title || `${state.selectedIds.length} 个节点`,
+      detail,
     );
   }
 }
@@ -2462,7 +2465,13 @@ function attachNodeDrag(handle, element, node) {
       window.removeEventListener("pointercancel", end);
       document.body.classList.remove("dragging-nodes");
       group.forEach((item) => item.element?.classList.remove("dragging"));
-      if (moved) scheduleSave();
+      if (moved) {
+        scheduleSave();
+        recordOperation(
+          "移动节点",
+          group.length > 1 ? `${group.length} 个节点` : node.title || "未命名节点",
+        );
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
@@ -2507,7 +2516,13 @@ function attachNodeResize(handle, element, node) {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
-      if (moved) scheduleSave();
+      if (moved) {
+        scheduleSave();
+        recordOperation(
+          "调整节点大小",
+          `${node.title || "未命名节点"} · ${Math.round(node.width)}×${Math.round(node.height)}`,
+        );
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
@@ -2549,7 +2564,10 @@ function attachImageNodeResize(handle, element, node) {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
-      if (moved) scheduleSave();
+      if (moved) {
+        scheduleSave();
+        recordOperation("调整图片大小", `${node.title || "图片"} · 宽 ${Math.round(node.width)}px`);
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);

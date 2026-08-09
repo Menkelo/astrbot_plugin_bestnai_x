@@ -583,12 +583,6 @@ select:focus-visible {
   background-image: radial-gradient(var(--grid) 1px, transparent 1px);
 }
 
-.grid-style-lines .board {
-  background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--grid) 72%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in srgb, var(--grid) 72%, transparent) 1px, transparent 1px);
-}
-
 .grid-style-blank .board {
   background-image: none;
 }

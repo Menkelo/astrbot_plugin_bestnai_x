@@ -719,6 +719,22 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("persistOperationLog()", editor)
         self.assertIn("function alignDebugBar()", editor)
         self.assertIn("topbarRect.left - viewportRect.left", editor)
+        self.assertIn('recordOperation(\n          "移动节点"', editor)
+        self.assertIn('"调整节点大小",', editor)
+        self.assertIn('recordOperation("调整图片大小"', editor)
+        self.assertIn('`${state.selectedIds.length} 个节点`', editor)
+
+    def test_grid_style_cycles_only_between_dots_and_blank(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        self.assertIn('const GRID_STYLE_ORDER = ["dots", "blank"]', editor)
+        self.assertIn('return value === "blank" ? "blank" : "dots";', editor)
+        self.assertIn('id="gridStyleLabel">点阵</span>', html)
+        self.assertIn(".grid-style-dots .board", styles)
+        self.assertIn(".grid-style-blank .board", styles)
+        self.assertNotIn(".grid-style-lines .board", styles)
 
     def test_minimap_is_removed_from_the_canvas(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
