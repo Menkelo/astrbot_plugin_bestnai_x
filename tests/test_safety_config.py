@@ -57,6 +57,35 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertEqual(filtered, "portrait")
         self.assertIn("nude", removed)
 
+    def test_danbooru_separator_variants_are_filtered(self) -> None:
+        filtered, removed = filter_sensitive_prompt(
+            "1girl, oral_sex, nude_female, blue_hair, rating:explicit",
+            None,
+        )
+
+        self.assertIn("1girl", filtered)
+        self.assertIn("blue_hair", filtered)
+        self.assertNotIn("oral_sex", filtered)
+        self.assertNotIn("nude", filtered)
+        self.assertNotIn("rating:", filtered)
+        self.assertIn("oral sex", removed)
+        self.assertIn("nude", removed)
+        self.assertIn("explicit", removed)
+
+    def test_zero_width_characters_cannot_bypass_filter(self) -> None:
+        filtered, removed = filter_sensitive_prompt("n\u200bude, portrait", None)
+
+        self.assertEqual(filtered, "portrait")
+        self.assertIn("nude", removed)
+
+    def test_common_vision_moderation_shapes_are_supported(self) -> None:
+        moderator = SafetyModerator(SimpleNamespace())
+
+        self.assertFalse(moderator._parse_result('{"nsfw":true}').safe)
+        self.assertTrue(moderator._parse_result('{"nsfw":false}').safe)
+        self.assertFalse(moderator._parse_result('{"verdict":"unsafe"}').safe)
+        self.assertFalse(moderator._parse_result("图片不安全，存在裸露").safe)
+
     def test_plugin_config_preserves_an_explicit_empty_list(self) -> None:
         config = PluginConfig.from_dict(
             {"safety_config": {"prompt_block_words": []}}
@@ -85,6 +114,29 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         self.assertEqual(prompt_words["type"], "list")
         self.assertEqual(prompt_words["default"], HARD_BLOCK_WORDS)
+
+    def test_schema_only_exposes_the_generation_provider(self) -> None:
+        schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
+        api_config = schema["api_config"]
+
+        self.assertEqual(api_config["description"], "生图接口配置")
+        self.assertEqual(list(api_config["items"]), ["provider_id"])
+
+    def test_legacy_manual_generation_fields_are_ignored(self) -> None:
+        config = PluginConfig.from_dict(
+            {
+                "api_config": {
+                    "provider_id": "image-provider",
+                    "prefer_provider": False,
+                    "api_url": "https://legacy.example/v1",
+                    "api_key": "legacy-key",
+                }
+            }
+        )
+
+        self.assertEqual(config.image_provider_id, "image-provider")
+        self.assertEqual(config.api_url, "")
+        self.assertEqual(config.api_key, "")
 
     def test_qq_path_filters_the_fully_assembled_prompt(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")

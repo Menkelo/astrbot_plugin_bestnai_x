@@ -154,11 +154,9 @@ class ImageRetagConfig:
 
 @dataclass
 class PluginConfig:
-    prefer_provider: bool = True
     image_provider_id: str = ""
     api_url: str = ""
     api_key: str = ""
-    use_manual_api: bool = False
     max_concurrency: int = 1
 
     user_cooldown: int = 0
@@ -196,8 +194,6 @@ class PluginConfig:
         safety_conf = config.get("safety_config", {}) or {}
         image_retag_conf = config.get("image_retag_config", {}) or {}
 
-        prefer_provider = bool(api_conf.get("prefer_provider", True))
-
         # max_concurrency 在 _conf_schema.json 里属于 generation_config，
         # 另外两个位置只是为了兼容手写配置。
         raw_max_concurrency = gen_conf.get(
@@ -217,18 +213,6 @@ class PluginConfig:
             _extract_provider_id(api_conf.get("provider_id"))
             or _extract_provider_id(config.get("image_provider_id"))
             or _extract_provider_id(config.get("provider_id"))
-        )
-
-        manual_api_url = str(
-            api_conf.get("api_url")
-            or config.get("api_url")
-            or ""
-        ).strip().rstrip("/")
-
-        manual_api_key = _extract_api_key(
-            api_conf.get("api_key")
-            or config.get("api_key")
-            or ""
         )
 
         translator_provider_id = (
@@ -262,11 +246,11 @@ class PluginConfig:
         first_artist_name = _first_artist_preset_name(raw_artist_presets) or "可爱"
 
         return cls(
-            prefer_provider=prefer_provider,
             image_provider_id=image_provider_id,
-            api_url=manual_api_url,
-            api_key=manual_api_key,
-            use_manual_api=False,
+            # 生图 API 地址与 Key 只从已选择的 AstrBot 提供商解析，
+            # 不再读取旧版插件配置中的手填字段。
+            api_url="",
+            api_key="",
             max_concurrency=max_concurrency,
             generation=GenerationConfig.from_plugin_config(config),
             translator=TranslatorConfig(
@@ -418,27 +402,6 @@ def _extract_provider_id(raw) -> str:
                 v = first.get(k)
                 if isinstance(v, str) and v.strip():
                     return v.strip()
-
-    return ""
-
-
-def _extract_api_key(raw) -> str:
-    if raw is None:
-        return ""
-
-    if isinstance(raw, str):
-        return raw.strip()
-
-    if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, str) and item.strip():
-                return item.strip()
-
-    if isinstance(raw, dict):
-        for k in ("key", "api_key", "value", "access_token"):
-            v = raw.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
 
     return ""
 

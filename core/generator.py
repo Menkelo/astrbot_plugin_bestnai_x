@@ -72,7 +72,7 @@ class ImageGenerator:
         seed: Optional[int] = None,
     ) -> "GenerationResult":
         if not self.config.api_url or not self.config.api_key:
-            raise APIKeyError("未配置生图 API 地址或 API Key")
+            raise APIKeyError("生图接口提供商未就绪，请检查提供商的 API 地址与 Key")
 
         api_base = self.config.api_url.rstrip("/")
         api_key = self.config.api_key.strip()
@@ -80,17 +80,6 @@ class ImageGenerator:
         # 种子在这里定一次，两条端点路径和 fallback 共用同一个值。
         # 以前两个方法各自随机，fallback 后拿到的图和日志里的种子对不上。
         resolved_seed = self._resolve_seed(seed)
-
-        if getattr(self.config, "use_manual_api", False):
-            logger.info("[BestNAI] 当前为手动生图 API 模式，直接使用 /chat/completions")
-            images = await self._generate_by_chat_endpoint(
-                api_base=api_base,
-                api_key=api_key,
-                prompt=prompt,
-                gen_config=gen_config,
-                seed=resolved_seed,
-            )
-            return GenerationResult(images=images, seed=resolved_seed)
 
         try:
             images = await self._generate_by_images_endpoint(

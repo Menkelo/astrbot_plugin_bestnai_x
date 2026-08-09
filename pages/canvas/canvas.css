@@ -1378,7 +1378,8 @@ select:focus-visible {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 64px;
+  padding: clamp(16px, 5vh, 64px) clamp(16px, 4vw, 64px);
+  overflow: hidden;
   background: rgba(8, 12, 20, .92);
 }
 
@@ -1388,55 +1389,96 @@ select:focus-visible {
 
 .image-viewer-stage {
   display: grid;
-  width: min(92vw, 1600px);
-  max-width: 100%;
+  width: 100%;
+  height: 100%;
+  max-width: 1600px;
   max-height: 100%;
+  min-height: 0;
   grid-template-areas:
     "viewer-image"
     "viewer-details";
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   margin: 0;
-  place-items: center;
+  place-items: stretch center;
   gap: 12px;
 }
 
-.image-viewer-stage img {
+.image-viewer-image-frame {
   grid-area: viewer-image;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.image-viewer-stage img {
   display: block;
-  max-width: min(92vw, 1600px);
-  max-height: calc(100vh - 300px);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 12px;
   box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
 }
 
 .image-viewer-details {
   display: grid;
   grid-area: viewer-details;
-  width: min(92vw, 900px);
+  width: 100%;
+  max-width: 900px;
   gap: 10px;
   padding: 13px 15px;
   border: 1px solid rgba(255, 255, 255, .14);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(15, 23, 42, .78);
   color: #e5e7eb;
   box-shadow: 0 18px 48px rgba(0, 0, 0, .26);
 }
 
+.image-viewer.layout-bottom .image-viewer-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-viewer.layout-bottom .image-viewer-image-frame {
+  height: auto;
+  flex: 0 1 auto;
+}
+
+.image-viewer.layout-bottom .image-viewer-details {
+  max-height: min(38vh, 300px);
+  flex: 0 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .image-viewer.layout-side .image-viewer-stage {
   display: flex;
   width: fit-content;
-  max-width: min(94vw, 1600px);
+  height: 100%;
+  max-width: 100%;
+  min-height: 0;
   align-items: stretch;
   justify-content: center;
-  gap: 18px;
+  gap: 12px;
 }
 
-.image-viewer.layout-side .image-viewer-stage img {
-  max-width: calc(94vw - 298px);
-  max-height: calc(100vh - 128px);
+.image-viewer.layout-side .image-viewer-image-frame {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  aspect-ratio: var(--viewer-image-aspect, 2 / 3);
   flex: 0 1 auto;
-  align-self: center;
 }
 
 .image-viewer.layout-side .image-viewer-details {
@@ -1444,7 +1486,7 @@ select:focus-visible {
   flex-direction: column;
   width: clamp(280px, 28vw, 360px);
   min-width: 0;
-  max-height: calc(100vh - 128px);
+  max-height: 100%;
   flex: 0 0 clamp(280px, 28vw, 360px);
   align-self: stretch;
   overflow: auto;
@@ -1953,6 +1995,10 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.asset-stack-trail[hidden] {
+  display: none;
+}
+
 .asset-stack-trail:hover,
 .asset-stack-trail:focus-visible {
   border-color: var(--line-2);
@@ -2257,7 +2303,7 @@ select:focus-visible {
 .asset-stack-card {
   display: flex;
   min-height: 0;
-  height: auto;
+  height: 100%;
   flex-direction: column;
   padding: 0;
   border: 1px solid var(--line);
@@ -2965,27 +3011,25 @@ select:focus-visible {
   }
 
   .image-viewer {
-    padding: 54px 16px 24px;
-  }
-
-  .image-viewer-stage img {
-    max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 310px);
+    padding: clamp(12px, 4vh, 32px) 16px;
   }
 
   .image-viewer-stage,
   .image-viewer.layout-side .image-viewer-stage {
     display: grid;
-    width: calc(100vw - 32px);
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
     grid-template-areas:
       "viewer-image"
       "viewer-details";
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     gap: 10px;
   }
 
   .image-viewer-details {
-    width: calc(100vw - 32px);
+    width: 100%;
   }
 
   .image-viewer-details-toggle {

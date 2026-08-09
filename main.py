@@ -189,11 +189,7 @@ class BestNAIPlugin(Star):
             tag_translation_callback=self._canvas_translate_tags,
         )
 
-        api_source = (
-            "手动生图 API"
-            if getattr(self.plugin_config, "use_manual_api", False)
-            else (self.plugin_config.image_provider_id or "(未选择)")
-        )
+        api_source = self.plugin_config.image_provider_id or "(未选择)"
 
         artist_source = (
             self.plugin_config.artist_preset
@@ -255,6 +251,7 @@ class BestNAIPlugin(Star):
             "defaultArtist": self._get_default_artist_display_name(),
             "ratios": ratios,
             "artists": artists,
+            "retagControlPrompts": self.plugin_config.get_retag_control_prompts(),
             "maxConcurrency": self.plugin_config.max_concurrency,
             "translatorEnabled": self.plugin_config.translator.enabled,
             "retagEnabled": self.plugin_config.image_retag.enabled,
@@ -975,46 +972,24 @@ class BestNAIPlugin(Star):
         return text
 
     def _resolve_image_provider(self) -> None:
-        prefer_provider = bool(getattr(self.plugin_config, "prefer_provider", True))
         provider_id = getattr(self.plugin_config, "image_provider_id", "") or ""
-
-        manual_api_url = (getattr(self.plugin_config, "api_url", "") or "").strip().rstrip("/")
-        manual_api_key = (getattr(self.plugin_config, "api_key", "") or "").strip()
-
-        self.plugin_config.use_manual_api = False
+        self.plugin_config.api_url = ""
+        self.plugin_config.api_key = ""
         # 只有真正拿到接口配置才算就绪；否则每次生图前都会再试一次
         self._image_provider_resolved = False
 
-        if not prefer_provider:
-            if manual_api_url and manual_api_key:
-                self.plugin_config.api_url = manual_api_url
-                self.plugin_config.api_key = manual_api_key
-                self.plugin_config.use_manual_api = True
-                self._image_provider_resolved = True
-
-                logger.info(
-                    f"[BestNAI] 已使用手动生图 API，模式=/chat/completions，api_base={self.plugin_config.api_url}"
-                )
-                return
-
-            logger.warning("[BestNAI] 已关闭优先使用提供商，但未填写完整手动生图 API 地址/API Key")
-            return
-
         if not provider_id:
-            logger.warning("[BestNAI] 已开启优先使用提供商，但未选择生图接口提供商")
-            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
+            logger.warning("[BestNAI] 未选择生图接口提供商")
             return
 
         try:
             provider = self.context.get_provider_by_id(provider_id)
         except Exception as e:
             logger.warning(f"[BestNAI] 获取生图接口提供商失败 provider_id={provider_id}: {e}")
-            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         if not provider:
             logger.warning(f"[BestNAI] 找不到生图接口提供商 ID: {provider_id}")
-            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         p_conf = getattr(provider, "provider_config", {}) or {}
@@ -1047,33 +1022,19 @@ class BestNAIPlugin(Star):
 
         if not base_url:
             logger.warning(f"[BestNAI] 生图接口提供商 {provider_id} 缺少 API Base")
-            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         if not api_key:
             logger.warning(f"[BestNAI] 生图接口提供商 {provider_id} 缺少 API Key")
-            self._warn_if_falling_back_to_manual(manual_api_url, manual_api_key)
             return
 
         self.plugin_config.api_url = str(base_url).rstrip("/")
         self.plugin_config.api_key = str(api_key)
-        self.plugin_config.use_manual_api = False
         self._image_provider_resolved = True
 
         logger.info(
             f"[BestNAI] 已使用生图接口提供商：{provider_id}，api_base={self.plugin_config.api_url}"
         )
-
-    def _warn_if_falling_back_to_manual(self, api_url: str, api_key: str) -> None:
-        """提供商没解析出来、但配置里还留着手动 API 时提醒一句。
-
-        这种情况下插件会拿旧的手动地址继续跑，容易被误认为提供商生效了。
-        """
-        if api_url and api_key:
-            logger.warning(
-                f"[BestNAI] 生图提供商未就绪，本次将改用配置中残留的手动 API：{api_url}。"
-                "如果这不是你想要的，请清空手动 API 地址/Key，或关闭“优先使用提供商”。"
-            )
 
     def _ensure_image_provider_ready(self) -> None:
         """
@@ -1081,9 +1042,6 @@ class BestNAIPlugin(Star):
         只要提供商还没真正解析成功，就在每次生图前再试一次，
         避免必须手动重载插件。
         """
-        if getattr(self.plugin_config, "use_manual_api", False):
-            return
-
         if getattr(self, "_image_provider_resolved", False):
             return
 
@@ -1857,7 +1815,7 @@ class BestNAIPlugin(Star):
         if not self.plugin_config.is_configured():
             yield event.plain_result(
                 "❌ 插件未配置。\n"
-                "请开启“优先使用提供商”并选择生图接口提供商，或关闭该开关后填写完整手动生图 API 地址/API Key。"
+                "请在插件配置中选择生图接口提供商。"
             )
             return
 
@@ -2168,7 +2126,7 @@ class BestNAIPlugin(Star):
             if not self.plugin_config.is_configured():
                 yield event.plain_result(
                     "❌ 插件未配置。\n"
-                    "请开启“优先使用提供商”并选择生图接口提供商，或关闭该开关后填写完整手动生图 API 地址/API Key。"
+                    "请在插件配置中选择生图接口提供商。"
                 )
                 return
 

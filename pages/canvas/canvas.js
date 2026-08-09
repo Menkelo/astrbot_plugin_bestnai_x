@@ -36,6 +36,7 @@ const els = {
   selectionBox: document.getElementById("selectionBox"),
   arrangeSelectionBtn: document.getElementById("canvasArrangeBtn"),
   imageViewer: document.getElementById("imageViewer"),
+  imageViewerImageFrame: document.querySelector(".image-viewer-image-frame"),
   imageViewerImage: document.getElementById("imageViewerImage"),
   imageViewerDetails: document.getElementById("imageViewerDetails"),
   imageViewerDetailsToggle: document.getElementById("imageViewerDetailsToggle"),
@@ -138,6 +139,7 @@ const state = {
     configured: false,
     ratios: [],
     artists: [],
+    retagControlPrompts: [],
     defaultRatio: "2:3",
     defaultArtist: "",
     retagEnabled: false,
@@ -196,6 +198,7 @@ const state = {
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
   viewerImageDimensions: { width: 0, height: 0 },
+  viewerFrameSyncHandle: 0,
   viewerTagLookupSequence: 0,
   viewerTagTranslationCache: new Map(),
   retagRequestSequence: 0,
@@ -306,7 +309,7 @@ function assetGroupForItem(item) {
   }
   return {
     key: "artist:__unassigned__",
-    label: "未分类",
+    label: "原始提示词",
     detail: "未标注画师",
     unassigned: true,
   };
@@ -2486,7 +2489,7 @@ function attachConnectionPort(port, nodeId, role) {
           recordOperation("连接节点", `${findNode(source)?.title || source} → ${findNode(destination)?.title || destination}`);
           renderAll();
           if (findNode(source)?.type === "image" && findNode(destination)?.type === "prompt") {
-            void retagFromNode(destination, false, { expandLayer: true, automatic: true });
+            void retagFromNode(destination, false, { automatic: true });
           }
           return;
         }
@@ -3118,6 +3121,7 @@ function clearRetagCache(node) {
     retagTagGroups: _retagTagGroups,
     retagTagTranslations: _retagTagTranslations,
     retagLayerModes: _retagLayerModes,
+    retagLayerExpanded: _retagLayerExpanded,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
     translationResult: _translationResult,
@@ -3252,7 +3256,7 @@ function recordRunDebug(node, stage, payload) {
 async function retagFromNode(
   id,
   generateAfter = false,
-  { expandLayer = false, automatic = false } = {},
+  { automatic = false } = {},
 ) {
   const node = findNode(id);
   if (!node || (node.status && !(automatic && node.status === "retagging"))) return false;
@@ -3314,7 +3318,7 @@ async function retagFromNode(
       retagFromCanvasCache: !!result.fromCanvasCache,
       retagTagGroups: normalizeRetagTagGroups(result?.tagGroups),
       retagTagTranslations: normalizeRetagTagTranslations(result?.tagTranslations),
-      retagLayerExpanded: expandLayer || node.meta?.retagLayerExpanded === true,
+      retagLayerExpanded: node.meta?.retagLayerExpanded === true,
       translatedPrompt: retagPrompt,
     };
     // Keep the source image self-describing after the first retag.  This is
@@ -3456,25 +3460,264 @@ function applyImageViewerLayout(width, height) {
   const imageHeight = Number(height) || els.imageViewerImage.naturalHeight || 0;
   if (imageWidth && imageHeight) {
     state.viewerImageDimensions = { width: imageWidth, height: imageHeight };
+    els.imageViewer.style.setProperty("--viewer-image-aspect", `${imageWidth} / ${imageHeight}`);
+  } else {
+    els.imageViewer.style.removeProperty("--viewer-image-aspect");
   }
   const layout = preferredImageViewerLayout(imageWidth, imageHeight);
   els.imageViewer.classList.toggle("layout-side", layout === "side");
   els.imageViewer.classList.toggle("layout-bottom", layout === "bottom");
   els.imageViewer.dataset.layout = layout;
+  scheduleImageViewerFrameSync();
+}
+
+function syncImageViewerFrameSize() {
+  const frame = els.imageViewerImageFrame;
+  if (!frame) return;
+  frame.style.removeProperty("width");
+  frame.style.removeProperty("height");
+  if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) return;
+
+  const imageWidth = Number(state.viewerImageDimensions.width)
+    || Number(els.imageViewerImage.naturalWidth)
+    || 0;
+  const imageHeight = Number(state.viewerImageDimensions.height)
+    || Number(els.imageViewerImage.naturalHeight)
+    || 0;
+  if (!imageWidth || !imageHeight) return;
+
+  const stage = frame.closest(".image-viewer-stage");
+  if (!stage) return;
+  const stageRect = stage.getBoundingClientRect();
+  const detailsRect = els.imageViewerDetails.getBoundingClientRect();
+  const stageStyles = window.getComputedStyle(stage);
+  const rowGap = parseFloat(stageStyles.rowGap || stageStyles.gap) || 0;
+  const maxWidth = Math.max(0, stageRect.width);
+  const maxHeight = Math.max(0, stageRect.height - detailsRect.height - rowGap);
+  if (!maxWidth || !maxHeight) return;
+
+  const scale = Math.min(maxWidth / imageWidth, maxHeight / imageHeight);
+  frame.style.width = `${imageWidth * scale}px`;
+  frame.style.height = `${imageHeight * scale}px`;
+}
+
+function scheduleImageViewerFrameSync() {
+  if (state.viewerFrameSyncHandle) {
+    window.cancelAnimationFrame(state.viewerFrameSyncHandle);
+  }
+  state.viewerFrameSyncHandle = window.requestAnimationFrame(() => {
+    state.viewerFrameSyncHandle = 0;
+    syncImageViewerFrameSize();
+  });
 }
 
 function setImageViewerDetailsCollapsed(collapsed) {
   const next = !!collapsed;
   els.imageViewerDetails.classList.toggle("collapsed", next);
   els.imageViewerDetailsToggle.setAttribute("aria-expanded", String(!next));
+  scheduleImageViewerFrameSync();
+}
+
+function imageViewerPointHitsRenderedImage(clientX, clientY) {
+  const image = els.imageViewerImage;
+  const rect = image.getBoundingClientRect();
+  const naturalWidth = Number(image.naturalWidth) || Number(state.viewerImageDimensions.width) || 0;
+  const naturalHeight = Number(image.naturalHeight) || Number(state.viewerImageDimensions.height) || 0;
+  if (!rect.width || !rect.height || !naturalWidth || !naturalHeight) {
+    return (
+      clientX >= rect.left
+      && clientX <= rect.right
+      && clientY >= rect.top
+      && clientY <= rect.bottom
+    );
+  }
+  const scale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight);
+  const renderedWidth = naturalWidth * scale;
+  const renderedHeight = naturalHeight * scale;
+  const left = rect.left + (rect.width - renderedWidth) / 2;
+  const top = rect.top + (rect.height - renderedHeight) / 2;
+  return (
+    clientX >= left
+    && clientX <= left + renderedWidth
+    && clientY >= top
+    && clientY <= top + renderedHeight
+  );
+}
+
+const IMAGE_VIEWER_CONTROL_TAGS = new Set([
+  "best quality",
+  "amazing quality",
+  "very aesthetic",
+  "absurdres",
+  "masterpiece",
+  "high quality",
+  "ultra detailed",
+  "highres",
+  "score_9",
+  "score_8_up",
+  "score_7_up",
+  "score_6_up",
+  "rating:safe",
+  "rating:general",
+  "rating:questionable",
+  "rating:explicit",
+]);
+
+function splitImageViewerPromptTokens(prompt) {
+  const text = String(prompt || "");
+  const tokens = [];
+  let buffer = "";
+  let weighted = false;
+  let quote = "";
+  const bracketStack = [];
+  let index = 0;
+
+  const flush = () => {
+    const value = buffer.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+    if (value) tokens.push(value);
+    buffer = "";
+  };
+
+  while (index < text.length) {
+    if (!weighted && !buffer.trim()) {
+      const weightPrefix = /^-?\d+(?:\.\d+)?::/.exec(text.slice(index));
+      if (weightPrefix) {
+        buffer += weightPrefix[0];
+        index += weightPrefix[0].length;
+        weighted = true;
+        continue;
+      }
+    }
+
+    if (weighted) {
+      if (text.startsWith("::", index)) {
+        buffer += "::";
+        index += 2;
+        weighted = false;
+        continue;
+      }
+      buffer += text[index];
+      index += 1;
+      continue;
+    }
+
+    const character = text[index];
+    if (quote) {
+      buffer += character;
+      if (character === quote && text[index - 1] !== "\\") quote = "";
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      buffer += character;
+      index += 1;
+      continue;
+    }
+    if ("([{".includes(character)) {
+      bracketStack.push(character);
+      buffer += character;
+      index += 1;
+      continue;
+    }
+    if (")]}".includes(character)) {
+      if (bracketStack.length) bracketStack.pop();
+      buffer += character;
+      index += 1;
+      continue;
+    }
+    if (",;\n".includes(character) && !bracketStack.length) {
+      flush();
+      index += 1;
+      continue;
+    }
+    buffer += character;
+    index += 1;
+  }
+  flush();
+  return tokens;
+}
+
+function imageViewerWeightedTokenParts(token) {
+  const value = String(token || "").trim();
+  const match = /^\s*(-?\d+(?:\.\d+)?)::\s*([\s\S]*?)\s*::\s*$/.exec(value);
+  if (!match) return { weight: "", atoms: value ? [value] : [], weighted: false };
+  return {
+    weight: match[1],
+    atoms: splitImageViewerPromptTokens(match[2]),
+    weighted: true,
+  };
+}
+
+function imageViewerControlTagKey(value) {
+  return String(value || "")
+    .toLocaleLowerCase()
+    .replace(/[\[\]{}()]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function imageViewerConfiguredControlKeys(extraControlPrompts = []) {
+  const configuredPrompts = Array.isArray(state.config.retagControlPrompts)
+    ? state.config.retagControlPrompts
+    : [state.config.retagControlPrompts];
+  const additionalPrompts = Array.isArray(extraControlPrompts)
+    ? extraControlPrompts
+    : [extraControlPrompts];
+  const keys = new Set();
+  [...configuredPrompts, ...additionalPrompts].forEach((prompt) => {
+    splitImageViewerPromptTokens(prompt).forEach((segment) => {
+      imageViewerWeightedTokenParts(segment).atoms.forEach((atom) => {
+        const key = imageViewerControlTagKey(atom).replace(/^[,;\s]+|[,;\s]+$/g, "");
+        if (key) keys.add(key);
+      });
+    });
+  });
+  return keys;
+}
+
+function imageViewerTagIsControl(token, configuredKeys) {
+  const lowered = String(token || "").trim().toLocaleLowerCase();
+  const plain = imageViewerControlTagKey(token);
+  return (
+    lowered.includes("artist:")
+    || /\bartist(?:_|\s)/.test(lowered)
+    || configuredKeys.has(plain)
+    || IMAGE_VIEWER_CONTROL_TAGS.has(plain)
+    || ["quality", "aesthetic", "absurdres"].some((phrase) => plain.includes(phrase))
+    || /^(?:rating|score)\s*[:_]/.test(plain)
+  );
+}
+
+function stripImageViewerControlTags(tags, extraControlPrompts = []) {
+  const configuredKeys = imageViewerConfiguredControlKeys(extraControlPrompts);
+  const kept = [];
+  const seen = new Set();
+  splitImageViewerPromptTokens(tags).forEach((segment) => {
+    const { weight, atoms, weighted } = imageViewerWeightedTokenParts(segment);
+    const filtered = [];
+    atoms.forEach((rawToken) => {
+      const token = String(rawToken || "").trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+      const key = imageViewerControlTagKey(token);
+      if (!token || !key || imageViewerTagIsControl(token, configuredKeys) || seen.has(key)) return;
+      seen.add(key);
+      filtered.push(token);
+    });
+    if (!filtered.length) return;
+    kept.push(weighted ? `${weight}::${filtered.join(", ")} ::` : filtered.join(", "));
+  });
+  return kept.join(", ").trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+}
+
+function imageViewerAtomicTags(tags) {
+  return splitImageViewerPromptTokens(tags)
+    .flatMap((segment) => imageViewerWeightedTokenParts(segment).atoms)
+    .map((tag) => String(tag || "").trim())
+    .filter(Boolean);
 }
 
 function imageViewerTagKeys(tags) {
-  return String(tags || "")
-    .split(/[,;\n]+/)
-    .map((tag) => tag.trim()
-      .replace(/^-?\d+(?:\.\d+)?::\s*/, "")
-      .replace(/\s*::$/, ""))
+  return imageViewerAtomicTags(tags)
     .map(retagTagLookupKey)
     .filter(Boolean);
 }
@@ -3483,12 +3726,7 @@ function imageViewerTagEntries(pairs, translations = {}, tags = "") {
   const normalizedTranslations = normalizeRetagTagTranslations(translations);
   const source = Array.isArray(pairs) && pairs.length
     ? pairs.map((item) => String(item?.tag || "").trim()).filter(Boolean)
-    : String(tags || "")
-        .split(/[,;\n]+/)
-        .map((tag) => tag.trim()
-          .replace(/^-?\d+(?:\.\d+)?::\s*/, "")
-          .replace(/\s*::$/, ""))
-        .filter(Boolean);
+    : imageViewerAtomicTags(tags);
   const pairNames = new Map(
     (Array.isArray(pairs) ? pairs : [])
       .map((item) => [
@@ -3510,6 +3748,7 @@ function renderImageViewerTags(tags, pairs = [], translations = {}) {
   const rawTags = String(tags || "").trim();
   els.imageViewerTags.dataset.copyText = rawTags;
   els.imageViewerTags.replaceChildren();
+  scheduleImageViewerFrameSync();
   const entries = imageViewerTagEntries(pairs, translations, rawTags);
   if (!entries.length) {
     const empty = document.createElement("span");
@@ -3587,13 +3826,17 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   setImageViewerDetailsCollapsed(false);
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.alt = node.title || "画布图片";
-  const tags = String(meta.tags || meta.finalPrompt || "").trim();
+  const tags = stripImageViewerControlTags(
+    meta.tags || meta.finalPrompt || "",
+    meta.artist || "",
+  );
   renderImageViewerTags(tags);
   state.viewerLibraryAsset = libraryAsset;
   const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
+  scheduleImageViewerFrameSync();
   if (tags) void hydrateImageViewerChineseTags(node, tags, lookupSequence);
   recordOperation(operationLabel, node.title || "图片");
 }
@@ -3905,23 +4148,32 @@ function updateAssetGridMetrics() {
   const availableWidth = Math.max(0, els.assetGrid.clientWidth - horizontalPadding);
   const stackView = els.assetGrid.classList.contains("asset-stack-grid");
   const minTile = stackView
-    ? (window.innerWidth <= 620 ? 150 : window.innerWidth <= 980 ? 190 : 238)
+    ? (window.innerWidth <= 620 ? 150 : window.innerWidth <= 980 ? 190 : 210)
     : (window.innerWidth <= 620 ? 132 : 156);
   const minimumColumns = window.innerWidth <= 620 ? 2 : 3;
+  const stackCount = stackView
+    ? els.assetGrid.querySelectorAll(".asset-stack-card").length
+    : 0;
+  const maximumColumns = stackView
+    ? Math.max(minimumColumns, Math.min(stackCount, 6))
+    : 10;
   const columns = clamp(
     Math.floor((availableWidth + columnGap) / (minTile + columnGap)),
     minimumColumns,
-    10,
+    maximumColumns,
   );
   els.assetGrid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
-  const tileWidth = Math.max(
+  const exactTileWidth = Math.max(
     96,
-    Math.floor((availableWidth - columnGap * (columns - 1)) / columns),
+    (availableWidth - columnGap * (columns - 1)) / columns,
   );
+  const tileWidth = Math.floor(exactTileWidth);
   if (stackView) {
+    els.assetGrid.style.gridAutoRows = `${Math.ceil(exactTileWidth)}px`;
     els.assetGrid.style.removeProperty("--asset-card-height");
     return;
   }
+  els.assetGrid.style.removeProperty("grid-auto-rows");
   const tileHeight = clamp(Math.round(tileWidth * 0.86), 148, 248);
   els.assetGrid.style.setProperty("--asset-card-height", `${tileHeight}px`);
 }
@@ -4787,7 +5039,9 @@ els.imageViewerDetailsToggle.addEventListener("click", () => {
   setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
 });
 els.imageViewer.addEventListener("pointerdown", (event) => {
-  if (!event.target.closest("#imageViewerImage, .image-viewer-details")) closeImageViewer();
+  if (event.button !== 0 || event.target.closest(".image-viewer-details")) return;
+  if (imageViewerPointHitsRenderedImage(event.clientX, event.clientY)) return;
+  closeImageViewer();
 });
 document.querySelectorAll("[data-copy-target]").forEach((button) => {
   button.addEventListener("click", () => copyViewerText(button.dataset.copyTarget, button.title));
@@ -4907,6 +5161,7 @@ window.addEventListener("resize", () => {
   scheduleOverlayAlignment();
   if (!els.imageViewer.hidden) {
     applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
+    scheduleImageViewerFrameSync();
   }
 });
 window.addEventListener("online", checkConnection);
