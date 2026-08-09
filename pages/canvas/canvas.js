@@ -42,6 +42,7 @@ const els = {
   imageViewerDetailsToggle: document.getElementById("imageViewerDetailsToggle"),
   imageViewerTags: document.getElementById("imageViewerTags"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
+  assetLibraryBtn: document.getElementById("assetLibraryBtn"),
   assetPanel: document.getElementById("assetPanel"),
   debugModeBtn: document.getElementById("debugModeBtn"),
   debugBar: document.getElementById("debugBar"),
@@ -561,7 +562,7 @@ function setSelectionContextMenu(open, clientX = 0, clientY = 0) {
 
 function alignedPanelEdges() {
   const topbarRect = document.querySelector(".topbar").getBoundingClientRect();
-  const buttonRect = document.getElementById("assetLibraryBtn").getBoundingClientRect();
+  const buttonRect = els.assetLibraryBtn.getBoundingClientRect();
   const right = Math.min(topbarRect.right, window.innerWidth - 12);
   const left = window.innerWidth <= 620
     ? 12
@@ -3471,12 +3472,16 @@ function applyImageViewerLayout(width, height) {
   scheduleImageViewerFrameSync();
 }
 
-function syncImageViewerFrameSize() {
+function syncImageViewerFrameSize(settling = false) {
   const frame = els.imageViewerImageFrame;
   if (!frame) return;
   frame.style.removeProperty("width");
   frame.style.removeProperty("height");
-  if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) return;
+  if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) {
+    els.imageViewerDetails.style.removeProperty("width");
+    els.imageViewerDetails.style.removeProperty("max-width");
+    return;
+  }
 
   const imageWidth = Number(state.viewerImageDimensions.width)
     || Number(els.imageViewerImage.naturalWidth)
@@ -3497,8 +3502,19 @@ function syncImageViewerFrameSize() {
   if (!maxWidth || !maxHeight) return;
 
   const scale = Math.min(maxWidth / imageWidth, maxHeight / imageHeight);
-  frame.style.width = `${imageWidth * scale}px`;
-  frame.style.height = `${imageHeight * scale}px`;
+  const frameWidth = imageWidth * scale;
+  const frameHeight = imageHeight * scale;
+  const previousDetailsWidth = parseFloat(els.imageViewerDetails.style.width) || 0;
+  frame.style.width = `${frameWidth}px`;
+  frame.style.height = `${frameHeight}px`;
+  els.imageViewerDetails.style.width = `${frameWidth}px`;
+  els.imageViewerDetails.style.maxWidth = `${frameWidth}px`;
+
+  // Changing the Tags width can alter chip wrapping and therefore its height.
+  // Run one settling pass so the image still uses the exact remaining space.
+  if (!settling && Math.abs(previousDetailsWidth - frameWidth) > .5) {
+    window.requestAnimationFrame(() => syncImageViewerFrameSize(true));
+  }
 }
 
 function scheduleImageViewerFrameSync() {
@@ -3924,10 +3940,8 @@ function setAssetPanel(open) {
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
   els.assetPanel.classList.toggle("open", open);
   document.body.classList.toggle("asset-library-open", open);
-  document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
-    button.classList.toggle("active", open);
-    button.setAttribute("aria-expanded", String(open));
-  });
+  els.assetLibraryBtn.classList.toggle("active", open);
+  els.assetLibraryBtn.setAttribute("aria-expanded", String(open));
   if (!open) {
     setAssetDeleteMode(false);
     recordOperation("关闭素材库");
@@ -4920,10 +4934,8 @@ document.addEventListener("pointerdown", (event) => {
     setSelectionContextMenu(false);
   }
 });
-document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
-  button.addEventListener("click", () => {
-    setAssetPanel(!els.assetPanel.classList.contains("open"));
-  });
+els.assetLibraryBtn.addEventListener("click", () => {
+  setAssetPanel(!els.assetPanel.classList.contains("open"));
 });
 document.querySelectorAll("[data-library-view]").forEach((button) => {
   button.addEventListener("click", (event) => {

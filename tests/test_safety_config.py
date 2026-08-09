@@ -32,7 +32,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertFalse(blocked.safe)
         self.assertTrue(allowed.safe)
 
-    def test_custom_words_replace_builtin_detection_words(self) -> None:
+    def test_custom_words_extend_builtin_detection_words(self) -> None:
         moderator = SafetyModerator(
             SimpleNamespace(
                 prompt_block_enabled=True,
@@ -42,19 +42,19 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         result = moderator.check_prompt("nude, custom blocked, portrait")
 
-        self.assertIn("nude", result.filtered_prompt)
+        self.assertNotIn("nude", result.filtered_prompt)
         self.assertNotIn("custom blocked", result.filtered_prompt)
 
-    def test_empty_custom_list_disables_word_removal(self) -> None:
+    def test_empty_custom_list_keeps_builtin_protection(self) -> None:
         filtered, removed = filter_sensitive_prompt("nude portrait", [])
 
-        self.assertEqual(filtered, "nude portrait")
-        self.assertEqual(removed, [])
+        self.assertEqual(filtered, "")
+        self.assertIn("nude", removed)
 
     def test_missing_custom_list_keeps_builtin_compatibility(self) -> None:
         filtered, removed = filter_sensitive_prompt("nude portrait", None)
 
-        self.assertEqual(filtered, "portrait")
+        self.assertEqual(filtered, "")
         self.assertIn("nude", removed)
 
     def test_danbooru_separator_variants_are_filtered(self) -> None:
@@ -71,6 +71,42 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertIn("oral sex", removed)
         self.assertIn("nude", removed)
         self.assertIn("explicit", removed)
+
+    def test_explicit_qq_tags_remove_the_whole_tag_without_risky_residue(self) -> None:
+        filtered, removed = filter_sensitive_prompt(
+            "girl, school uniform, torn clothes, torn panties, wet panties, "
+            "panties aside, pussy, vaginal, sex, deep penetration, lying on back, "
+            "on bed, bedroom, man on top, rough sex, exposed breasts, nipples, "
+            "spread legs, blush, heavy breathing, looking at viewer, from above, "
+            "close-up, dim lighting",
+            [],
+        )
+
+        self.assertEqual(
+            filtered,
+            "girl, school uniform, lying on back, on bed, bedroom, blush, "
+            "heavy breathing, looking at viewer, from above, close-up, dim lighting",
+        )
+        for word in (
+            "torn clothes",
+            "torn panties",
+            "wet panties",
+            "panties aside",
+            "pussy",
+            "vaginal",
+            "sex",
+            "deep penetration",
+            "man on top",
+            "rough sex",
+            "breasts",
+            "nipples",
+            "spread legs",
+        ):
+            with self.subTest(word=word):
+                self.assertIn(word, removed)
+
+        self.assertNotIn("rough", filtered)
+        self.assertNotIn("exposed", filtered)
 
     def test_zero_width_characters_cannot_bypass_filter(self) -> None:
         filtered, removed = filter_sensitive_prompt("n\u200bude, portrait", None)

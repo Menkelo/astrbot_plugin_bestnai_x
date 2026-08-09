@@ -37,10 +37,14 @@ from .provider_utils import (
 SAFE_NEGATIVE_TAGS = (
     "nsfw, rating:explicit, rating:questionable, explicit, pornographic, nude, naked, "
     "topless, bottomless, exposed breasts, exposed genitalia, nipples, nipple, areola, "
-    "pussy, penis, vagina, sex, porn, hentai, ejaculation, cum, masturbation, oral sex, "
-    "intercourse, underwear, lingerie, bikini, swimsuit, cleavage, see-through, "
-    "transparent clothes, cameltoe, spread legs, groin focus, ass focus, breast focus, "
-    "erotic, suggestive, sexual content, child sexualization, lolicon, shotacon"
+    "pussy, penis, vagina, vaginal, vulva, clitoris, genitals, genitalia, anus, anal, "
+    "sex, vaginal sex, anal sex, rough sex, sex position, penetration, deep penetration, "
+    "porn, hentai, ejaculation, cum, cumshot, creampie, masturbation, oral sex, blowjob, "
+    "handjob, fingering, intercourse, underwear, panties, panties aside, wet panties, "
+    "torn panties, lingerie, bikini, swimsuit, cleavage, see-through, transparent clothes, "
+    "torn clothes, cameltoe, spread legs, man on top, woman on top, missionary, doggystyle, "
+    "cowgirl position, reverse cowgirl, groin focus, ass focus, breast focus, erotic, "
+    "suggestive, sexual content, child sexualization, lolicon, shotacon"
 )
 
 HARD_BLOCK_WORDS = [
@@ -122,13 +126,36 @@ HARD_BLOCK_WORDS = [
     "pussy",
     "penis",
     "vagina",
+    "vaginal",
+    "vulva",
+    "clitoris",
+    "clit",
+    "genitals",
+    "genitalia",
+    "anus",
+    "anal",
     "sex",
+    "sexual content",
+    "vaginal sex",
+    "anal sex",
+    "rough sex",
+    "sex position",
+    "penetration",
+    "deep penetration",
+    "vaginal penetration",
+    "anal penetration",
+    "multiple penetration",
     "porn",
     "hentai",
     "masturbation",
     "ejaculation",
     "cum",
+    "cumshot",
+    "creampie",
     "oral sex",
+    "blowjob",
+    "handjob",
+    "fingering",
     "intercourse",
     "rape",
     "loli porn",
@@ -140,13 +167,26 @@ HARD_BLOCK_WORDS = [
     "breast",
     "cleavage",
     "underwear",
+    "panties",
+    "panty",
+    "panties aside",
+    "wet panties",
+    "torn panties",
+    "panty pull",
     "lingerie",
     "bikini",
     "swimsuit",
     "see-through",
     "transparent clothes",
+    "torn clothes",
     "cameltoe",
     "spread legs",
+    "man on top",
+    "woman on top",
+    "missionary",
+    "doggystyle",
+    "cowgirl position",
+    "reverse cowgirl",
     "groin focus",
     "ass focus",
     "breast focus",
@@ -201,7 +241,11 @@ def filter_sensitive_prompt(
     # 去掉常见零宽字符，避免 ``n\u200bude`` 之类的拆词绕过。
     filtered = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", filtered)
     removed_words: list[str] = []
-    words = HARD_BLOCK_WORDS if blocked_words is None else blocked_words
+    removed_keys: set[str] = set()
+    # Built-in high-risk terms are always enforced while prompt filtering is
+    # enabled. User-configured terms extend this baseline, so an old saved
+    # configuration cannot silently miss newly added QQ protection rules.
+    words = [*HARD_BLOCK_WORDS, *(blocked_words or [])]
     normalized_words: list[str] = []
     seen_words: set[str] = set()
     for raw_word in words:
@@ -212,6 +256,7 @@ def filter_sensitive_prompt(
         seen_words.add(word_key)
         normalized_words.append(word)
 
+    word_patterns: list[tuple[str, re.Pattern[str]]] = []
     for word in sorted(normalized_words, key=len, reverse=True):
         normalized_word = unicodedata.normalize("NFKC", word)
         pattern = re.escape(normalized_word)
@@ -236,26 +281,28 @@ def filter_sensitive_prompt(
                 rf"(?![A-Za-z0-9])"
             )
 
-        filtered, count = re.subn(pattern, " ", filtered, flags=flags)
+        word_patterns.append((word, re.compile(pattern, flags=flags)))
 
-        if count:
-            removed_words.append(word)
+    kept_segments: list[str] = []
+    for raw_segment in re.split(r"[,，、;；]+", filtered):
+        segment = re.sub(r"\s+", " ", raw_segment).strip()
+        if not segment:
+            continue
 
-    # Removing one part of a compound tag can leave ``_female`` or ``male_``.
-    # Only trim underscores/hyphens at token edges; valid tags such as
-    # ``blue_hair`` remain intact.
-    filtered = re.sub(r"(^|[\s,，、;；])[_-]+", r"\1", filtered)
-    filtered = re.sub(r"[_-]+($|[\s,，、;；])", r"\1", filtered)
-    filtered = re.sub(
-        r"(^|[,，、;；]\s*)[A-Za-z][A-Za-z0-9_-]*\s*:\s*(?=$|[,，、;；])",
-        r"\1",
-        filtered,
-    )
-    filtered = re.sub(r"\s+", " ", filtered)
-    filtered = re.sub(r"\s*[,，、;；]+\s*", ", ", filtered)
-    filtered = re.sub(r"(,\s*){2,}", ", ", filtered)
+        matched_word = next(
+            (word for word, pattern in word_patterns if pattern.search(segment)),
+            "",
+        )
+        if matched_word:
+            word_key = matched_word.casefold()
+            if word_key not in removed_keys:
+                removed_keys.add(word_key)
+                removed_words.append(matched_word)
+            continue
 
-    return filtered.strip(" ,;，。；、").strip(), removed_words
+        kept_segments.append(segment)
+
+    return ", ".join(kept_segments).strip(), removed_words
 
 
 class SafetyModerator:

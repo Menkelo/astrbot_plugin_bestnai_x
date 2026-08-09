@@ -340,8 +340,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function imageViewerPointHitsRenderedImage", editor)
         self.assertIn("function syncImageViewerFrameSize", editor)
         self.assertIn("function scheduleImageViewerFrameSync", editor)
-        self.assertIn('frame.style.width = `${imageWidth * scale}px`', editor)
-        self.assertIn('frame.style.height = `${imageHeight * scale}px`', editor)
+        self.assertIn('frame.style.width = `${frameWidth}px`', editor)
+        self.assertIn('frame.style.height = `${frameHeight}px`', editor)
+        self.assertIn('els.imageViewerDetails.style.width = `${frameWidth}px`', editor)
+        self.assertIn('els.imageViewerDetails.style.maxWidth = `${frameWidth}px`', editor)
+        self.assertIn("syncImageViewerFrameSize(true)", editor)
         self.assertIn('event.target.closest(".image-viewer-details")', editor)
         self.assertIn("imageViewerPointHitsRenderedImage(event.clientX, event.clientY)", editor)
         self.assertIn("function copyViewerText", editor)
@@ -385,6 +388,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("border-radius: 12px;", viewer_image)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
+        self.assertIn("scrollbar-color: rgba(148, 163, 184, .42) transparent;", viewer_details)
+        self.assertIn("scrollbar-gutter: auto;", viewer_details)
+        self.assertIn("scrollbar-width: thin;", viewer_details)
         self.assertNotIn("calc(100vh - 300px)", styles)
         self.assertNotIn("calc(100vh - 310px)", styles)
         bottom_viewer = styles.split(".image-viewer.layout-bottom .image-viewer-stage {", 1)[1].split("}", 1)[0]
@@ -425,6 +431,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("scrollbar-width: thin;", styles)
         self.assertIn(".image-viewer-tag-grid::-webkit-scrollbar-thumb", styles)
         self.assertIn(".image-viewer-tag-grid::-webkit-scrollbar-button", styles)
+        self.assertIn(".image-viewer-details::-webkit-scrollbar-thumb", styles)
+        self.assertIn(".image-viewer-details::-webkit-scrollbar-button", styles)
         tag_grid = styles.split("\n.image-viewer-tag-grid {", 1)[1].split("}", 1)[0]
         self.assertIn("-webkit-user-select: none;", tag_grid)
         self.assertIn("user-select: none;", tag_grid)
@@ -782,15 +790,18 @@ class CanvasPageBridgeTest(unittest.TestCase):
         mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
             "@media (prefers-reduced-motion", 1
         )[0]
-        self.assertIn('id="mobileAssetLibraryBtn"', html)
+        self.assertNotIn('id="mobileAssetLibraryBtn"', html)
+        self.assertIn('id="assetLibraryBtn"', html)
+        self.assertIn('data-lucide="images"', html)
         self.assertIn(
-            '"identity identity identity identity identity identity identity asset project"',
+            '"identity identity identity identity identity identity identity identity project"',
             mobile_styles,
         )
         self.assertIn('"tools tools tools tools tools tools tools tools tools"', mobile_styles)
-        self.assertIn("#assetLibraryBtn", mobile_styles)
-        self.assertIn("display: none;", mobile_styles)
-        self.assertIn('document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn")', editor)
+        mobile_asset_active = mobile_styles.split("#assetLibraryBtn.active {", 1)[1].split("}", 1)[0]
+        self.assertIn("background: var(--soft-2);", mobile_asset_active)
+        self.assertIn('els.assetLibraryBtn.addEventListener("click"', editor)
+        self.assertNotIn("mobileAssetLibraryBtn", editor)
         self.assertIn("overflow-x: auto;", mobile_styles)
         self.assertIn("-webkit-overflow-scrolling: touch;", mobile_styles)
         self.assertIn("grid-template-columns: repeat(9, minmax(28px, 1fr));", mobile_styles)
@@ -885,7 +896,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         debug = styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
-        self.assertIn("bottom: 22px;", debug)
+        self.assertIn("bottom: 24px;", debug)
         self.assertIn("flex-direction: column-reverse;", debug)
         body = styles.split(".debug-bar-body {", 1)[1].split("}", 1)[0]
         self.assertIn("border-width: 0 0 1px;", body)

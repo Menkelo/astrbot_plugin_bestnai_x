@@ -50,8 +50,8 @@
             </div>
             <span class="toolbar-divider" aria-hidden="true"></span>
             <div class="toolbar-group toolbar-workspace-group" aria-label="素材与工作区">
-              <button class="tool-btn icon-only" id="assetLibraryBtn" type="button" title="素材库" aria-label="素材库">
-                <i data-lucide="library"></i>
+              <button class="tool-btn icon-only" id="assetLibraryBtn" type="button" title="素材库" aria-label="素材库" aria-controls="assetPanel" aria-expanded="false">
+                <i data-lucide="images"></i>
               </button>
               <button class="tool-btn icon-only" id="importBtn" type="button" title="导入工作区" aria-label="导入工作区">
                 <i data-lucide="upload"></i>
@@ -71,11 +71,6 @@
             </div>
           </div>
         </nav>
-        <div class="mobile-asset-library-switcher">
-          <button id="mobileAssetLibraryBtn" class="tool-btn icon-only mobile-asset-library-trigger" type="button" title="素材库" aria-label="素材库" aria-controls="assetPanel" aria-expanded="false">
-            <i data-lucide="library"></i>
-          </button>
-        </div>
         <div class="project-switcher toolbar-project-switcher">
           <button id="projectMenuBtn" class="tool-btn icon-only project-menu-trigger" type="button" title="管理项目" aria-label="管理项目" aria-haspopup="true" aria-controls="projectMenu" aria-expanded="false"><i data-lucide="folder"></i></button>
         </div>

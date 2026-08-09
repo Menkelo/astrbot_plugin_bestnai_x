@@ -133,7 +133,7 @@ pip install aiohttp pillow
 | `enabled` | bool | `true` | 启用发送前图片安全审核。强烈建议 QQ 机器人开启。开启后生成图片会先审核，安全才发送；审核接口报错/超时时放行 |
 | `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商 |
 | `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
-| `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤使用的检测词，可在插件配置中逐项添加、修改或删除；列表留空时不移除任何词 |
+| `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤的额外检测词；内置高风险词始终生效，完全关闭请使用 `prompt_block_enabled` |
 
 > **Danbooru Tag 检索**已内嵌，翻译中文提示词时自动启用，无需配置。
 > 检索服务由第三方提供：[sakizuki/danboorusearch](https://huggingface.co/spaces/sakizuki/danboorusearch)（`https://sakizuki-danboorusearch.hf.space`），
@@ -237,7 +237,8 @@ pip install aiohttp pillow
 本插件为 QQ 场景提供了三层安全机制：
 
 1. **提示词敏感词过滤**（`prompt_block_enabled`，默认开）
-   - 用户提示词命中 `prompt_block_words` 中配置的词时，自动移除并继续生成；检测词列表可在插件配置中直接维护，留空即可不移除任何词。
+   - 内置高风险词始终生效；`prompt_block_words` 用于追加自定义检测词。若需要完全关闭提示词过滤，请关闭 `prompt_block_enabled`。
+   - 命中敏感词时会移除整个逗号分隔 Tag，避免只删掉 `sex` 后残留 `rough`、只删掉 `breasts` 后残留 `exposed` 等仍可能引导危险画面的碎片。
    - 空格、下划线和连字符按同一种分隔方式检测，可过滤 `oral sex`、`oral_sex`、`oral-sex` 等 Danbooru 变体；零宽字符与 `rating:explicit` 命名空间也无法绕过。
    - 提示词过滤后为空时会提示用户补充安全提示词。
 
