@@ -129,6 +129,13 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         self.assertEqual(config.safety.prompt_block_words, [])
 
+    def test_image_safety_review_is_disabled_by_default(self) -> None:
+        config = PluginConfig.from_dict({})
+        schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
+
+        self.assertFalse(config.safety.enabled)
+        self.assertFalse(schema["safety_config"]["items"]["enabled"]["default"])
+
     def test_retag_controls_include_artist_presets_and_quality_suffix(self) -> None:
         config = PluginConfig.from_dict(
             {

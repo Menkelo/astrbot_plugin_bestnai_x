@@ -136,7 +136,7 @@ class TranslatorConfig:
 
 @dataclass
 class SafetyConfig:
-    enabled: bool = True
+    enabled: bool = False
     provider_id: str = ""
     prompt_block_enabled: bool = True
     prompt_block_words: Optional[List[str]] = None
@@ -268,7 +268,7 @@ class PluginConfig:
                 max_retries=3,
             ),
             safety=SafetyConfig(
-                enabled=bool(safety_conf.get("enabled", True)),
+                enabled=bool(safety_conf.get("enabled", False)),
                 provider_id=safety_provider_id,
                 prompt_block_enabled=bool(safety_conf.get("prompt_block_enabled", True)),
                 prompt_block_words=prompt_block_words,

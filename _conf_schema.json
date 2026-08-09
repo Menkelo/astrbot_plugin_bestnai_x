@@ -154,7 +154,7 @@
       "enabled": {
         "description": "启用发送前图片安全审核",
         "type": "bool",
-        "default": true,
+        "default": false,
         "hint": "开启后生成图片会先审核，安全才发送，审核接口报错时会放行。"
       },
       "provider_id": {

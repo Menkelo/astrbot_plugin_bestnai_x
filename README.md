@@ -130,7 +130,7 @@ pip install aiohttp pillow
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `enabled` | bool | `true` | 启用发送前图片安全审核。强烈建议 QQ 机器人开启。开启后生成图片会先审核，安全才发送；审核接口报错/超时时放行 |
+| `enabled` | bool | `false` | 启用发送前图片安全审核。需要视觉审核时可手动开启；开启后生成图片会先审核，安全才发送，审核接口报错/超时时放行 |
 | `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商 |
 | `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤的额外检测词；内置高风险词始终生效，完全关闭请使用 `prompt_block_enabled` |

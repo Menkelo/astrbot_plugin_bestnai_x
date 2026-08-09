@@ -71,6 +71,11 @@
             </div>
           </div>
         </nav>
+        <div class="mobile-asset-library-switcher">
+          <button id="mobileAssetLibraryBtn" class="tool-btn icon-only mobile-asset-library-trigger" type="button" title="素材库" aria-label="素材库" aria-controls="assetPanel" aria-expanded="false">
+            <i data-lucide="images"></i>
+          </button>
+        </div>
         <div class="project-switcher toolbar-project-switcher">
           <button id="projectMenuBtn" class="tool-btn icon-only project-menu-trigger" type="button" title="管理项目" aria-label="管理项目" aria-haspopup="true" aria-controls="projectMenu" aria-expanded="false"><i data-lucide="folder"></i></button>
         </div>
@@ -133,8 +138,12 @@
             <div class="asset-delete-toolbar">
               <div id="assetDeleteActions" class="asset-delete-actions" hidden>
                 <span id="assetDeleteCount">已选 0 项</span>
-                <button id="assetDeleteConfirm" class="asset-delete-confirm" type="button" disabled><i data-lucide="trash-2"></i><span>删除</span></button>
-                <button id="assetDeleteCancel" class="asset-delete-cancel" type="button"><i data-lucide="x"></i><span>取消</span></button>
+                <div class="asset-delete-buttons">
+                  <button id="assetPlaceSelectedBtn" class="asset-place-selected" type="button" disabled><i data-lucide="layout-grid"></i><span>加入画布</span></button>
+                  <button id="assetArchiveSelectedBtn" class="asset-archive-selected" type="button" disabled><i data-lucide="archive"></i><span>压缩</span></button>
+                  <button id="assetDeleteConfirm" class="asset-delete-confirm" type="button" disabled><i data-lucide="trash-2"></i><span>删除</span></button>
+                  <button id="assetDeleteCancel" class="asset-delete-cancel" type="button"><i data-lucide="x"></i><span>取消</span></button>
+                </div>
               </div>
               <button id="assetSelectModeBtn" class="asset-select-mode-btn" type="button" aria-pressed="false" title="批量选择素材"><i data-lucide="list-checks"></i><span>多选</span></button>
             </div>
@@ -180,8 +189,20 @@
         <h2 id="clearModalTitle">清空画布</h2>
         <p>全部节点和连线会从工作区移除，已经存储的图片文件会保留。</p>
         <div class="dialog-actions">
-          <button class="dialog-btn secondary" type="button" id="cancelClearBtn">取消</button>
           <button class="dialog-btn danger" type="button" id="confirmClearBtn">清空</button>
+          <button class="dialog-btn secondary" type="button" id="cancelClearBtn">取消</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="assetDeleteModal" class="modal-backdrop" hidden>
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="assetDeleteModalTitle" aria-describedby="assetDeleteModalText">
+        <div class="dialog-icon"><i data-lucide="trash-2"></i></div>
+        <h2 id="assetDeleteModalTitle">删除所选素材？</h2>
+        <p id="assetDeleteModalText">所选素材会从素材库移除，此操作无法撤销。</p>
+        <div class="dialog-actions">
+          <button class="dialog-btn danger" type="button" id="confirmAssetDeleteBtn">删除</button>
+          <button class="dialog-btn secondary" type="button" id="cancelAssetDeleteBtn">取消</button>
         </div>
       </section>
     </div>
@@ -190,14 +211,14 @@
       <figure class="image-viewer-stage">
         <div class="image-viewer-image-frame">
           <img id="imageViewerImage" alt="" />
+          <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </div>
         <figcaption id="imageViewerDetails" class="image-viewer-details">
-          <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true"><span>Tags 标签</span><i data-lucide="chevron-up"></i></button>
+          <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true" aria-label="折叠 Prompt Tags" title="折叠 Prompt Tags"><i data-lucide="chevron-up"></i></button>
           <div class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>提示词标签 / Prompt Tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
+            <div class="image-viewer-copy-head"><span>Prompt Tags / 提示词标签</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
             <div id="imageViewerTags" class="image-viewer-tag-grid" role="group" aria-label="可复制的 Prompt Tags" data-copy-text=""></div>
           </div>
-          <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </figcaption>
       </figure>
     </div>

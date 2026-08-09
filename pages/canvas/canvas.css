@@ -89,6 +89,13 @@ select:focus-visible {
   pointer-events: auto;
 }
 
+/* The topbar shadow lands on the white library surface and turns the narrow
+   gap between them into a dark band. Keep the toolbar elevation while the
+   canvas is visible, but flatten it when the full library is open. */
+.asset-library-open .topbar {
+  box-shadow: none;
+}
+
 .canvas-nav {
   position: relative;
   display: flex;
@@ -132,6 +139,10 @@ select:focus-visible {
 
 .toolbar-project-switcher {
   margin: 0 2px 0 0;
+}
+
+.mobile-asset-library-switcher {
+  display: none;
 }
 
 .project-menu {
@@ -1401,6 +1412,7 @@ select:focus-visible {
 }
 
 .image-viewer-image-frame {
+  position: relative;
   grid-area: viewer-image;
   display: flex;
   width: 100%;
@@ -1430,6 +1442,7 @@ select:focus-visible {
   grid-area: viewer-details;
   width: 100%;
   max-width: 900px;
+  align-content: start;
   gap: 10px;
   padding: 13px 15px;
   border: 1px solid rgba(255, 255, 255, .14);
@@ -1496,16 +1509,12 @@ select:focus-visible {
   max-height: min(54vh, 420px);
 }
 
-.image-viewer.layout-side .image-viewer-place-btn {
-  margin-top: auto;
-}
-
 .image-viewer-details-toggle {
   display: none;
   width: 100%;
-  min-height: 30px;
+  min-height: 22px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   padding: 0 2px;
   border: 0;
@@ -1671,23 +1680,34 @@ select:focus-visible {
 }
 
 .image-viewer-place-btn {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 16px;
   display: inline-flex;
-  width: 100%;
-  height: 38px;
+  width: auto;
+  min-width: 112px;
+  max-width: calc(100% - 32px);
+  height: 30px;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
+  padding: 0 13px;
+  margin: 0;
   border: 1px solid rgba(255, 255, 255, .2);
-  border-radius: 8px;
-  background: #f8fafc;
+  border-radius: 7px;
+  background: rgba(248, 250, 252, .68);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .2);
   color: #111827;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 850;
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
 }
 
 .image-viewer-place-btn:hover:not(:disabled) {
-  background: #fff;
+  background: rgba(255, 255, 255, .82);
 }
 
 .image-viewer-place-btn:disabled {
@@ -1989,6 +2009,7 @@ select:focus-visible {
 .asset-stack-trail {
   display: inline-flex;
   min-width: 0;
+  max-width: 100%;
   min-height: 27px;
   margin-left: auto;
   align-items: center;
@@ -2006,6 +2027,21 @@ select:focus-visible {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-library-modes.stack-open {
+  overflow-x: hidden;
+}
+
+.asset-library-modes.stack-open .asset-library-mode {
+  display: none;
+}
+
+.asset-library-modes.stack-open .asset-stack-trail {
+  width: 100%;
+  max-width: none;
+  flex: 1 1 100%;
+  margin-left: 0;
 }
 
 .asset-stack-trail[hidden] {
@@ -2145,6 +2181,11 @@ select:focus-visible {
   display: none;
 }
 
+.asset-panel.delete-mode .asset-delete-toolbar {
+  width: 100%;
+  flex: 1 1 auto;
+}
+
 .asset-library-count {
   flex: 0 0 auto;
   color: var(--muted);
@@ -2158,7 +2199,7 @@ select:focus-visible {
   min-width: 0;
   flex: 1;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
@@ -2167,9 +2208,19 @@ select:focus-visible {
 }
 
 .asset-delete-actions > span {
+  flex: 0 0 auto;
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
+}
+
+.asset-delete-buttons {
+  display: flex;
+  min-width: 0;
+  margin-left: auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .asset-delete-actions button,
@@ -2199,6 +2250,35 @@ select:focus-visible {
   border-color: var(--line-2);
   background: var(--card-solid);
   color: var(--text);
+}
+
+.asset-place-selected {
+  min-width: 76px;
+  border: 1px solid rgba(217, 119, 6, .24);
+  background: #fffbeb;
+  color: #a16207;
+}
+
+.asset-place-selected[hidden] {
+  display: none;
+}
+
+.asset-place-selected:hover:not(:disabled) {
+  border-color: rgba(217, 119, 6, .4);
+  background: #fef3c7;
+}
+
+.asset-archive-selected {
+  min-width: 58px;
+  border: 1px solid rgba(22, 163, 74, .24);
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.asset-archive-selected:hover:not(:disabled) {
+  border-color: rgba(22, 163, 74, .4);
+  background: #dcfce7;
+  color: #166534;
 }
 
 .asset-delete-confirm {
@@ -2418,7 +2498,8 @@ select:focus-visible {
 .asset-stack-count {
   position: absolute;
   z-index: 6;
-  top: 10px;
+  top: auto;
+  bottom: 10px;
   left: 10px;
   padding: 4px 7px;
   border: 1px solid rgba(255, 255, 255, .8);
@@ -2458,11 +2539,13 @@ select:focus-visible {
   max-width: calc(100% - 78px);
 }
 
-.asset-panel.delete-mode .asset-image-card {
+.asset-panel.delete-mode .asset-image-card,
+.asset-panel.delete-mode .asset-stack-card {
   cursor: pointer;
 }
 
-.asset-panel.delete-mode .asset-image-card:active {
+.asset-panel.delete-mode .asset-image-card:active,
+.asset-panel.delete-mode .asset-stack-card:active {
   cursor: pointer;
 }
 
@@ -2496,13 +2579,15 @@ select:focus-visible {
   transform: scale(1);
 }
 
-.asset-panel.delete-mode .asset-image-card.selected {
-  border-color: #dc2626;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, .2);
+.asset-panel.delete-mode .asset-image-card.selected,
+.asset-panel.delete-mode .asset-stack-card.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .2);
 }
 
-.asset-panel.delete-mode .asset-image-card.selected .asset-select-indicator {
-  background: #dc2626;
+.asset-panel.delete-mode .asset-image-card.selected .asset-select-indicator,
+.asset-panel.delete-mode .asset-stack-card.selected .asset-select-indicator {
+  background: #2563eb;
   color: #fff;
 }
 
@@ -2841,9 +2926,9 @@ select:focus-visible {
   .topbar {
     display: grid;
     grid-template-areas:
-      "identity identity identity identity identity identity identity identity project"
-      "tools tools tools tools tools tools tools tools tools";
-    grid-template-columns: repeat(9, minmax(28px, 1fr));
+      "identity identity identity identity identity identity identity identity asset project"
+      "tools tools tools tools tools tools tools tools tools tools";
+    grid-template-columns: repeat(10, minmax(28px, 1fr));
     column-gap: 0;
     row-gap: 6px;
     border-radius: 20px;
@@ -2876,7 +2961,8 @@ select:focus-visible {
 
   .toolbar {
     grid-area: tools;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
     /* Keep every action on one predictable row. Narrow phones can scroll the
        toolbar horizontally, but the destructive action must never form an
        accidental second row. */
@@ -2901,14 +2987,45 @@ select:focus-visible {
   .toolbar-items,
   .toolbar-fixed,
   .toolbar-group {
-    display: flex;
-    flex: 0 0 auto;
+    min-width: 0;
     align-items: center;
     gap: 0;
   }
 
   .toolbar-create-tools {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar-fixed {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr);
+  }
+
+  .toolbar-history-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar-workspace-group,
+  .toolbar-system-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #fitBtn {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  #undoBtn {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #redoBtn {
+    grid-column: 3;
+    grid-row: 1;
   }
 
   .toolbar-project-switcher {
@@ -2920,7 +3037,20 @@ select:focus-visible {
     place-items: center;
   }
 
-  #assetLibraryBtn.active {
+  .mobile-asset-library-switcher {
+    display: grid;
+    grid-area: asset;
+    width: 100%;
+    margin-top: 4px;
+    align-self: start;
+    place-items: center;
+  }
+
+  #assetLibraryBtn {
+    display: none;
+  }
+
+  #mobileAssetLibraryBtn.active {
     border-color: var(--line-2);
     background: var(--soft-2);
     color: var(--text);
@@ -2939,6 +3069,7 @@ select:focus-visible {
     min-width: 28px;
     padding: 0;
     flex: 0 0 clamp(28px, 8vw, 32px);
+    justify-self: center;
   }
 
   .asset-panel {
@@ -2970,8 +3101,47 @@ select:focus-visible {
     flex: 1 1 auto;
   }
 
+  .asset-library-modes.stack-open {
+    overflow-x: hidden;
+  }
+
+  .asset-library-modes.stack-open .asset-library-mode {
+    display: none;
+  }
+
+  .asset-library-modes.stack-open .asset-stack-trail {
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
   .asset-panel-foot-hint {
     max-width: 50%;
+  }
+
+  .asset-panel.delete-mode .asset-panel-foot {
+    gap: 6px;
+    padding-right: 2px;
+    padding-left: 2px;
+  }
+
+  .asset-delete-actions,
+  .asset-delete-buttons {
+    gap: 4px;
+  }
+
+  .asset-delete-actions > span {
+    font-size: 9px;
+  }
+
+  .asset-delete-actions button {
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  .asset-place-selected {
+    min-width: 72px;
   }
 
   .asset-grid::-webkit-scrollbar {
@@ -3038,33 +3208,21 @@ select:focus-visible {
     width: 100%;
   }
 
+  .image-viewer.layout-bottom .image-viewer-details {
+    min-height: min(38vh, 300px);
+    max-height: min(38vh, 300px);
+  }
+
+  .image-viewer.layout-bottom .image-viewer-details.collapsed {
+    min-height: 0;
+  }
+
   .image-viewer-details-toggle {
     display: flex;
   }
 
   .image-viewer-details.collapsed .image-viewer-copy {
     display: none;
-  }
-
-  .image-viewer-place-btn {
-    display: inline-flex;
-    width: 100%;
-    height: 38px;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    border: 1px solid rgba(255, 255, 255, .2);
-    border-radius: 8px;
-    background: #f8fafc;
-    color: #111827;
-    cursor: pointer;
-    font-size: 11px;
-    font-weight: 850;
-  }
-
-  .image-viewer-place-btn svg {
-    width: 14px;
-    height: 14px;
   }
 
 }

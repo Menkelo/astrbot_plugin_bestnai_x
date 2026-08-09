@@ -91,9 +91,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
             "@media (prefers-reduced-motion", 1
         )[0]
-        self.assertIn("display: flex;", mobile)
+        toolbar = mobile.split(".toolbar {", 1)[1].split("}", 1)[0]
+        self.assertIn("display: grid;", toolbar)
+        self.assertIn("grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);", toolbar)
         self.assertIn("flex: 0 0 clamp(28px, 8vw, 32px);", mobile)
-        self.assertNotIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", mobile)
+        self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", mobile)
 
     def test_editor_persists_resized_notes_prompts_and_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -302,7 +304,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('id="imageViewerPrompt"', html)
         self.assertNotIn('id="imageViewerPromptSection"', html)
         self.assertNotIn("提示词 / Prompt", html)
-        self.assertIn("提示词标签 / Prompt Tags", html)
+        self.assertIn("Prompt Tags / 提示词标签", html)
+        self.assertNotIn("<span>Tags 标签</span>", html)
+        self.assertIn('aria-label="折叠 Prompt Tags"', html)
         self.assertNotIn("中文 Tags / Chinese Tags", html)
         self.assertIn('class="image-viewer-tag-grid" role="group" aria-label="可复制的 Prompt Tags" data-copy-text=""', html)
         self.assertNotIn('id="imageViewerCaption"', html)
@@ -340,12 +344,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function imageViewerPointHitsRenderedImage", editor)
         self.assertIn("function syncImageViewerFrameSize", editor)
         self.assertIn("function scheduleImageViewerFrameSync", editor)
+        self.assertIn("viewerBottomLayoutLock: null", editor)
+        self.assertIn("function lockImageViewerBottomLayout", editor)
+        self.assertIn("function clearImageViewerBottomLayoutLock", editor)
+        self.assertIn("function applyImageViewerBottomLayoutLock", editor)
+        self.assertIn("lockImageViewerBottomLayout();", editor)
+        self.assertIn("if (applyImageViewerBottomLayoutLock()) return;", editor)
         self.assertIn('frame.style.width = `${frameWidth}px`', editor)
         self.assertIn('frame.style.height = `${frameHeight}px`', editor)
         self.assertIn('els.imageViewerDetails.style.width = `${frameWidth}px`', editor)
         self.assertIn('els.imageViewerDetails.style.maxWidth = `${frameWidth}px`', editor)
         self.assertIn("syncImageViewerFrameSize(true)", editor)
-        self.assertIn('event.target.closest(".image-viewer-details")', editor)
+        self.assertIn(
+            'event.target.closest(".image-viewer-details, .image-viewer-place-btn")',
+            editor,
+        )
         self.assertIn("imageViewerPointHitsRenderedImage(event.clientX, event.clientY)", editor)
         self.assertIn("function copyViewerText", editor)
         self.assertNotIn("function isPureEnglishPrompt", editor)
@@ -375,7 +388,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("height: 100%;", viewer_stage)
         self.assertIn("min-height: 0;", viewer_stage)
         self.assertIn("grid-template-rows: minmax(0, 1fr) auto;", viewer_stage)
+        image_frame_html = html.split('class="image-viewer-image-frame"', 1)[1].split("</div>", 1)[0]
+        self.assertIn('id="imageViewerPlaceBtn"', image_frame_html)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: relative;", image_frame)
         self.assertIn("height: 100%;", image_frame)
         self.assertIn("min-height: 0;", image_frame)
         self.assertIn("overflow: hidden;", image_frame)
@@ -388,6 +404,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("border-radius: 12px;", viewer_image)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
+        self.assertIn("align-content: start;", viewer_details)
         self.assertIn("scrollbar-color: rgba(148, 163, 184, .42) transparent;", viewer_details)
         self.assertIn("scrollbar-gutter: auto;", viewer_details)
         self.assertIn("scrollbar-width: thin;", viewer_details)
@@ -414,9 +431,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("display: flex;", side_details)
         self.assertIn("flex-direction: column;", side_details)
         self.assertIn("align-self: stretch;", side_details)
-        side_place_button = styles.split(".image-viewer.layout-side .image-viewer-place-btn {", 1)[1].split("}", 1)[0]
-        self.assertIn("margin-top: auto;", side_place_button)
+        place_button = styles.split("\n.image-viewer-place-btn {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: absolute;", place_button)
+        self.assertIn("bottom: 16px;", place_button)
+        self.assertIn("min-width: 112px;", place_button)
+        self.assertIn("height: 30px;", place_button)
+        self.assertIn("background: rgba(248, 250, 252, .68);", place_button)
+        self.assertIn("transform: translateX(-50%);", place_button)
         self.assertIn(".image-viewer-details-toggle {", styles)
+        details_toggle = styles.split("\n.image-viewer-details-toggle {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 22px;", details_toggle)
+        self.assertIn("justify-content: flex-end;", details_toggle)
         self.assertIn(".image-viewer-details.collapsed .image-viewer-copy", styles)
         self.assertIn(".image-viewer-copy[hidden]", styles)
         self.assertIn(".image-viewer-tag-grid {", styles)
@@ -433,6 +458,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer-tag-grid::-webkit-scrollbar-button", styles)
         self.assertIn(".image-viewer-details::-webkit-scrollbar-thumb", styles)
         self.assertIn(".image-viewer-details::-webkit-scrollbar-button", styles)
+        mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
+            "@media (prefers-reduced-motion", 1
+        )[0]
+        mobile_bottom_details = mobile_styles.split(
+            ".image-viewer.layout-bottom .image-viewer-details {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("min-height: min(38vh, 300px);", mobile_bottom_details)
+        self.assertIn("max-height: min(38vh, 300px);", mobile_bottom_details)
         tag_grid = styles.split("\n.image-viewer-tag-grid {", 1)[1].split("}", 1)[0]
         self.assertIn("-webkit-user-select: none;", tag_grid)
         self.assertIn("user-select: none;", tag_grid)
@@ -446,6 +479,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        zip_utils = (PAGE_ROOT / "zip-utils.js").read_text(encoding="utf-8")
 
         self.assertNotIn('class="asset-tabs"', html)
         self.assertNotIn("data-asset-tab", html)
@@ -510,7 +544,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const debugRect", editor)
         self.assertIn("closeImageViewer();", editor)
         self.assertIn("const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);", editor)
-        self.assertIn("y: point.y - nodeHeight / 2", editor)
+        self.assertIn("point.y - nodeHeight / 2", editor)
         self.assertIn(
             "normalizeNaiSeed(node.meta?.seed) || normalizeNaiSeed(node.meta?.retagSeed)",
             editor,
@@ -531,6 +565,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function alignDebugBar()", editor)
         self.assertIn("new ResizeObserver(scheduleOverlayAlignment)", editor)
         self.assertIn('document.body.classList.toggle("asset-library-open", open)', editor)
+        asset_library_topbar = styles.split(".asset-library-open .topbar {", 1)[1].split("}", 1)[0]
+        self.assertIn("box-shadow: none;", asset_library_topbar)
         self.assertNotIn("body.asset-library-open .minimap", styles)
         self.assertIn("width: auto;", styles.split(".asset-panel {", 1)[1].split("}", 1)[0])
         self.assertIn("max-width: none;", styles.split(".asset-panel {", 1)[1].split("}", 1)[0])
@@ -547,15 +583,45 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="assetStackTrailLabel"', html)
         self.assertIn("返回全部素材", html)
         self.assertNotIn('id="assetExpandBtn"', html)
+        self.assertIn('id="assetPlaceSelectedBtn"', html)
+        self.assertIn('id="assetArchiveSelectedBtn"', html)
         self.assertIn('id="assetDeleteCancel"', html)
         self.assertIn('id="assetDeleteConfirm"', html)
+        self.assertLess(html.index('id="assetPlaceSelectedBtn"'), html.index('id="assetArchiveSelectedBtn"'))
+        self.assertLess(html.index('id="assetArchiveSelectedBtn"'), html.index('id="assetDeleteConfirm"'))
         self.assertLess(html.index('id="assetDeleteConfirm"'), html.index('id="assetDeleteCancel"'))
+        self.assertIn('id="assetDeleteModal"', html)
+        self.assertIn('id="assetDeleteModalTitle"', html)
+        self.assertIn('id="assetDeleteModalText"', html)
+        self.assertIn('id="confirmAssetDeleteBtn"', html)
+        self.assertIn('id="cancelAssetDeleteBtn"', html)
+        asset_delete_modal = html.split('id="assetDeleteModal"', 1)[1].split("</section>", 1)[0]
+        self.assertLess(
+            asset_delete_modal.index('id="confirmAssetDeleteBtn"'),
+            asset_delete_modal.index('id="cancelAssetDeleteBtn"'),
+        )
+        clear_modal = html.split('id="clearModal"', 1)[1].split("</section>", 1)[0]
+        self.assertLess(clear_modal.index('id="confirmClearBtn"'), clear_modal.index('id="cancelClearBtn"'))
         self.assertIn('<span>多选</span>', html)
         self.assertNotIn('id="assetDeleteToggle"', html)
         self.assertNotIn(".asset-delete-toggle", styles)
         self.assertLess(html.index('id="assetGrid"'), html.index('class="asset-delete-toolbar"'))
         self.assertIn("selectedAssetIds: new Set()", editor)
+        self.assertIn("placingAssets: false", editor)
+        self.assertIn("archivingAssets: false", editor)
+        self.assertIn("pendingAssetDeleteIds: []", editor)
+        self.assertIn("function toggleAssetGroupSelection", editor)
+        self.assertIn("toggleAssetGroupSelection(card, group);", editor)
+        self.assertIn("async function placeSelectedLibraryAssetsOnCanvas()", editor)
+        self.assertIn("async function archiveSelectedLibraryAssets()", editor)
+        self.assertIn("els.assetPlaceSelectedBtn.hidden = primaryView", editor)
         self.assertIn("function deleteSelectedLibraryAssets()", editor)
+        self.assertIn("function openAssetDeleteModal()", editor)
+        self.assertIn("function closeAssetDeleteModal", editor)
+        self.assertIn('els.assetDeleteConfirm.addEventListener("click", openAssetDeleteModal)', editor)
+        self.assertIn('els.confirmAssetDeleteBtn.addEventListener("click", deleteSelectedLibraryAssets)', editor)
+        self.assertIn("const ids = [...state.pendingAssetDeleteIds]", editor)
+        self.assertIn("未被画布引用的原图文件可能一并清理", editor)
         self.assertIn("ASSET_LIBRARY_PREFS_KEY", editor)
         self.assertIn("function updateAssetLibraryModeUI()", editor)
         self.assertNotIn("function toggleAssetFavorite(item)", editor)
@@ -580,15 +646,35 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('els.assetSelectModeBtn.setAttribute("aria-pressed"', delete_mode_body)
         self.assertIn('canvas/library/image/delete', editor)
         self.assertIn(".asset-select-indicator", styles)
+        self.assertIn(".asset-delete-buttons", styles)
+        self.assertIn(".asset-place-selected", styles)
+        self.assertIn(".asset-archive-selected", styles)
+        place_selected = styles.split("\n.asset-place-selected {", 1)[1].split("}", 1)[0]
+        archive_selected = styles.split("\n.asset-archive-selected {", 1)[1].split("}", 1)[0]
+        self.assertIn("background: #fffbeb;", place_selected)
+        self.assertIn("color: #a16207;", place_selected)
+        self.assertIn("background: #f0fdf4;", archive_selected)
+        self.assertIn("color: #15803d;", archive_selected)
         self.assertIn(".asset-panel.delete-mode .asset-image-card.selected", styles)
+        self.assertIn(".asset-panel.delete-mode .asset-stack-card.selected", styles)
         self.assertIn(".asset-stack-card {", styles)
         asset_stack_card = styles.split("\n.asset-stack-card {", 1)[1].split("}", 1)[0]
         self.assertIn("height: 100%;", asset_stack_card)
+        asset_stack_count = styles.split("\n.asset-stack-count {", 1)[1].split("}", 1)[0]
+        self.assertIn("top: auto;", asset_stack_count)
+        self.assertIn("bottom: 10px;", asset_stack_count)
         self.assertIn(".asset-stack-trail {", styles)
         self.assertNotIn(".asset-stack-back {", styles)
         asset_trail = styles.split("\n.asset-stack-trail {", 1)[1].split("}", 1)[0]
         self.assertIn("display: inline-flex;", asset_trail)
         self.assertIn("cursor: pointer;", asset_trail)
+        self.assertIn("max-width: 100%;", asset_trail)
+        self.assertIn('classList.toggle("stack-open", !!group)', editor)
+        stack_open_trail = styles.split(
+            ".asset-library-modes.stack-open .asset-stack-trail {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("width: 100%;", stack_open_trail)
+        self.assertIn("flex: 1 1 100%;", stack_open_trail)
         hidden_asset_trail = styles.split("\n.asset-stack-trail[hidden] {", 1)[1].split("}", 1)[0]
         self.assertIn("display: none;", hidden_asset_trail)
         self.assertIn(".asset-stack-cover::before", styles)
@@ -608,14 +694,35 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("viewerLibraryAsset: null", editor)
         self.assertIn('{ libraryAsset: item, operationLabel: "预览素材" }', editor)
         self.assertIn("els.imageViewerPlaceBtn.addEventListener", editor)
+        self.assertIn("els.assetPlaceSelectedBtn.addEventListener", editor)
+        self.assertIn("els.assetArchiveSelectedBtn.addEventListener", editor)
         self.assertIn("const placed = await placeImageAssetOnCanvas(item, worldCenter())", editor)
         self.assertIn("if (!placed) return", editor)
         place_body = editor.split("async function placeImageAssetOnCanvas", 1)[1].split(
             "async function saveImageToLibrary", 1
         )[0]
         self.assertNotIn("setAssetPanel(false)", place_body)
-        self.assertIn("seed: normalizeNaiSeed(item.seed)", place_body)
-        self.assertIn('retagged: item.source === "retagged"', place_body)
+        node_factory = editor.split("function createLibraryImageNode", 1)[1].split(
+            "function selectedLibraryAssetsInDisplayOrder", 1
+        )[0]
+        self.assertIn("seed: normalizeNaiSeed(item.seed)", node_factory)
+        self.assertIn('retagged: item.source === "retagged"', node_factory)
+        batch_place_body = editor.split("async function placeSelectedLibraryAssetsOnCanvas", 1)[1].split(
+            "async function placeImageAssetOnCanvas", 1
+        )[0]
+        self.assertEqual(batch_place_body.count("pushHistory();"), 1)
+        self.assertIn("Math.min(4, Math.ceil(Math.sqrt(layout.length)))", batch_place_body)
+        self.assertIn("state.nodes.push(...nodes)", batch_place_body)
+        self.assertIn("rowStartX = center.x - rowWidth / 2", batch_place_body)
+        archive_body = editor.split("async function archiveSelectedLibraryAssets", 1)[1].split(
+            "async function placeSelectedLibraryAssetsOnCanvas", 1
+        )[0]
+        self.assertIn('name: "library-manifest.json"', archive_body)
+        self.assertIn("uniqueZipPath(", archive_body)
+        self.assertIn("downloadBlob(createZipBlob(entries)", archive_body)
+        self.assertIn("export function createZipBlob", zip_utils)
+        self.assertIn("export function decodeDataUrl", zip_utils)
+        self.assertIn("export function uniqueZipPath", zip_utils)
         self.assertNotIn("asset-thumb-seed", editor)
         self.assertNotIn(".asset-thumb-seed", styles)
         self.assertNotIn(".asset-image-card::before", styles)
@@ -720,10 +827,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
     def test_plugin_metadata_and_astrbot_compatibility_are_exposed(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         metadata = (ROOT / "metadata.yaml").read_text(encoding="utf-8")
+        constants = (ROOT / "constants.py").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
+        self.assertIn("version: 3.3.8", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.3.8"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -790,25 +900,38 @@ class CanvasPageBridgeTest(unittest.TestCase):
         mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
             "@media (prefers-reduced-motion", 1
         )[0]
-        self.assertNotIn('id="mobileAssetLibraryBtn"', html)
+        self.assertIn('id="mobileAssetLibraryBtn"', html)
         self.assertIn('id="assetLibraryBtn"', html)
         self.assertIn('data-lucide="images"', html)
         self.assertIn(
-            '"identity identity identity identity identity identity identity identity project"',
+            '"identity identity identity identity identity identity identity identity asset project"',
             mobile_styles,
         )
-        self.assertIn('"tools tools tools tools tools tools tools tools tools"', mobile_styles)
-        mobile_asset_active = mobile_styles.split("#assetLibraryBtn.active {", 1)[1].split("}", 1)[0]
+        self.assertIn('"tools tools tools tools tools tools tools tools tools tools"', mobile_styles)
+        self.assertIn("#assetLibraryBtn", mobile_styles)
+        self.assertIn("display: none;", mobile_styles)
+        mobile_asset_active = mobile_styles.split("#mobileAssetLibraryBtn.active {", 1)[1].split("}", 1)[0]
         self.assertIn("background: var(--soft-2);", mobile_asset_active)
-        self.assertIn('els.assetLibraryBtn.addEventListener("click"', editor)
-        self.assertNotIn("mobileAssetLibraryBtn", editor)
+        self.assertIn("[els.assetLibraryBtn, els.mobileAssetLibraryBtn]", editor)
         self.assertIn("overflow-x: auto;", mobile_styles)
         self.assertIn("-webkit-overflow-scrolling: touch;", mobile_styles)
-        self.assertIn("grid-template-columns: repeat(9, minmax(28px, 1fr));", mobile_styles)
-        self.assertIn("flex: 0 0 auto;", mobile_styles)
+        self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", mobile_styles)
+        self.assertIn("grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);", mobile_styles)
+        self.assertIn(
+            "grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr);",
+            mobile_styles,
+        )
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", mobile_styles)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", mobile_styles)
+        self.assertIn("#fitBtn {", mobile_styles)
+        self.assertIn("grid-column: 1;", mobile_styles)
+        self.assertIn("#undoBtn {", mobile_styles)
+        self.assertIn("grid-column: 2;", mobile_styles)
+        self.assertIn("#redoBtn {", mobile_styles)
+        self.assertIn("grid-column: 3;", mobile_styles)
+        self.assertIn("justify-self: center;", mobile_styles)
         self.assertIn("flex: 0 0 clamp(28px, 8vw, 32px);", mobile_styles)
         self.assertNotIn("display: contents;", mobile_styles)
-        self.assertNotIn("justify-self: center;", mobile_styles)
         self.assertIn("place-items: center;", mobile_styles)
         landscape_styles = styles.split(
             "@media (orientation: landscape) and (max-height: 620px) and (max-width: 1400px) {",
@@ -1059,7 +1182,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "@media (prefers-reduced-motion", 1
         )[0]
         mobile_create = mobile.split(".toolbar-create-tools {", 1)[1].split("}", 1)[0]
-        self.assertIn("display: flex;", mobile_create)
+        self.assertIn("display: grid;", mobile_create)
         toolbar_styles = styles.split(".toolbar {", 1)[1].split("}", 1)[0]
         self.assertIn("overflow: visible;", toolbar_styles)
 

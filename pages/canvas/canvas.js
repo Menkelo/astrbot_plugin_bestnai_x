@@ -1,3 +1,13 @@
+import {
+  createZipBlob,
+  decodeDataUrl,
+  downloadBlob,
+  encodeZipText,
+  imageExtension,
+  safeZipName,
+  uniqueZipPath,
+} from "./zip-utils.js";
+
 let bridge = null;
 
 async function getBridge() {
@@ -43,6 +53,7 @@ const els = {
   imageViewerTags: document.getElementById("imageViewerTags"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetLibraryBtn: document.getElementById("assetLibraryBtn"),
+  mobileAssetLibraryBtn: document.getElementById("mobileAssetLibraryBtn"),
   assetPanel: document.getElementById("assetPanel"),
   debugModeBtn: document.getElementById("debugModeBtn"),
   debugBar: document.getElementById("debugBar"),
@@ -62,8 +73,15 @@ const els = {
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
   assetDeleteCount: document.getElementById("assetDeleteCount"),
+  assetPlaceSelectedBtn: document.getElementById("assetPlaceSelectedBtn"),
+  assetArchiveSelectedBtn: document.getElementById("assetArchiveSelectedBtn"),
   assetDeleteCancel: document.getElementById("assetDeleteCancel"),
   assetDeleteConfirm: document.getElementById("assetDeleteConfirm"),
+  assetDeleteModal: document.getElementById("assetDeleteModal"),
+  assetDeleteModalTitle: document.getElementById("assetDeleteModalTitle"),
+  assetDeleteModalText: document.getElementById("assetDeleteModalText"),
+  confirmAssetDeleteBtn: document.getElementById("confirmAssetDeleteBtn"),
+  cancelAssetDeleteBtn: document.getElementById("cancelAssetDeleteBtn"),
   projectMenuBtn: document.getElementById("projectMenuBtn"),
   projectMenu: document.getElementById("projectMenu"),
   projectList: document.getElementById("projectList"),
@@ -174,6 +192,9 @@ const state = {
   assetDeleteMode: false,
   selectedAssetIds: new Set(),
   deletingAssets: false,
+  placingAssets: false,
+  archivingAssets: false,
+  pendingAssetDeleteIds: [],
   canvases: [],
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
@@ -200,6 +221,7 @@ const state = {
   viewerLibraryAsset: null,
   viewerImageDimensions: { width: 0, height: 0 },
   viewerFrameSyncHandle: 0,
+  viewerBottomLayoutLock: null,
   viewerTagLookupSequence: 0,
   viewerTagTranslationCache: new Map(),
   retagRequestSequence: 0,
@@ -298,6 +320,11 @@ function assetLibraryVisibleItems() {
   return state.assetRecent.map((id) => byId.get(id)).filter(Boolean);
 }
 
+function assetLibraryStackViewGroups() {
+  if (state.assetLibraryView !== "all" || state.assetStackKey) return [];
+  return assetLibraryGroups(assetLibraryVisibleItems());
+}
+
 function assetGroupForItem(item) {
   const artist = String(item?.artist || "").trim();
   if (artist) {
@@ -350,6 +377,7 @@ function updateAssetLibraryModeUI() {
       ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
       : null;
     els.assetStackTrail.hidden = !group;
+    els.assetStackTrail.closest(".asset-library-modes")?.classList.toggle("stack-open", !!group);
     const label = group ? `返回全部素材 · ${group.label}` : "返回全部素材";
     if (els.assetStackTrailLabel) els.assetStackTrailLabel.textContent = label;
     els.assetStackTrail.title = label;
@@ -359,6 +387,7 @@ function updateAssetLibraryModeUI() {
 
 function setAssetLibraryView(view) {
   if (!["all", "recent"].includes(view)) return;
+  if (state.assetDeleteMode) setAssetDeleteMode(false);
   state.assetLibraryView = view;
   state.assetStackKey = "";
   persistAssetLibraryPreferences();
@@ -371,6 +400,7 @@ function closeAssetStack() {
     ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
     : null;
   if (!group) return;
+  if (state.assetDeleteMode) setAssetDeleteMode(false);
   state.assetStackKey = "";
   updateAssetLibraryModeUI();
   renderAssetLibrary();
@@ -3457,6 +3487,7 @@ function preferredImageViewerLayout(width, height) {
 }
 
 function applyImageViewerLayout(width, height) {
+  clearImageViewerBottomLayoutLock(true);
   const imageWidth = Number(width) || els.imageViewerImage.naturalWidth || 0;
   const imageHeight = Number(height) || els.imageViewerImage.naturalHeight || 0;
   if (imageWidth && imageHeight) {
@@ -3472,16 +3503,58 @@ function applyImageViewerLayout(width, height) {
   scheduleImageViewerFrameSync();
 }
 
+function clearImageViewerBottomLayoutLock(resetGeometry = false) {
+  state.viewerBottomLayoutLock = null;
+  els.imageViewerDetails.style.removeProperty("height");
+  els.imageViewerDetails.style.removeProperty("min-height");
+  els.imageViewerDetails.style.removeProperty("max-height");
+  if (!resetGeometry) return;
+  els.imageViewerImageFrame?.style.removeProperty("width");
+  els.imageViewerImageFrame?.style.removeProperty("height");
+  els.imageViewerDetails.style.removeProperty("width");
+  els.imageViewerDetails.style.removeProperty("max-width");
+}
+
+function applyImageViewerBottomLayoutLock() {
+  const lock = state.viewerBottomLayoutLock;
+  const frame = els.imageViewerImageFrame;
+  if (!lock || !frame) return false;
+  frame.style.width = `${lock.frameWidth}px`;
+  frame.style.height = `${lock.frameHeight}px`;
+  els.imageViewerDetails.style.width = `${lock.detailsWidth}px`;
+  els.imageViewerDetails.style.maxWidth = `${lock.detailsWidth}px`;
+  els.imageViewerDetails.style.height = `${lock.detailsHeight}px`;
+  els.imageViewerDetails.style.minHeight = `${lock.detailsHeight}px`;
+  els.imageViewerDetails.style.maxHeight = `${lock.detailsHeight}px`;
+  return true;
+}
+
+function lockImageViewerBottomLayout() {
+  if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) return;
+  const frame = els.imageViewerImageFrame;
+  if (!frame) return;
+  const frameRect = frame.getBoundingClientRect();
+  const detailsRect = els.imageViewerDetails.getBoundingClientRect();
+  if (!frameRect.width || !frameRect.height || !detailsRect.width || !detailsRect.height) return;
+  state.viewerBottomLayoutLock = {
+    frameWidth: frameRect.width,
+    frameHeight: frameRect.height,
+    detailsWidth: detailsRect.width,
+    detailsHeight: detailsRect.height,
+  };
+  applyImageViewerBottomLayoutLock();
+}
+
 function syncImageViewerFrameSize(settling = false) {
   const frame = els.imageViewerImageFrame;
   if (!frame) return;
-  frame.style.removeProperty("width");
-  frame.style.removeProperty("height");
   if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) {
-    els.imageViewerDetails.style.removeProperty("width");
-    els.imageViewerDetails.style.removeProperty("max-width");
+    clearImageViewerBottomLayoutLock(true);
     return;
   }
+  if (applyImageViewerBottomLayoutLock()) return;
+  frame.style.removeProperty("width");
+  frame.style.removeProperty("height");
 
   const imageWidth = Number(state.viewerImageDimensions.width)
     || Number(els.imageViewerImage.naturalWidth)
@@ -3528,9 +3601,13 @@ function scheduleImageViewerFrameSync() {
 }
 
 function setImageViewerDetailsCollapsed(collapsed) {
+  clearImageViewerBottomLayoutLock(true);
   const next = !!collapsed;
   els.imageViewerDetails.classList.toggle("collapsed", next);
   els.imageViewerDetailsToggle.setAttribute("aria-expanded", String(!next));
+  const toggleLabel = next ? "展开 Prompt Tags" : "折叠 Prompt Tags";
+  els.imageViewerDetailsToggle.setAttribute("aria-label", toggleLabel);
+  els.imageViewerDetailsToggle.title = toggleLabel;
   scheduleImageViewerFrameSync();
 }
 
@@ -3814,6 +3891,10 @@ async function hydrateImageViewerChineseTags(node, tags, lookupSequence) {
       ...initialTranslations,
       ...normalizeRetagTagTranslations(result?.translations),
     };
+    // Freeze the already-visible English layout before longer bilingual chips
+    // are inserted. New content then scrolls inside the Tags surface instead
+    // of feeding back into image sizing and moving both columns/rows.
+    lockImageViewerBottomLayout();
     renderImageViewerTags(tags, result?.pairs, translations);
     if (Object.keys(translations).length) {
       node.meta = { ...(node.meta || {}), tagTranslations: translations };
@@ -3940,8 +4021,10 @@ function setAssetPanel(open) {
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
   els.assetPanel.classList.toggle("open", open);
   document.body.classList.toggle("asset-library-open", open);
-  els.assetLibraryBtn.classList.toggle("active", open);
-  els.assetLibraryBtn.setAttribute("aria-expanded", String(open));
+  [els.assetLibraryBtn, els.mobileAssetLibraryBtn].forEach((button) => {
+    button.classList.toggle("active", open);
+    button.setAttribute("aria-expanded", String(open));
+  });
   if (!open) {
     setAssetDeleteMode(false);
     recordOperation("关闭素材库");
@@ -3957,7 +4040,7 @@ function setAssetDeleteMode(enabled) {
   state.assetDeleteMode = !!enabled;
   if (!state.assetDeleteMode) {
     state.selectedAssetIds.clear();
-    els.assetGrid.querySelectorAll(".asset-image-card.selected").forEach((card) => {
+    els.assetGrid.querySelectorAll(".asset-card.selected").forEach((card) => {
       card.classList.remove("selected");
       card.setAttribute("aria-selected", "false");
     });
@@ -3969,14 +4052,29 @@ function setAssetDeleteMode(enabled) {
   if (changed) recordOperation(state.assetDeleteMode ? "进入素材多选" : "退出素材多选");
 }
 
+function selectedAssetGroupCount(groups = assetLibraryStackViewGroups()) {
+  return groups.filter((group) => (
+    group.items.length > 0 && group.items.every((item) => state.selectedAssetIds.has(item.id))
+  )).length;
+}
+
 function updateAssetDeleteControls() {
-  const count = state.selectedAssetIds.size;
+  const itemCount = state.selectedAssetIds.size;
+  const groups = assetLibraryStackViewGroups();
+  const primaryView = state.assetLibraryView === "all" && !state.assetStackKey;
+  const groupCount = selectedAssetGroupCount(groups);
+  const busy = state.deletingAssets || state.placingAssets || state.archivingAssets;
   els.assetDeleteActions.hidden = !state.assetDeleteMode;
-  els.assetDeleteCount.textContent = `已选 ${count} 项`;
-  els.assetDeleteConfirm.disabled = count === 0 || state.deletingAssets;
+  els.assetDeleteCount.textContent = primaryView ? `已选 ${groupCount} 组` : `已选 ${itemCount} 项`;
+  els.assetPlaceSelectedBtn.hidden = primaryView;
+  els.assetPlaceSelectedBtn.disabled = itemCount === 0 || busy;
+  els.assetPlaceSelectedBtn.querySelector("span").textContent = state.placingAssets ? "加入中…" : "加入画布";
+  els.assetArchiveSelectedBtn.disabled = itemCount === 0 || busy;
+  els.assetArchiveSelectedBtn.querySelector("span").textContent = state.archivingAssets ? "压缩中…" : "压缩";
+  els.assetDeleteConfirm.disabled = itemCount === 0 || busy;
   els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除";
-  els.assetDeleteCancel.disabled = state.deletingAssets;
-  els.assetSelectModeBtn.disabled = state.deletingAssets;
+  els.assetDeleteCancel.disabled = busy;
+  els.assetSelectModeBtn.disabled = busy;
 }
 
 function toggleAssetSelection(card, assetId) {
@@ -3987,15 +4085,55 @@ function toggleAssetSelection(card, assetId) {
   updateAssetDeleteControls();
 }
 
-async function deleteSelectedLibraryAssets() {
+function toggleAssetGroupSelection(card, group) {
+  const ids = group.items.map((item) => item.id);
+  const selected = ids.length > 0 && ids.every((id) => state.selectedAssetIds.has(id));
+  ids.forEach((id) => {
+    if (selected) state.selectedAssetIds.delete(id);
+    else state.selectedAssetIds.add(id);
+  });
+  card.classList.toggle("selected", !selected);
+  card.setAttribute("aria-selected", String(!selected));
+  updateAssetDeleteControls();
+}
+
+function closeAssetDeleteModal({ restoreFocus = true, force = false } = {}) {
+  if (state.deletingAssets && !force) return;
+  els.assetDeleteModal.hidden = true;
+  state.pendingAssetDeleteIds = [];
+  els.confirmAssetDeleteBtn.disabled = false;
+  els.confirmAssetDeleteBtn.textContent = "删除";
+  els.cancelAssetDeleteBtn.disabled = false;
+  if (restoreFocus && state.assetDeleteMode) els.assetDeleteConfirm.focus();
+}
+
+function openAssetDeleteModal() {
   const ids = [...state.selectedAssetIds];
-  if (!ids.length || state.deletingAssets) return;
+  if (!ids.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
+  const primaryView = state.assetLibraryView === "all" && !state.assetStackKey;
+  const groupCount = selectedAssetGroupCount();
+  state.pendingAssetDeleteIds = ids;
+  els.assetDeleteModalTitle.textContent = primaryView ? "删除所选素材堆？" : "删除所选图片？";
+  els.assetDeleteModalText.textContent = primaryView
+    ? `将从素材库删除 ${groupCount} 个素材堆中的 ${ids.length} 张图片。未被画布引用的原图文件可能一并清理，此操作无法撤销。`
+    : `将从素材库删除 ${ids.length} 张图片。未被画布引用的原图文件可能一并清理，此操作无法撤销。`;
+  els.assetDeleteModal.hidden = false;
+  els.cancelAssetDeleteBtn.focus();
+}
+
+async function deleteSelectedLibraryAssets() {
+  const ids = [...state.pendingAssetDeleteIds];
+  if (!ids.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
   state.deletingAssets = true;
+  els.confirmAssetDeleteBtn.disabled = true;
+  els.confirmAssetDeleteBtn.textContent = "删除中…";
+  els.cancelAssetDeleteBtn.disabled = true;
   updateAssetDeleteControls();
   try {
     await Promise.all(ids.map((id) => bridge.apiPost("canvas/library/image/delete", { id })));
     state.library.images = state.library.images.filter((item) => !ids.includes(item.id));
     reconcileAssetLibraryPreferences();
+    closeAssetDeleteModal({ restoreFocus: false, force: true });
     setAssetDeleteMode(false);
     renderAssetLibrary();
     toast(`已删除 ${ids.length} 项素材`);
@@ -4005,6 +4143,11 @@ async function deleteSelectedLibraryAssets() {
     toast(error.message || "批量删除素材失败", "error");
   } finally {
     state.deletingAssets = false;
+    if (!els.assetDeleteModal.hidden) {
+      els.confirmAssetDeleteBtn.disabled = false;
+      els.confirmAssetDeleteBtn.textContent = "删除";
+      els.cancelAssetDeleteBtn.disabled = false;
+    }
     updateAssetDeleteControls();
   }
 }
@@ -4019,9 +4162,7 @@ function renderAssetLibrary() {
     state.assetStackKey = "";
   }
   const items = assetLibraryVisibleItems();
-  const groups = state.assetLibraryView === "all" && !state.assetStackKey
-    ? assetLibraryGroups(items)
-    : [];
+  const groups = assetLibraryStackViewGroups();
   const stackView = groups.length > 0;
   updateAssetLibraryModeUI();
   els.assetGrid.replaceChildren();
@@ -4050,6 +4191,7 @@ function renderAssetLibrary() {
     }
   }
   updateAssetGridMetrics();
+  updateAssetDeleteControls();
   window.requestAnimationFrame(updateAssetGridMetrics);
   refreshIcons(els.assetPanel);
 }
@@ -4059,6 +4201,10 @@ function renderAssetStackCard(group, container = els.assetGrid) {
   card.type = "button";
   card.className = "asset-card asset-stack-card";
   card.dataset.stackKey = group.key;
+  const selected = group.items.length > 0
+    && group.items.every((item) => state.selectedAssetIds.has(item.id));
+  card.classList.toggle("selected", selected);
+  card.setAttribute("aria-selected", String(selected));
   card.title = `展开${group.label}素材堆`;
   card.setAttribute("aria-label", `展开${group.label}素材堆，共 ${group.items.length} 张`);
 
@@ -4086,8 +4232,17 @@ function renderAssetStackCard(group, container = els.assetGrid) {
   artistBadge.textContent = group.label;
   artistBadge.title = group.unassigned ? "未标注画师" : `画师：${group.label}`;
   cover.appendChild(artistBadge);
+  const selectIndicator = document.createElement("span");
+  selectIndicator.className = "asset-select-indicator";
+  selectIndicator.setAttribute("aria-hidden", "true");
+  selectIndicator.appendChild(icon("check"));
+  cover.appendChild(selectIndicator);
   card.appendChild(cover);
   card.addEventListener("click", () => {
+    if (state.assetDeleteMode) {
+      toggleAssetGroupSelection(card, group);
+      return;
+    }
     state.assetStackKey = group.key;
     updateAssetLibraryModeUI();
     renderAssetLibrary();
@@ -4269,35 +4424,210 @@ async function openLibraryImageViewer(item) {
   }
 }
 
+function createLibraryImageNode(item, x, y, nodeWidth = fittedImageNodeWidth(item.width, item.height)) {
+  return {
+    id: uid("image"),
+    type: "image",
+    x,
+    y,
+    width: nodeWidth,
+    title: item.name || "素材图片",
+    assetId: item.id,
+    dataUrl: item.dataUrl,
+    createdAt: new Date().toISOString(),
+    meta: {
+      prompt: item.prompt || item.name || "素材图片",
+      tags: item.tags || "",
+      tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
+      artist: item.artist || "",
+      width: item.width,
+      height: item.height,
+      ratio: item.ratio || "",
+      seed: normalizeNaiSeed(item.seed),
+      retagged: item.source === "retagged",
+      source: item.source || "",
+    },
+  };
+}
+
+function selectedLibraryAssetsInDisplayOrder() {
+  const group = state.assetStackKey
+    ? assetLibraryGroups(state.library.images).find((candidate) => candidate.key === state.assetStackKey)
+    : null;
+  const visibleItems = group?.items || assetLibraryVisibleItems();
+  const ordered = visibleItems.filter((item) => state.selectedAssetIds.has(item.id));
+  const included = new Set(ordered.map((item) => item.id));
+  state.library.images.forEach((item) => {
+    if (state.selectedAssetIds.has(item.id) && !included.has(item.id)) ordered.push(item);
+  });
+  return ordered;
+}
+
+function libraryArchiveFilename(items) {
+  const groups = assetLibraryGroups(items);
+  if (groups.length === 1) return `bestnai-${safeZipName(groups[0].label, "素材")}.zip`;
+  const date = new Date();
+  const stamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+  return `bestnai-assets-${stamp}.zip`;
+}
+
+async function archiveSelectedLibraryAssets() {
+  const items = selectedLibraryAssetsInDisplayOrder();
+  if (!items.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
+  state.archivingAssets = true;
+  updateAssetDeleteControls();
+  try {
+    const loaded = await Promise.allSettled(items.map((item) => ensureLibraryImageData(item)));
+    const usedPaths = new Set(["library-manifest.json"]);
+    const entries = [];
+    const manifest = [];
+    loaded.forEach((result, index) => {
+      const item = items[index];
+      if (result.status === "rejected") {
+        manifest.push({
+          id: item.id,
+          name: item.name || "",
+          skipped: true,
+          reason: String(result.reason?.message || result.reason || "图片素材读取失败").slice(0, 160),
+        });
+        return;
+      }
+      try {
+        const decoded = decodeDataUrl(item.dataUrl);
+        const group = assetGroupForItem(item);
+        const path = uniqueZipPath(
+          group.label,
+          item.name || item.id || `asset-${index + 1}`,
+          imageExtension(decoded.mimeType),
+          usedPaths,
+        );
+        entries.push({ name: path, bytes: decoded.bytes });
+        manifest.push({
+          id: item.id,
+          file: path,
+          name: item.name || "",
+          artist: item.artist || "",
+          prompt: item.prompt || "",
+          tags: item.tags || "",
+          ratio: item.ratio || "",
+          seed: normalizeNaiSeed(item.seed),
+          source: item.source || "",
+          width: item.width || 0,
+          height: item.height || 0,
+          size: decoded.bytes.length,
+        });
+      } catch (error) {
+        manifest.push({
+          id: item.id,
+          name: item.name || "",
+          skipped: true,
+          reason: String(error?.message || error || "图片素材解析失败").slice(0, 160),
+        });
+      }
+    });
+    if (!entries.length) throw new Error("所选素材均无法读取，未生成压缩包");
+    entries.push({
+      name: "library-manifest.json",
+      bytes: encodeZipText(JSON.stringify({ exportedAt: new Date().toISOString(), assets: manifest }, null, 2)),
+    });
+    downloadBlob(createZipBlob(entries), libraryArchiveFilename(items));
+    const skipped = manifest.filter((item) => item.skipped).length;
+    recordOperation(
+      "压缩素材",
+      skipped ? `${entries.length - 1} 项成功，${skipped} 项跳过` : `${entries.length - 1} 项`,
+      skipped ? "warning" : "success",
+    );
+    setAssetDeleteMode(false);
+    toast(skipped ? `压缩包已保存，跳过 ${skipped} 项异常素材` : `已压缩 ${entries.length - 1} 项素材`);
+  } catch (error) {
+    recordOperation("压缩素材失败", error.message || "压缩包生成失败", "error");
+    toast(error.message || "压缩素材失败", "error");
+  } finally {
+    state.archivingAssets = false;
+    updateAssetDeleteControls();
+  }
+}
+
+async function placeSelectedLibraryAssetsOnCanvas() {
+  const items = selectedLibraryAssetsInDisplayOrder();
+  if (!items.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
+  state.placingAssets = true;
+  updateAssetDeleteControls();
+  try {
+    const loaded = await Promise.allSettled(items.map((item) => ensureLibraryImageData(item)));
+    const readyItems = items.filter((_, index) => loaded[index].status === "fulfilled");
+    if (!readyItems.length) {
+      throw loaded.find((result) => result.status === "rejected")?.reason || new Error("图片素材读取失败");
+    }
+
+    const layout = readyItems.map((item) => {
+      const width = fittedImageNodeWidth(item.width, item.height);
+      return {
+        item,
+        width,
+        height: estimatedImageNodeHeight(width, item.width, item.height),
+      };
+    });
+    const columns = Math.min(4, Math.ceil(Math.sqrt(layout.length)));
+    const rows = Math.ceil(layout.length / columns);
+    const maxWidth = Math.max(...layout.map((entry) => entry.width));
+    const maxHeight = Math.max(...layout.map((entry) => entry.height));
+    const horizontalGap = 56;
+    const verticalGap = 56;
+    const totalHeight = rows * maxHeight + (rows - 1) * verticalGap;
+    const center = worldCenter();
+    const startY = center.y - totalHeight / 2;
+    const nodes = layout.map((entry, index) => {
+      const row = Math.floor(index / columns);
+      const column = index % columns;
+      const rowCount = Math.min(columns, layout.length - row * columns);
+      const rowWidth = rowCount * maxWidth + (rowCount - 1) * horizontalGap;
+      const rowStartX = center.x - rowWidth / 2;
+      const x = rowStartX + column * (maxWidth + horizontalGap) + (maxWidth - entry.width) / 2;
+      const y = startY + row * (maxHeight + verticalGap) + (maxHeight - entry.height) / 2;
+      return createLibraryImageNode(entry.item, x, y, entry.width);
+    });
+
+    pushHistory();
+    state.nodes.push(...nodes);
+    setSelection(nodes.map((node) => node.id), nodes[0].id);
+    [...readyItems].reverse().forEach((item) => markAssetRecent(item, { render: false }));
+    renderAll();
+    scheduleSave();
+
+    const failedCount = items.length - readyItems.length;
+    recordOperation(
+      "批量放入画布",
+      failedCount ? `${nodes.length} 项成功，${failedCount} 项读取失败` : `${nodes.length} 项`,
+      failedCount ? "warning" : "success",
+    );
+    setAssetPanel(false);
+    toast(failedCount ? `已放入 ${nodes.length} 项，${failedCount} 项读取失败` : `已放入 ${nodes.length} 项素材`);
+  } catch (error) {
+    recordOperation("批量放入画布失败", error.message || "添加图片素材失败", "error");
+    toast(error.message || "批量加入画布失败", "error");
+  } finally {
+    state.placingAssets = false;
+    updateAssetDeleteControls();
+  }
+}
+
 async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   try {
     await ensureLibraryImageData(item);
     markAssetRecent(item, { render: false });
     const nodeWidth = fittedImageNodeWidth(item.width, item.height);
     const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);
-    addNode({
-      id: uid("image"),
-      type: "image",
-      x: point.x - nodeWidth / 2,
-      y: point.y - nodeHeight / 2,
-      width: nodeWidth,
-      title: item.name || "素材图片",
-      assetId: item.id,
-      dataUrl: item.dataUrl,
-      createdAt: new Date().toISOString(),
-      meta: {
-        prompt: item.prompt || item.name || "素材图片",
-        tags: item.tags || "",
-        tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
-        artist: item.artist || "",
-        width: item.width,
-        height: item.height,
-        ratio: item.ratio || "",
-        seed: normalizeNaiSeed(item.seed),
-        retagged: item.source === "retagged",
-        source: item.source || "",
-      },
-    });
+    addNode(createLibraryImageNode(
+      item,
+      point.x - nodeWidth / 2,
+      point.y - nodeHeight / 2,
+      nodeWidth,
+    ));
     recordOperation("放入画布", item.name || "素材图片", "success");
     return true;
   } catch (error) {
@@ -4934,8 +5264,10 @@ document.addEventListener("pointerdown", (event) => {
     setSelectionContextMenu(false);
   }
 });
-els.assetLibraryBtn.addEventListener("click", () => {
-  setAssetPanel(!els.assetPanel.classList.contains("open"));
+[els.assetLibraryBtn, els.mobileAssetLibraryBtn].forEach((button) => {
+  button.addEventListener("click", () => {
+    setAssetPanel(!els.assetPanel.classList.contains("open"));
+  });
 });
 document.querySelectorAll("[data-library-view]").forEach((button) => {
   button.addEventListener("click", (event) => {
@@ -4967,8 +5299,15 @@ els.assetRefreshBtn?.addEventListener("click", async (event) => {
   }
 });
 els.assetSelectModeBtn.addEventListener("click", () => setAssetDeleteMode(true));
+els.assetPlaceSelectedBtn.addEventListener("click", placeSelectedLibraryAssetsOnCanvas);
+els.assetArchiveSelectedBtn.addEventListener("click", archiveSelectedLibraryAssets);
 els.assetDeleteCancel.addEventListener("click", () => setAssetDeleteMode(false));
-els.assetDeleteConfirm.addEventListener("click", deleteSelectedLibraryAssets);
+els.assetDeleteConfirm.addEventListener("click", openAssetDeleteModal);
+els.confirmAssetDeleteBtn.addEventListener("click", deleteSelectedLibraryAssets);
+els.cancelAssetDeleteBtn.addEventListener("click", () => closeAssetDeleteModal());
+els.assetDeleteModal.addEventListener("pointerdown", (event) => {
+  if (event.target === els.assetDeleteModal) closeAssetDeleteModal();
+});
 
 els.imageInput.addEventListener("change", () => {
   uploadFiles(els.imageInput.files, state.pendingUploadPoint || worldCenter());
@@ -5051,7 +5390,10 @@ els.imageViewerDetailsToggle.addEventListener("click", () => {
   setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
 });
 els.imageViewer.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0 || event.target.closest(".image-viewer-details")) return;
+  if (
+    event.button !== 0
+    || event.target.closest(".image-viewer-details, .image-viewer-place-btn")
+  ) return;
   if (imageViewerPointHitsRenderedImage(event.clientX, event.clientY)) return;
   closeImageViewer();
 });
@@ -5105,6 +5447,14 @@ document.addEventListener("keydown", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const editing = !!target?.closest("textarea, input, select, [contenteditable='true']");
   if (event.key === "Escape") {
+    if (!els.assetDeleteModal.hidden) {
+      closeAssetDeleteModal();
+      return;
+    }
+    if (!clearModal.hidden) {
+      clearModal.hidden = true;
+      return;
+    }
     if (!els.imageViewer.hidden) {
       closeImageViewer();
       return;
