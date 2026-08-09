@@ -4465,14 +4465,19 @@ function selectedLibraryAssetsInDisplayOrder() {
 
 function libraryArchiveFilename(items) {
   const groups = assetLibraryGroups(items);
-  if (groups.length === 1) return `bestnai-${safeZipName(groups[0].label, "素材")}.zip`;
   const date = new Date();
-  const stamp = [
+  const dateStamp = [
     date.getFullYear(),
     String(date.getMonth() + 1).padStart(2, "0"),
     String(date.getDate()).padStart(2, "0"),
   ].join("-");
-  return `bestnai-assets-${stamp}.zip`;
+  const timeStamp = [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
+  ].join("-");
+  const label = groups.length === 1 ? safeZipName(groups[0].label, "素材") : "素材";
+  return `${label}_${dateStamp}_${timeStamp}.zip`;
 }
 
 async function archiveSelectedLibraryAssets() {

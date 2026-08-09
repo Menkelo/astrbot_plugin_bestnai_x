@@ -717,6 +717,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         archive_body = editor.split("async function archiveSelectedLibraryAssets", 1)[1].split(
             "async function placeSelectedLibraryAssetsOnCanvas", 1
         )[0]
+        archive_filename_body = editor.split("function libraryArchiveFilename", 1)[1].split(
+            "async function archiveSelectedLibraryAssets", 1
+        )[0]
+        self.assertNotIn("bestnai", archive_filename_body.lower())
+        self.assertIn('const label = groups.length === 1', archive_filename_body)
+        self.assertIn('return `${label}_${dateStamp}_${timeStamp}.zip`', archive_filename_body)
         self.assertIn('name: "library-manifest.json"', archive_body)
         self.assertIn("uniqueZipPath(", archive_body)
         self.assertIn("downloadBlob(createZipBlob(entries)", archive_body)
