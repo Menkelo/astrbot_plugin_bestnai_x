@@ -50,6 +50,13 @@ const els = {
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
   assetLibraryCount: document.getElementById("assetLibraryCount"),
+  assetViewAllBtn: document.getElementById("assetViewAllBtn"),
+  assetViewFavoritesBtn: document.getElementById("assetViewFavoritesBtn"),
+  assetViewRecentBtn: document.getElementById("assetViewRecentBtn"),
+  assetAllCount: document.getElementById("assetAllCount"),
+  assetFavoritesCount: document.getElementById("assetFavoritesCount"),
+  assetRecentCount: document.getElementById("assetRecentCount"),
+  assetStackTrail: document.getElementById("assetStackTrail"),
   assetRefreshBtn: document.getElementById("assetRefreshBtn"),
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
@@ -69,8 +76,31 @@ const els = {
 const GRID_STYLE_KEY = "bestnaiCanvasGridStyle";
 const OPERATION_LOG_KEY = "bestnaiCanvasOperationLog";
 const RECORDER_OPEN_KEY = "bestnaiCanvasRecorderOpen";
+const ASSET_LIBRARY_PREFS_KEY = "bestnaiCanvasAssetLibraryPrefs";
+const ASSET_RECENT_LIMIT = 24;
 const OPERATION_LOG_LIMIT = 240;
 const OPERATION_VISIBLE_LIMIT = 100;
+
+function normalizeAssetIdList(value, limit = ASSET_RECENT_LIMIT) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, limit);
+}
+
+function loadAssetLibraryPreferences() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ASSET_LIBRARY_PREFS_KEY) || "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return {
+      favorites: normalizeAssetIdList(raw.favorites, 240),
+      recent: normalizeAssetIdList(raw.recent),
+      view: ["all", "favorites", "recent"].includes(raw.view) ? raw.view : "all",
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+const INITIAL_ASSET_LIBRARY_PREFERENCES = loadAssetLibraryPreferences();
 
 function maskOperationSecrets(value) {
   return String(value || "")
@@ -138,6 +168,10 @@ const state = {
   libraryPreloadPromise: null,
   libraryRenderObserver: null,
   libraryRenderCleanup: null,
+  assetLibraryView: INITIAL_ASSET_LIBRARY_PREFERENCES.view || "all",
+  assetStackKey: "",
+  assetFavorites: new Set(INITIAL_ASSET_LIBRARY_PREFERENCES.favorites || []),
+  assetRecent: INITIAL_ASSET_LIBRARY_PREFERENCES.recent || [],
   assetDeleteMode: false,
   selectedAssetIds: new Set(),
   deletingAssets: false,
@@ -273,6 +307,132 @@ function clearOperationLog() {
   state.operationSequence = 0;
   persistOperationLog();
   recordOperation("记录器已清空", "新的操作会继续追加");
+}
+
+function persistAssetLibraryPreferences() {
+  try {
+    localStorage.setItem(ASSET_LIBRARY_PREFS_KEY, JSON.stringify({
+      favorites: [...state.assetFavorites].slice(0, 240),
+      recent: state.assetRecent.slice(0, ASSET_RECENT_LIMIT),
+      view: state.assetLibraryView,
+    }));
+  } catch (_) {
+    // Embedded webviews may disable local storage; the in-memory state still works.
+  }
+}
+
+function reconcileAssetLibraryPreferences() {
+  const validIds = new Set((state.library.images || []).map((item) => String(item?.id || "")).filter(Boolean));
+  const favorites = new Set([...state.assetFavorites].filter((id) => validIds.has(id)));
+  const recent = state.assetRecent.filter((id) => validIds.has(id));
+  const changed = favorites.size !== state.assetFavorites.size
+    || recent.length !== state.assetRecent.length;
+  state.assetFavorites = favorites;
+  state.assetRecent = recent;
+  if (changed) persistAssetLibraryPreferences();
+}
+
+function assetLibraryVisibleItems() {
+  const items = state.library.images || [];
+  if (state.assetLibraryView === "all") return items;
+  const ids = state.assetLibraryView === "favorites"
+    ? [...state.assetFavorites]
+    : state.assetRecent;
+  const byId = new Map(items.map((item) => [String(item?.id || ""), item]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+function assetGroupForItem(item) {
+  const artist = String(item?.artist || "").trim();
+  if (artist) return { key: `artist:${artist.toLocaleLowerCase()}`, label: artist, detail: "画师" };
+  const source = String(item?.source || "other").trim().toLowerCase();
+  const labels = { retagged: "反推素材", generated: "生图素材", uploaded: "上传图片", other: "其他素材" };
+  return { key: `source:${source}`, label: labels[source] || labels.other, detail: "来源" };
+}
+
+function assetLibraryGroups(items) {
+  const groups = new Map();
+  (items || []).forEach((item) => {
+    const group = assetGroupForItem(item);
+    if (!groups.has(group.key)) groups.set(group.key, { ...group, items: [] });
+    groups.get(group.key).items.push(item);
+  });
+  return [...groups.values()];
+}
+
+function updateAssetLibraryModeUI() {
+  const total = (state.library.images || []).length;
+  const visible = assetLibraryVisibleItems().length;
+  if (els.assetLibraryCount) {
+    els.assetLibraryCount.textContent = state.assetLibraryView === "all"
+      ? `已收录 ${total} 张`
+      : `${visible} / ${total} 张`;
+  }
+  if (els.assetAllCount) els.assetAllCount.textContent = String(total);
+  if (els.assetFavoritesCount) els.assetFavoritesCount.textContent = String(state.assetFavorites.size);
+  if (els.assetRecentCount) els.assetRecentCount.textContent = String(state.assetRecent.length);
+  [
+    [els.assetViewAllBtn, "all"],
+    [els.assetViewFavoritesBtn, "favorites"],
+    [els.assetViewRecentBtn, "recent"],
+  ].forEach(([button, view]) => {
+    if (!button) return;
+    const active = state.assetLibraryView === view;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  if (els.assetStackTrail) {
+    const group = state.assetStackKey
+      ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
+      : null;
+    els.assetStackTrail.hidden = !group;
+    els.assetStackTrail.textContent = group ? `唱片堆 · ${group.label}` : "";
+  }
+}
+
+function setAssetLibraryView(view) {
+  if (!["all", "favorites", "recent"].includes(view)) return;
+  state.assetLibraryView = view;
+  state.assetStackKey = "";
+  persistAssetLibraryPreferences();
+  renderAssetLibrary();
+  recordOperation("切换素材视图", view === "favorites" ? "收藏" : view === "recent" ? "最近使用" : "全部素材");
+}
+
+function toggleAssetFavorite(item) {
+  const id = String(item?.id || "").trim();
+  if (!id) return;
+  const favorited = state.assetFavorites.has(id);
+  if (favorited) state.assetFavorites.delete(id);
+  else state.assetFavorites.add(id);
+  persistAssetLibraryPreferences();
+  if (state.assetLibraryView === "favorites") {
+    renderAssetLibrary();
+  } else {
+    els.assetGrid.querySelectorAll(".asset-image-card").forEach((card) => {
+      if (String(card.dataset.assetId || "") !== id) return;
+      const button = card.querySelector(".asset-favorite-btn");
+      const active = state.assetFavorites.has(id);
+      button?.classList.toggle("active", active);
+      button?.setAttribute("aria-pressed", String(active));
+      button?.setAttribute("aria-label", active ? "取消收藏素材" : "收藏素材");
+      if (button) button.title = active ? "取消收藏" : "收藏素材";
+    });
+    updateAssetLibraryModeUI();
+  }
+  recordOperation(favorited ? "取消收藏素材" : "收藏素材", item.name || "图片素材");
+}
+
+function markAssetRecent(item, { render = true } = {}) {
+  const id = String(item?.id || "").trim();
+  if (!id) return;
+  state.assetRecent = [id, ...state.assetRecent.filter((itemId) => itemId !== id)]
+    .slice(0, ASSET_RECENT_LIMIT);
+  persistAssetLibraryPreferences();
+  updateAssetLibraryModeUI();
+  if (render && state.assetLibraryView === "recent" && els.assetPanel.classList.contains("open")) {
+    renderAssetLibrary();
+  }
 }
 
 function toast(message, type = "info") {
@@ -3328,6 +3488,7 @@ async function loadLibrary(render = true) {
       images: Array.isArray(library?.images) ? library.images : [],
       prompts: Array.isArray(library?.prompts) ? library.prompts : [],
     };
+    reconcileAssetLibraryPreferences();
     preloadLibraryImages();
     if (render) renderAssetLibrary();
     return true;
@@ -3403,6 +3564,7 @@ async function deleteSelectedLibraryAssets() {
   try {
     await Promise.all(ids.map((id) => bridge.apiPost("canvas/library/image/delete", { id })));
     state.library.images = state.library.images.filter((item) => !ids.includes(item.id));
+    reconcileAssetLibraryPreferences();
     setAssetDeleteMode(false);
     renderAssetLibrary();
     toast(`已删除 ${ids.length} 项素材`);
@@ -3421,19 +3583,110 @@ function renderAssetLibrary() {
   state.libraryRenderCleanup = null;
   state.libraryRenderObserver?.disconnect();
   state.libraryRenderObserver = null;
-  const items = state.library.images;
-  els.assetLibraryCount.textContent = `已收录 ${items.length} 张`;
+  reconcileAssetLibraryPreferences();
+  if (state.assetStackKey && !assetLibraryGroups(state.library.images).some((group) => group.key === state.assetStackKey)) {
+    state.assetStackKey = "";
+  }
+  const items = assetLibraryVisibleItems();
+  const groups = state.assetLibraryView === "all" && !state.assetStackKey
+    ? assetLibraryGroups(items)
+    : [];
+  const stackView = groups.some((group) => group.items.length > 1);
+  updateAssetLibraryModeUI();
   els.assetGrid.replaceChildren();
   els.assetGrid.scrollTop = 0;
-  els.assetGrid.className = "asset-grid";
+  els.assetGrid.className = `asset-grid${stackView ? " asset-stack-grid" : ""}`;
   els.assetGrid.classList.toggle("empty", items.length === 0);
   els.assetEmpty.classList.toggle("visible", items.length === 0);
-  els.assetEmpty.querySelector("span").textContent = "暂无图片素材";
+  const emptyLabels = {
+    all: "暂无图片素材",
+    favorites: "还没有收藏素材",
+    recent: "还没有最近使用的素材",
+  };
+  els.assetEmpty.querySelector("span").textContent = emptyLabels[state.assetLibraryView] || emptyLabels.all;
 
-  if (items.length) renderAssetBatch(items, 0);
+  if (items.length) {
+    if (stackView) {
+      groups.forEach((group) => {
+        if (group.items.length > 1) renderAssetStackCard(group, els.assetGrid);
+        else renderImageAssetCard(group.items[0], els.assetGrid);
+      });
+    } else {
+      const group = state.assetStackKey
+        ? assetLibraryGroups(state.library.images).find((candidate) => candidate.key === state.assetStackKey)
+        : null;
+      if (group) {
+        renderAssetStackBack(group, els.assetGrid);
+        renderAssetBatch(group.items, 0);
+      } else {
+        renderAssetBatch(items, 0);
+      }
+    }
+  }
   updateAssetGridMetrics();
   window.requestAnimationFrame(updateAssetGridMetrics);
   refreshIcons(els.assetPanel);
+}
+
+function renderAssetStackCard(group, container = els.assetGrid) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "asset-card asset-stack-card";
+  card.dataset.stackKey = group.key;
+  card.title = `展开${group.label}素材堆`;
+  card.setAttribute("aria-label", `展开${group.label}素材堆，共 ${group.items.length} 张`);
+
+  const cover = document.createElement("span");
+  cover.className = "asset-stack-cover";
+  group.items.slice(0, 3).forEach((item, index) => {
+    const image = document.createElement("img");
+    image.alt = item.name || `${group.label}素材`;
+    image.draggable = false;
+    image.className = `asset-stack-thumb asset-stack-thumb-${index + 1}`;
+    if (item.dataUrl) image.src = item.dataUrl;
+    else ensureLibraryImageData(item).then((dataUrl) => {
+      if (image.isConnected) image.src = dataUrl;
+    }).catch(() => {
+      image.classList.add("is-broken");
+    });
+    cover.appendChild(image);
+  });
+  const count = document.createElement("span");
+  count.className = "asset-stack-count";
+  count.textContent = `${group.items.length} 张`;
+  cover.appendChild(count);
+
+  const info = document.createElement("span");
+  info.className = "asset-stack-info";
+  const label = document.createElement("strong");
+  label.className = "asset-stack-label";
+  label.textContent = group.label;
+  const detail = document.createElement("span");
+  detail.className = "asset-stack-detail";
+  detail.textContent = `${group.detail} · 点击展开`;
+  info.append(label, detail);
+  card.append(cover, info);
+  card.addEventListener("click", () => {
+    state.assetStackKey = group.key;
+    updateAssetLibraryModeUI();
+    renderAssetLibrary();
+    recordOperation("展开素材堆", `${group.label} · ${group.items.length} 张`);
+  });
+  container.appendChild(card);
+}
+
+function renderAssetStackBack(group, container = els.assetGrid) {
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "asset-stack-back";
+  back.append(icon("arrow-left"), document.createTextNode(`返回全部素材 · ${group.label}`));
+  back.addEventListener("click", () => {
+    state.assetStackKey = "";
+    updateAssetLibraryModeUI();
+    renderAssetLibrary();
+    recordOperation("收起素材堆", group.label);
+  });
+  container.appendChild(back);
 }
 
 function renderAssetBatch(items, start) {
@@ -3500,7 +3753,10 @@ function updateAssetGridMetrics() {
   const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
   const columnGap = parseFloat(styles.columnGap) || 0;
   const availableWidth = Math.max(0, els.assetGrid.clientWidth - horizontalPadding);
-  const minTile = window.innerWidth <= 620 ? 132 : 156;
+  const stackView = els.assetGrid.classList.contains("asset-stack-grid");
+  const minTile = stackView
+    ? (window.innerWidth <= 620 ? 150 : 188)
+    : (window.innerWidth <= 620 ? 132 : 156);
   const minimumColumns = window.innerWidth <= 620 ? 2 : 3;
   const columns = clamp(
     Math.floor((availableWidth + columnGap) / (minTile + columnGap)),
@@ -3512,7 +3768,9 @@ function updateAssetGridMetrics() {
     96,
     Math.floor((availableWidth - columnGap * (columns - 1)) / columns),
   );
-  const tileHeight = clamp(Math.round(tileWidth * 0.86), 148, 248);
+  const tileHeight = stackView
+    ? clamp(Math.round(tileWidth * 0.72), 148, 220)
+    : clamp(Math.round(tileWidth * 0.86), 148, 248);
   els.assetGrid.style.setProperty("--asset-card-height", `${tileHeight}px`);
 }
 
@@ -3567,6 +3825,20 @@ function renderImageAssetCard(item, container = els.assetGrid) {
   sourceBadge.textContent = assetSourceLabel(item);
   sourceBadge.title = item.source === "retagged" ? "反推素材" : "生成或上传素材";
   thumb.appendChild(sourceBadge);
+  const favorite = document.createElement("button");
+  favorite.type = "button";
+  favorite.className = "asset-favorite-btn";
+  const isFavorite = state.assetFavorites.has(String(item.id || ""));
+  favorite.classList.toggle("active", isFavorite);
+  favorite.setAttribute("aria-pressed", String(isFavorite));
+  favorite.setAttribute("aria-label", isFavorite ? "取消收藏素材" : "收藏素材");
+  favorite.title = isFavorite ? "取消收藏" : "收藏素材";
+  favorite.appendChild(icon("star"));
+  favorite.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleAssetFavorite(item);
+  });
+  thumb.appendChild(favorite);
   const selected = document.createElement("span");
   selected.className = "asset-select-indicator";
   selected.setAttribute("aria-hidden", "true");
@@ -3680,6 +3952,7 @@ function attachLibraryImageDrag(card, item) {
 async function openLibraryImageViewer(item) {
   try {
     await ensureLibraryImageData(item);
+    markAssetRecent(item);
     openImageViewer({
       dataUrl: item.dataUrl,
       title: item.name || "图片素材",
@@ -3702,6 +3975,7 @@ async function openLibraryImageViewer(item) {
 async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   try {
     await ensureLibraryImageData(item);
+    markAssetRecent(item, { render: false });
     const nodeWidth = fittedImageNodeWidth(item.width, item.height);
     const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);
     addNode({
@@ -3758,6 +4032,7 @@ async function saveImageToLibrary(node) {
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
+    reconcileAssetLibraryPreferences();
     if (els.assetPanel.classList.contains("open")) renderAssetLibrary();
     toast("图片已保存到素材库");
     recordOperation("收录素材", node.title || "画布图片", "success");
@@ -3858,6 +4133,7 @@ async function loadInitialState() {
     images: Array.isArray(library?.images) ? library.images : [],
     prompts: Array.isArray(library?.prompts) ? library.prompts : [],
   };
+  reconcileAssetLibraryPreferences();
   preloadLibraryImages();
   await switchCanvas(canvasMeta, { saveCurrent: false });
   startHealthMonitor();
@@ -4357,6 +4633,12 @@ document.addEventListener("pointerdown", (event) => {
 document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
   button.addEventListener("click", () => {
     setAssetPanel(!els.assetPanel.classList.contains("open"));
+  });
+});
+document.querySelectorAll("[data-library-view]").forEach((button) => {
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setAssetLibraryView(button.dataset.libraryView);
   });
 });
 els.assetRefreshBtn?.addEventListener("click", async (event) => {

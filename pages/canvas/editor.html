@@ -129,10 +129,16 @@
               <button id="assetRefreshBtn" class="asset-panel-icon-btn" type="button" title="刷新素材库" aria-label="刷新素材库"><i data-lucide="refresh-cw"></i></button>
             </div>
           </header>
+          <div class="asset-library-modes" role="tablist" aria-label="素材库视图">
+            <button id="assetViewAllBtn" class="asset-library-mode active" type="button" role="tab" aria-selected="true" data-library-view="all"><i data-lucide="layers-3"></i><span>全部</span><b id="assetAllCount">0</b></button>
+            <button id="assetViewFavoritesBtn" class="asset-library-mode" type="button" role="tab" aria-selected="false" data-library-view="favorites"><i data-lucide="star"></i><span>收藏</span><b id="assetFavoritesCount">0</b></button>
+            <button id="assetViewRecentBtn" class="asset-library-mode" type="button" role="tab" aria-selected="false" data-library-view="recent"><i data-lucide="history"></i><span>最近</span><b id="assetRecentCount">0</b></button>
+            <span id="assetStackTrail" class="asset-stack-trail" hidden></span>
+          </div>
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
           <footer class="asset-panel-foot">
-            <span class="asset-panel-foot-hint">拖动卡片可直接放置，点击卡片查看提示词标签</span>
+            <span class="asset-panel-foot-hint">点击唱片堆展开 · 星标收藏 · 拖动卡片放入画布</span>
             <div class="asset-delete-toolbar">
               <div id="assetDeleteActions" class="asset-delete-actions" hidden>
                 <span id="assetDeleteCount">已选 0 项</span>
