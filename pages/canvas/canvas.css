@@ -2,7 +2,6 @@
   color-scheme: light;
   --ease: cubic-bezier(.4, 0, .2, 1);
   --page: #f8fafc;
-  --grid: #d9e1ea;
   --panel: rgba(255, 255, 255, .92);
   --card: rgba(255, 255, 255, .96);
   --card-solid: #fff;
@@ -571,20 +570,9 @@ select:focus-visible {
      element away from its visual position. */
   overflow: clip;
   background-color: var(--page);
-  background-image: radial-gradient(var(--grid) 1px, transparent 1px);
-  background-position: 0 0;
-  background-size: 32px 32px;
+  background-image: none;
   cursor: grab;
   touch-action: none;
-}
-
-/* 网格样式由底部调试栏循环切换：点 → 格 → 空白。 */
-.grid-style-dots .board {
-  background-image: radial-gradient(var(--grid) 1px, transparent 1px);
-}
-
-.grid-style-blank .board {
-  background-image: none;
 }
 
 .board.panning {
@@ -1555,8 +1543,8 @@ select:focus-visible {
   padding: 1px;
   scrollbar-color: rgba(148, 163, 184, .55) transparent;
   scrollbar-width: thin;
-  -webkit-user-select: text;
-  user-select: text;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .image-viewer-tag-chip {
@@ -1567,18 +1555,38 @@ select:focus-visible {
   border-radius: 7px;
   background: rgba(255, 255, 255, .06);
   color: #e2e8f0;
+  cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   line-height: 1.4;
   overflow-wrap: anywhere;
+  text-align: left;
   text-overflow: ellipsis;
+  transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease;
   white-space: normal;
+  appearance: none;
 }
 
 .image-viewer-tag-chip.bilingual {
   border-color: rgba(129, 140, 248, .28);
   background: rgba(99, 102, 241, .1);
   color: #f8fafc;
+}
+
+.image-viewer-tag-chip:hover,
+.image-viewer-tag-chip:focus-visible {
+  border-color: rgba(165, 180, 252, .64);
+  background: rgba(99, 102, 241, .2);
+  color: #fff;
+  outline: none;
+}
+
+.image-viewer-tag-chip:focus-visible {
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, .28);
+}
+
+.image-viewer-tag-chip:active {
+  transform: translateY(1px);
 }
 
 .image-viewer-tag-empty {
@@ -1924,14 +1932,45 @@ select:focus-visible {
 }
 
 .asset-stack-trail {
+  display: inline-flex;
   min-width: 0;
+  min-height: 27px;
   margin-left: auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 0 8px;
   overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-solid);
   color: var(--faint);
+  cursor: pointer;
+  font: inherit;
   font-size: 9px;
-  font-weight: 750;
+  font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-stack-trail:hover,
+.asset-stack-trail:focus-visible {
+  border-color: var(--line-2);
+  background: var(--soft-2);
+  color: var(--text);
+  outline: none;
+}
+
+.asset-stack-trail svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.asset-stack-trail span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .asset-panel-title-group {
@@ -2358,38 +2397,6 @@ select:focus-visible {
   top: 10px;
   right: 10px;
   max-width: calc(100% - 78px);
-}
-
-.asset-stack-back {
-  display: inline-flex;
-  grid-column: 1 / -1;
-  min-height: 30px;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--card-solid);
-  color: var(--muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 9px;
-  font-weight: 800;
-  text-align: left;
-}
-
-.asset-stack-back:hover,
-.asset-stack-back:focus-visible {
-  border-color: var(--line-2);
-  background: var(--soft-2);
-  color: var(--text);
-  outline: none;
-}
-
-.asset-stack-back svg {
-  width: 13px;
-  height: 13px;
 }
 
 .asset-panel.delete-mode .asset-image-card {
@@ -2907,7 +2914,8 @@ select:focus-visible {
   }
 
   .asset-stack-trail {
-    display: none;
+    min-height: 27px;
+    flex: 1 1 auto;
   }
 
   .asset-panel-foot-hint {

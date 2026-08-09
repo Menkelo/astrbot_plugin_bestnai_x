@@ -109,9 +109,6 @@
             <button id="debugBarToggle" class="debug-bar-toggle" type="button" aria-expanded="false" aria-controls="debugBarBody" aria-label="展开操作记录">
               <i data-lucide="terminal"></i><span id="debugBarSummary">操作记录 · 就绪</span><i data-lucide="chevron-up" class="debug-bar-chevron"></i>
             </button>
-            <button id="gridStyleBtn" class="debug-bar-action" type="button" title="切换画布网格样式" aria-label="切换画布网格样式">
-              <i data-lucide="grid-2x2"></i><span id="gridStyleLabel">点阵</span>
-            </button>
             <button id="debugLogClearBtn" class="debug-bar-action icon-only" type="button" title="清空操作记录" aria-label="清空操作记录">
               <i data-lucide="trash-2"></i>
             </button>
@@ -132,7 +129,7 @@
           <div class="asset-library-modes" role="tablist" aria-label="素材库视图">
             <button id="assetViewAllBtn" class="asset-library-mode active" type="button" role="tab" aria-selected="true" data-library-view="all"><i data-lucide="layers-3"></i><span>全部</span><b id="assetAllCount">0</b></button>
             <button id="assetViewRecentBtn" class="asset-library-mode" type="button" role="tab" aria-selected="false" data-library-view="recent"><i data-lucide="history"></i><span>最近</span><b id="assetRecentCount">0</b></button>
-            <span id="assetStackTrail" class="asset-stack-trail" hidden></span>
+            <button id="assetStackTrail" class="asset-stack-trail" type="button" hidden><i data-lucide="arrow-left"></i><span id="assetStackTrailLabel">返回全部素材</span></button>
           </div>
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
@@ -201,7 +198,7 @@
           <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true"><span>Tags 标签</span><i data-lucide="chevron-up"></i></button>
           <div class="image-viewer-copy">
             <div class="image-viewer-copy-head"><span>提示词标签 / Prompt Tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
-            <div id="imageViewerTags" class="image-viewer-tag-grid" role="list" data-copy-text=""></div>
+            <div id="imageViewerTags" class="image-viewer-tag-grid" role="group" aria-label="可复制的 Prompt Tags" data-copy-text=""></div>
           </div>
           <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </figcaption>

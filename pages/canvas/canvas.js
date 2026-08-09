@@ -55,6 +55,7 @@ const els = {
   assetAllCount: document.getElementById("assetAllCount"),
   assetRecentCount: document.getElementById("assetRecentCount"),
   assetStackTrail: document.getElementById("assetStackTrail"),
+  assetStackTrailLabel: document.getElementById("assetStackTrailLabel"),
   assetRefreshBtn: document.getElementById("assetRefreshBtn"),
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
@@ -71,7 +72,6 @@ const els = {
   selectionContextMenu: document.getElementById("selectionContextMenu"),
 };
 
-const GRID_STYLE_KEY = "bestnaiCanvasGridStyle";
 const OPERATION_LOG_KEY = "bestnaiCanvasOperationLog";
 const RECORDER_OPEN_KEY = "bestnaiCanvasRecorderOpen";
 const ASSET_LIBRARY_PREFS_KEY = "bestnaiCanvasAssetLibraryPrefs";
@@ -187,15 +187,6 @@ const state = {
   })(),
   operationLog: INITIAL_OPERATION_LOG,
   operationSequence: INITIAL_OPERATION_SEQUENCE,
-  gridStyle: (() => {
-    try {
-      const value = localStorage.getItem(GRID_STYLE_KEY);
-      // 3.3.5 只保留点阵与空白两档；旧版的 lines 状态自动回到点阵。
-      return value === "blank" ? "blank" : "dots";
-    } catch (_) {
-      return "dots";
-    }
-  })(),
   lastDebugNodeId: "",
   preferencesSaveChain: Promise.resolve(),
   layoutObserver: null,
@@ -232,39 +223,6 @@ function refreshIcons(root = document) {
   if (window.lucide?.createIcons) {
     window.lucide.createIcons({ root, attrs: { "stroke-width": 1.8 } });
   }
-}
-
-const GRID_STYLE_ORDER = ["dots", "blank"];
-const GRID_STYLE_LABELS = {
-  dots: "点阵",
-  blank: "空白",
-};
-
-function applyGridStyle(style = state.gridStyle) {
-  const next = GRID_STYLE_ORDER.includes(style) ? style : "dots";
-  state.gridStyle = next;
-  document.body.classList.remove("grid-style-dots", "grid-style-lines", "grid-style-blank");
-  document.body.classList.add(`grid-style-${next}`);
-  const label = GRID_STYLE_LABELS[next];
-  const button = document.getElementById("gridStyleBtn");
-  const labelElement = document.getElementById("gridStyleLabel");
-  if (labelElement) labelElement.textContent = label;
-  if (button) {
-    button.title = `画布网格：${label}（点击切换）`;
-    button.setAttribute("aria-label", button.title);
-    button.setAttribute("data-grid-style", next);
-    button.classList.toggle("active", next !== "dots");
-  }
-  try { localStorage.setItem(GRID_STYLE_KEY, next); } catch (_) { /* ignore */ }
-  renderViewport();
-  refreshIcons(button || document);
-}
-
-function cycleGridStyle() {
-  const index = GRID_STYLE_ORDER.indexOf(state.gridStyle);
-  const next = GRID_STYLE_ORDER[(index + 1) % GRID_STYLE_ORDER.length];
-  applyGridStyle(next);
-  recordOperation("切换网格", GRID_STYLE_LABELS[next]);
 }
 
 function formatOperationTime(timestamp) {
@@ -388,7 +346,10 @@ function updateAssetLibraryModeUI() {
       ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
       : null;
     els.assetStackTrail.hidden = !group;
-    els.assetStackTrail.textContent = group ? `唱片堆 · ${group.label}` : "";
+    const label = group ? `返回全部素材 · ${group.label}` : "返回全部素材";
+    if (els.assetStackTrailLabel) els.assetStackTrailLabel.textContent = label;
+    els.assetStackTrail.title = label;
+    els.assetStackTrail.setAttribute("aria-label", label);
   }
 }
 
@@ -399,6 +360,17 @@ function setAssetLibraryView(view) {
   persistAssetLibraryPreferences();
   renderAssetLibrary();
   recordOperation("切换素材视图", view === "recent" ? "最近使用" : "全部素材");
+}
+
+function closeAssetStack() {
+  const group = state.assetStackKey
+    ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
+    : null;
+  if (!group) return;
+  state.assetStackKey = "";
+  updateAssetLibraryModeUI();
+  renderAssetLibrary();
+  recordOperation("收起素材堆", group.label);
 }
 
 function markAssetRecent(item, { render = true } = {}) {
@@ -2534,8 +2506,6 @@ function renderViewport() {
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-  els.viewport.style.backgroundPosition = `${x}px ${y}px`;
-  els.viewport.style.backgroundSize = `${32 * scale}px ${32 * scale}px`;
 }
 
 let viewportProjectionFrame = 0;
@@ -3549,12 +3519,18 @@ function renderImageViewerTags(tags, pairs = [], translations = {}) {
     return;
   }
   entries.forEach(({ tag, cnName }) => {
-    const chip = document.createElement("code");
+    const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = "image-viewer-tag-chip";
-    chip.setAttribute("role", "listitem");
+    chip.dataset.copyText = tag;
     chip.textContent = cnName ? `${tag} / ${cnName}` : tag;
-    chip.title = chip.textContent;
+    chip.title = `复制英文 Tag：${tag}`;
+    chip.setAttribute("aria-label", `复制英文 Tag：${tag}`);
     chip.classList.toggle("bilingual", !!cnName);
+    chip.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyPlainText(tag, `复制英文 Tag：${tag}`, () => chip.focus({ preventScroll: true }));
+    });
     els.imageViewerTags.appendChild(chip);
   });
 }
@@ -3810,7 +3786,6 @@ function renderAssetLibrary() {
         ? assetLibraryGroups(state.library.images).find((candidate) => candidate.key === state.assetStackKey)
         : null;
       if (group) {
-        renderAssetStackBack(group, els.assetGrid);
         renderAssetBatch(group.items, 0);
       } else {
         renderAssetBatch(items, 0);
@@ -3862,20 +3837,6 @@ function renderAssetStackCard(group, container = els.assetGrid) {
     recordOperation("展开素材堆", `${group.label} · ${group.items.length} 张`);
   });
   container.appendChild(card);
-}
-
-function renderAssetStackBack(group, container = els.assetGrid) {
-  const back = document.createElement("button");
-  back.type = "button";
-  back.className = "asset-stack-back";
-  back.append(icon("arrow-left"), document.createTextNode(`返回全部素材 · ${group.label}`));
-  back.addEventListener("click", () => {
-    state.assetStackKey = "";
-    updateAssetLibraryModeUI();
-    renderAssetLibrary();
-    recordOperation("收起素材堆", group.label);
-  });
-  container.appendChild(back);
 }
 
 function renderAssetBatch(items, start) {
@@ -4662,7 +4623,6 @@ els.debugModeBtn?.addEventListener("click", () => {
   renderAll();
 });
 els.debugBarToggle?.addEventListener("click", () => setDebugBarOpen(!state.debugBarOpen));
-document.getElementById("gridStyleBtn")?.addEventListener("click", cycleGridStyle);
 document.getElementById("debugLogClearBtn")?.addEventListener("click", (event) => {
   event.stopPropagation();
   clearOperationLog();
@@ -4718,6 +4678,10 @@ document.querySelectorAll("[data-library-view]").forEach((button) => {
     event.stopPropagation();
     setAssetLibraryView(button.dataset.libraryView);
   });
+});
+els.assetStackTrail?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  closeAssetStack();
 });
 els.assetRefreshBtn?.addEventListener("click", async (event) => {
   event.stopPropagation();
@@ -4970,7 +4934,6 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 
-applyGridStyle();
 renderDebugBar();
 refreshIcons();
 setupOverlayAlignment();
