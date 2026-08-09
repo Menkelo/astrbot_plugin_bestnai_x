@@ -23,10 +23,6 @@ const els = {
   paths: document.getElementById("links"),
   linkControls: document.getElementById("linkControls"),
   empty: document.getElementById("emptyState"),
-  minimap: document.getElementById("minimap"),
-  minimapContent: document.getElementById("minimapContent"),
-  minimapViewport: document.getElementById("minimapViewport"),
-  minimapToggleBtn: document.getElementById("minimapToggleBtn"),
   pluginDisplayName: document.getElementById("pluginDisplayName"),
   pluginVersion: document.getElementById("pluginVersion"),
   pluginAuthor: document.getElementById("pluginAuthor"),
@@ -54,7 +50,6 @@ const els = {
   assetGrid: document.getElementById("assetGrid"),
   assetEmpty: document.getElementById("assetEmpty"),
   assetLibraryCount: document.getElementById("assetLibraryCount"),
-  assetExpandBtn: document.getElementById("assetExpandBtn"),
   assetSelectModeBtn: document.getElementById("assetSelectModeBtn"),
   assetDeleteActions: document.getElementById("assetDeleteActions"),
   assetDeleteCount: document.getElementById("assetDeleteCount"),
@@ -70,7 +65,8 @@ const els = {
   selectionContextMenu: document.getElementById("selectionContextMenu"),
 };
 
-const MINIMAP_VISIBLE_KEY = "bestnaiCanvasMinimapVisible";
+const GRID_STYLE_KEY = "bestnaiCanvasGridStyle";
+const OPERATION_LOG_LIMIT = 180;
 
 const state = {
   config: {
@@ -98,14 +94,12 @@ const state = {
   composing: false,
   renderPending: false,
   connectionDrag: null,
-  minimapTransform: null,
   pendingUploadPoint: null,
   library: { images: [], prompts: [] },
   libraryAssetPromises: new Map(),
   libraryPreloadPromise: null,
   libraryRenderObserver: null,
   libraryRenderCleanup: null,
-  assetPanelExpanded: false,
   assetDeleteMode: false,
   selectedAssetIds: new Set(),
   deletingAssets: false,
@@ -118,36 +112,26 @@ const state = {
     try { return localStorage.getItem("bestnaiCanvasDebug") === "1"; } catch (_) { return false; }
   })(),
   debugBarOpen: false,
+  operationLog: [],
+  operationSequence: 0,
+  gridStyle: (() => {
+    try {
+      const value = localStorage.getItem(GRID_STYLE_KEY);
+      return ["dots", "lines", "blank"].includes(value) ? value : "dots";
+    } catch (_) {
+      return "dots";
+    }
+  })(),
   lastDebugNodeId: "",
   preferencesSaveChain: Promise.resolve(),
   contextMenuPoint: null,
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
-  minimapVisible: (() => {
-    try { return localStorage.getItem(MINIMAP_VISIBLE_KEY) !== "0"; }
-    catch (_) { return true; }
-  })(),
 };
 
 const MAX_HISTORY = 40;
 function debugModeEnabled() {
   return !!state.debugEnabled;
-}
-
-function updateMinimapVisibility({ redraw = false } = {}) {
-  const visible = !!state.minimapVisible;
-  document.body.classList.toggle("minimap-hidden", !visible);
-  els.minimapToggleBtn?.classList.toggle("active", visible);
-  els.minimapToggleBtn?.setAttribute("aria-pressed", String(visible));
-  if (els.minimapToggleBtn) {
-    const label = visible ? "收起缩略图" : "展开缩略图";
-    els.minimapToggleBtn.title = label;
-    els.minimapToggleBtn.setAttribute("aria-label", label);
-    els.minimapToggleBtn.replaceChildren(icon(visible ? "chevron-down" : "chevron-up"));
-    refreshIcons(els.minimapToggleBtn);
-  }
-  if (!visible) state.minimapTransform = null;
-  else if (redraw) window.requestAnimationFrame(drawMinimap);
 }
 
 const LAST_CANVAS_KEY = "bestnaiInfiniteCanvasId";
@@ -166,6 +150,71 @@ function refreshIcons(root = document) {
   if (window.lucide?.createIcons) {
     window.lucide.createIcons({ root, attrs: { "stroke-width": 1.8 } });
   }
+}
+
+const GRID_STYLE_ORDER = ["dots", "lines", "blank"];
+const GRID_STYLE_LABELS = {
+  dots: "点",
+  lines: "格",
+  blank: "空白",
+};
+
+function applyGridStyle(style = state.gridStyle) {
+  const next = GRID_STYLE_ORDER.includes(style) ? style : "dots";
+  state.gridStyle = next;
+  document.body.classList.remove("grid-style-dots", "grid-style-lines", "grid-style-blank");
+  document.body.classList.add(`grid-style-${next}`);
+  const label = GRID_STYLE_LABELS[next];
+  const button = document.getElementById("gridStyleBtn");
+  const labelElement = document.getElementById("gridStyleLabel");
+  if (labelElement) labelElement.textContent = label;
+  if (button) {
+    button.title = `画布网格：${label}（点击切换）`;
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("data-grid-style", next);
+    button.classList.toggle("active", next !== "dots");
+  }
+  try { localStorage.setItem(GRID_STYLE_KEY, next); } catch (_) { /* ignore */ }
+  renderViewport();
+  refreshIcons(button || document);
+}
+
+function cycleGridStyle() {
+  const index = GRID_STYLE_ORDER.indexOf(state.gridStyle);
+  const next = GRID_STYLE_ORDER[(index + 1) % GRID_STYLE_ORDER.length];
+  applyGridStyle(next);
+  recordOperation("切换网格", GRID_STYLE_LABELS[next]);
+}
+
+function formatOperationTime(timestamp) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "--:--:--";
+  return date.toLocaleTimeString([], { hour12: false });
+}
+
+function operationText(value, fallback = "") {
+  return String(value ?? fallback).replace(/\s+/g, " ").trim().slice(0, 360);
+}
+
+function recordOperation(action, detail = "", level = "info") {
+  const entry = {
+    id: ++state.operationSequence,
+    timestamp: new Date().toISOString(),
+    action: operationText(action, "操作"),
+    detail: operationText(detail),
+    level: ["info", "success", "warning", "error"].includes(level) ? level : "info",
+  };
+  state.operationLog.push(entry);
+  if (state.operationLog.length > OPERATION_LOG_LIMIT) {
+    state.operationLog.splice(0, state.operationLog.length - OPERATION_LOG_LIMIT);
+  }
+  if (els.debugBar) renderDebugBar();
+}
+
+function clearOperationLog() {
+  state.operationLog = [];
+  state.operationSequence = 0;
+  recordOperation("记录器已清空", "新的操作会继续追加");
 }
 
 function toast(message, type = "info") {
@@ -467,7 +516,6 @@ async function switchCanvas(canvas, { saveCurrent = true } = {}) {
   state.history = [];
   state.future = [];
   state.connectionDrag = null;
-  state.minimapTransform = null;
   rememberCurrentCanvas();
   updateCanvasUrl();
   document.title = `${state.currentCanvasTitle} · ${state.config.plugin?.name || "BestNAI"}`;
@@ -754,6 +802,7 @@ function addNode(node) {
   pushHistory();
   state.nodes.push(node);
   setSelection([node.id], node.id);
+  recordOperation("添加节点", node.type === "image" ? "图片" : node.type === "note" ? "备注" : "提示词");
   renderAll();
   scheduleSave();
 }
@@ -817,6 +866,7 @@ function deleteNodes(ids) {
     (edge) => !deleteIds.has(edge.source) && !deleteIds.has(edge.target),
   );
   clearSelection();
+  recordOperation("删除节点", `已删除 ${deleteIds.size} 个节点`);
   renderAll();
   scheduleSave();
 }
@@ -841,6 +891,7 @@ function deleteConnection(sourceId, targetId) {
   renderAll();
   scheduleSave();
   toast("已删除连线");
+  recordOperation("删除连线", `${sourceId} → ${targetId}`);
 }
 
 function duplicateNode(id) {
@@ -858,6 +909,7 @@ function duplicateNode(id) {
   };
   state.nodes.push(copy);
   setSelection([copy.id], copy.id);
+  recordOperation("复制节点", source.type === "image" ? "图片" : source.type === "note" ? "备注" : "提示词");
   renderAll();
   scheduleSave();
 }
@@ -1065,8 +1117,9 @@ function renderPromptNode(node) {
 }
 
 const DEBUG_SECTIONS = [
-  { key: "retag", label: "反推 / Retag" },
-  { key: "generate", label: "生图 / Generate" },
+  // 调试栏标题保持中文；中英双语只用于下面的提示词标签分类。
+  { key: "retag", label: "反推" },
+  { key: "generate", label: "生图" },
 ];
 
 const DEBUG_MERGE_NOTE_KEYS = ["提示词冲突处理", "mergeDetails", "promptMerge"];
@@ -1184,7 +1237,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   toggle.setAttribute("aria-expanded", "false");
   const title = document.createElement("span");
   title.className = "retag-layer-title";
-  title.append(icon("layers-3"), document.createTextNode("原图标签图层"));
+  title.append(icon("layers-3"), document.createTextNode("原图标签图层 / Source tags"));
   const summary = document.createElement("span");
   summary.className = "retag-layer-summary";
   const chevron = icon("chevron-down", "retag-layer-chevron");
@@ -1585,6 +1638,49 @@ function makeDebugPanel(node) {
   return body;
 }
 
+function makeOperationLogPanel() {
+  const section = document.createElement("section");
+  section.className = "operation-log-panel";
+
+  const head = document.createElement("div");
+  head.className = "operation-log-head";
+  head.textContent = `操作记录 / Operations · ${state.operationLog.length}`;
+  section.appendChild(head);
+
+  const list = document.createElement("div");
+  list.className = "operation-log-list";
+  const entries = state.operationLog.slice(-80).reverse();
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "operation-log-empty";
+    empty.textContent = "暂无操作记录";
+    list.appendChild(empty);
+  } else {
+    entries.forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = `operation-log-entry is-${entry.level}`;
+      const time = document.createElement("time");
+      time.className = "operation-log-time";
+      time.dateTime = entry.timestamp;
+      time.textContent = formatOperationTime(entry.timestamp);
+      const action = document.createElement("strong");
+      action.className = "operation-log-action";
+      action.textContent = entry.action;
+      row.append(time, action);
+      if (entry.detail) {
+        const detail = document.createElement("span");
+        detail.className = "operation-log-detail";
+        detail.textContent = entry.detail;
+        detail.title = entry.detail;
+        row.appendChild(detail);
+      }
+      list.appendChild(row);
+    });
+  }
+  section.appendChild(list);
+  return section;
+}
+
 function setDebugBarOpen(open) {
   state.debugBarOpen = !!open;
   els.debugBarToggle?.setAttribute("aria-expanded", String(state.debugBarOpen));
@@ -1647,6 +1743,7 @@ function renderDebugBar() {
       ? `调试信息 · ${node.title || "提示词节点"} · 等待下一次画布请求`
       : "调试信息 · 等待下一次画布请求";
   els.debugBarBody.replaceChildren();
+  els.debugBarBody.appendChild(makeOperationLogPanel());
   const panel = makeDebugPanel(node);
   if (panel) {
     els.debugBarBody.appendChild(panel);
@@ -2110,7 +2207,7 @@ function renderViewport() {
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   els.viewport.style.backgroundPosition = `${x}px ${y}px`;
-  els.viewport.style.backgroundSize = `${24 * scale}px ${24 * scale}px`;
+  els.viewport.style.backgroundSize = `${32 * scale}px ${32 * scale}px`;
 }
 
 let viewportProjectionFrame = 0;
@@ -2122,7 +2219,6 @@ function scheduleViewportProjection() {
   viewportProjectionFrame = window.requestAnimationFrame(() => {
     viewportProjectionFrame = 0;
     renderViewport();
-    drawMinimap();
   });
 }
 
@@ -2131,7 +2227,6 @@ function scheduleCanvasProjection() {
   canvasProjectionFrame = window.requestAnimationFrame(() => {
     canvasProjectionFrame = 0;
     renderConnections();
-    drawMinimap();
   });
 }
 
@@ -2155,7 +2250,6 @@ function renderAll() {
   renderNodes();
   requestAnimationFrame(() => {
     renderConnections();
-    drawMinimap();
   });
   updateHistoryButtons();
   updateSelectionControls();
@@ -2489,6 +2583,7 @@ function arrangeSelectedNodes() {
   renderAll();
   scheduleSave();
   toast(`已整理 ${items.length} 个节点`);
+  recordOperation("整理选中", `${items.length} 个节点`);
 }
 
 function setZoom(nextScale, clientX, clientY) {
@@ -2501,7 +2596,6 @@ function setZoom(nextScale, clientX, clientY) {
   state.viewport.x = anchorX - rect.left - world.x * scale;
   state.viewport.y = anchorY - rect.top - world.y * scale;
   renderViewport();
-  drawMinimap();
   scheduleSave(800);
 }
 
@@ -2545,6 +2639,7 @@ async function generateFromNode(id, {
     : "";
   if (!workingPrompt && !requestRetagPrompt) {
     node.error = "请输入提示词";
+    recordOperation("生成失败", "提示词为空", "warning");
     renderAll();
     return;
   }
@@ -2559,6 +2654,7 @@ async function generateFromNode(id, {
     : /[\u4e00-\u9fff]/.test(workingPrompt)
       ? "正在翻译并生成图片…"
       : "正在生成图片…";
+  recordOperation(retagged ? "反推并生成" : "生成图片", node.title || "提示词节点");
   renderAll();
   try {
     const retagLayerCategories = retagged
@@ -2641,10 +2737,12 @@ async function generateFromNode(id, {
       ? `反推完成 · 已合并提示词并生成 ${assets.length} 张图片`
       : `已生成 ${assets.length} 张图片`;
     toast("生成完成");
+    recordOperation("生成完成", `已生成 ${assets.length} 张图片`, "success");
     renderAll();
     scheduleSave();
   } catch (error) {
     node.error = error.message || "生成失败";
+    recordOperation("生成失败", node.error, "error");
     toast(node.error, "error");
     renderAll();
   } finally {
@@ -2816,6 +2914,7 @@ async function retagFromNode(id, generateAfter = false) {
   const sourceImage = sourceImageForPrompt(id);
   if (!sourceImage?.assetId) {
     node.error = "请先把原图连接到提示词节点左侧";
+    recordOperation("反推失败", node.error, "warning");
     renderAll();
     return false;
   }
@@ -2832,6 +2931,7 @@ async function retagFromNode(id, generateAfter = false) {
   node.statusText = cachedRetag
     ? "正在复用已保存的反推结果…"
     : "正在反推原图提示词…";
+  recordOperation("反推原图", cachedRetag ? "复用已保存结果" : "提取原图 tags");
   renderAll();
 
   let succeeded = false;
@@ -2895,8 +2995,10 @@ async function retagFromNode(id, generateAfter = false) {
     );
     scheduleSave();
     succeeded = true;
+    recordOperation("反推完成", result.fromMetadata ? "读取内嵌参数" : "提取 tags 完成", "success");
   } catch (error) {
     node.error = error.message || "图片反推失败";
+    recordOperation("反推失败", node.error, "error");
     toast(node.error, "error");
   } finally {
     node.status = "";
@@ -2942,7 +3044,6 @@ async function ensureAssetLoaded(node) {
       current.replaceWith(replacement);
       requestAnimationFrame(() => {
         renderConnections();
-        drawMinimap();
       });
     }
     if (dimensionsChanged) scheduleSave(800);
@@ -2987,7 +3088,7 @@ function openImageViewer(node, { libraryAsset = null } = {}) {
   const tags = String(meta.tags || meta.finalPrompt || "").trim();
   els.imageViewerPromptSection.hidden = !!tags && isPureEnglishPrompt(prompt);
   els.imageViewerPrompt.textContent = prompt || "暂无提示词记录";
-  els.imageViewerTags.textContent = tags || "暂无英文 tags 记录";
+  els.imageViewerTags.textContent = tags || "暂无英文 tags 记录 / No English tags yet";
   state.viewerLibraryAsset = libraryAsset;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
@@ -3004,7 +3105,7 @@ function closeImageViewer() {
   els.imageViewerImage.removeAttribute("src");
   els.imageViewerPromptSection.hidden = false;
   els.imageViewerPrompt.textContent = "暂无提示词记录";
-  els.imageViewerTags.textContent = "暂无英文 tags 记录";
+  els.imageViewerTags.textContent = "暂无英文 tags 记录 / No English tags yet";
   state.viewerLibraryAsset = null;
   els.imageViewerPlaceBtn.hidden = true;
 }
@@ -3066,39 +3167,6 @@ async function loadLibrary(render = true) {
   }
 }
 
-function updateAssetExpandControl() {
-  if (!els.assetExpandBtn) return;
-  const expanded = state.assetPanelExpanded;
-  const canExpand = window.innerWidth > 620;
-  els.assetExpandBtn.hidden = !canExpand;
-  els.assetExpandBtn.disabled = !canExpand;
-  els.assetExpandBtn.setAttribute("aria-pressed", String(expanded));
-  els.assetExpandBtn.setAttribute("aria-label", expanded ? "收起素材库" : "展开素材库");
-  els.assetExpandBtn.title = expanded ? "收起素材库" : "展开素材库";
-  const label = document.createElement("span");
-  label.textContent = expanded ? "收起" : "展开";
-  els.assetExpandBtn.replaceChildren(icon(expanded ? "minimize-2" : "maximize-2"), label);
-  refreshIcons(els.assetExpandBtn);
-}
-
-function setAssetPanelExpanded(expanded, { realign = true } = {}) {
-  const next = !!expanded
-    && window.innerWidth > 620
-    && els.assetPanel.classList.contains("open");
-  state.assetPanelExpanded = next;
-  els.assetPanel.classList.toggle("expanded", next);
-  document.body.classList.toggle("asset-library-expanded", next);
-  updateAssetExpandControl();
-  els.assetGrid.querySelectorAll(".asset-image-card").forEach((card) => {
-    card.title = next ? "点击预览，确认后放入画布" : "点击预览，拖到画布使用";
-  });
-  if (realign && els.assetPanel.classList.contains("open")) {
-    alignAssetPanel();
-    updateAssetGridMetrics();
-    window.requestAnimationFrame(updateAssetGridMetrics);
-  }
-}
-
 function setAssetPanel(open) {
   setSelectionContextMenu(false);
   if (open) {
@@ -3106,7 +3174,6 @@ function setAssetPanel(open) {
     setNodeContextMenu(false);
   }
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
-  if (!open) setAssetPanelExpanded(false, { realign: false });
   els.assetPanel.classList.toggle("open", open);
   document.body.classList.toggle("asset-library-open", open);
   document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((button) => {
@@ -3115,11 +3182,12 @@ function setAssetPanel(open) {
   });
   if (!open) {
     setAssetDeleteMode(false);
+    recordOperation("关闭素材库");
     return;
   }
-  updateAssetExpandControl();
   alignAssetPanel();
   renderAssetLibrary();
+  recordOperation("打开素材库", `已收录 ${state.library.images.length} 张素材`);
 }
 
 function setAssetDeleteMode(enabled) {
@@ -3166,7 +3234,9 @@ async function deleteSelectedLibraryAssets() {
     setAssetDeleteMode(false);
     renderAssetLibrary();
     toast(`已删除 ${ids.length} 项素材`);
+    recordOperation("删除素材", `${ids.length} 项`, "success");
   } catch (error) {
+    recordOperation("删除素材失败", error.message || "批量删除失败", "error");
     toast(error.message || "批量删除素材失败", "error");
   } finally {
     state.deletingAssets = false;
@@ -3183,7 +3253,7 @@ function renderAssetLibrary() {
   els.assetLibraryCount.textContent = `已收录 ${items.length} 张`;
   els.assetGrid.replaceChildren();
   els.assetGrid.scrollTop = 0;
-  els.assetGrid.className = "asset-grid compact-layout";
+  els.assetGrid.className = "asset-grid";
   els.assetGrid.classList.toggle("empty", items.length === 0);
   els.assetEmpty.classList.toggle("visible", items.length === 0);
   els.assetEmpty.querySelector("span").textContent = "暂无图片素材";
@@ -3229,25 +3299,22 @@ function renderAssetBatch(items, start) {
 }
 
 function alignAssetPanel() {
-  const { topbarRect, left, right } = alignedPanelEdges();
+  const { topbarRect } = alignedPanelEdges();
   const viewportRect = els.viewport.getBoundingClientRect();
   const debugRect = !els.debugBar.hidden
     ? els.debugBar.getBoundingClientRect()
     : { height: 0 };
   const gap = 14;
-  if (state.assetPanelExpanded) {
-    // Full-width mode follows the status bar's actual edges at every desktop
-    // breakpoint instead of switching to an unrelated fixed page margin.
-    els.assetPanel.style.left = `${topbarRect.left - viewportRect.left}px`;
-    els.assetPanel.style.width = `${topbarRect.width}px`;
-  } else {
-    els.assetPanel.style.left = `${left - viewportRect.left}px`;
-    els.assetPanel.style.width = `${right - left}px`;
-  }
+  // The library is intentionally one large surface on every device.  Align
+  // both edges with the top bar so desktop no longer falls back to the old
+  // narrow three-column drawer.
+  const panelLeft = Math.max(viewportRect.left + 12, topbarRect.left);
+  const panelRight = Math.min(viewportRect.right - 12, topbarRect.right);
+  els.assetPanel.style.left = `${panelLeft - viewportRect.left}px`;
+  els.assetPanel.style.width = `${Math.max(0, panelRight - panelLeft)}px`;
   els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
   const bottomOffsets = [12];
-  // Opening the library always hides the minimap, so compact and expanded
-  // layouts can both use the former preview area at the bottom-right.
+  // Keep the library above the bottom diagnostics bar when both overlays are open.
   if (debugRect.height > 0) {
     bottomOffsets.push(viewportRect.bottom - debugRect.top + gap);
   }
@@ -3260,25 +3327,26 @@ function updateAssetGridMetrics() {
   const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
   const columnGap = parseFloat(styles.columnGap) || 0;
   const availableWidth = Math.max(0, els.assetGrid.clientWidth - horizontalPadding);
-  const columns = state.assetPanelExpanded
-    ? clamp(Math.floor((availableWidth + columnGap) / (156 + columnGap)), 3, 10)
-    : 3;
-  els.assetGrid.style.gridTemplateColumns = state.assetPanelExpanded
-    ? `repeat(${columns}, minmax(0, 1fr))`
-    : "";
-  const tileSize = Math.max(
-    64,
+  const minTile = window.innerWidth <= 620 ? 132 : 156;
+  const minimumColumns = window.innerWidth <= 620 ? 2 : 3;
+  const columns = clamp(
+    Math.floor((availableWidth + columnGap) / (minTile + columnGap)),
+    minimumColumns,
+    10,
+  );
+  els.assetGrid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+  const tileWidth = Math.max(
+    96,
     Math.floor((availableWidth - columnGap * (columns - 1)) / columns),
   );
-  els.assetGrid.style.setProperty("--asset-card-height", `${tileSize}px`);
+  const tileHeight = clamp(Math.round(tileWidth * 0.86), 148, 248);
+  els.assetGrid.style.setProperty("--asset-card-height", `${tileHeight}px`);
 }
 
 function renderImageAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
-  card.title = state.assetPanelExpanded
-    ? "点击预览，确认后放入画布"
-    : "点击预览，拖到画布使用";
+  card.title = "点击预览，拖到画布使用";
   card.dataset.assetId = item.id;
   card.classList.toggle("selected", state.selectedAssetIds.has(item.id));
   card.setAttribute("aria-selected", String(state.selectedAssetIds.has(item.id)));
@@ -3350,7 +3418,6 @@ function attachLibraryImageDrag(card, item) {
   card.addEventListener("pointerdown", (event) => {
     if (
       state.assetDeleteMode
-      || state.assetPanelExpanded
       || event.pointerType === "touch"
       || event.button !== 0
       || event.target.closest("button")
@@ -3526,86 +3593,12 @@ async function uploadFiles(files, point = worldCenter()) {
         meta: { prompt: images[index].name, width: asset.width, height: asset.height },
       };
       addNode(node);
+      recordOperation("上传图片", images[index].name, "success");
     } catch (error) {
+      recordOperation("上传图片失败", `${images[index].name}：${error.message}`, "error");
       toast(`${images[index].name}：${error.message}`, "error");
     }
   }
-}
-
-// DOM projection and drag navigation follow hero8152/Infinite-Canvas.
-function drawMinimap() {
-  if (!state.minimapVisible || window.matchMedia("(max-width: 620px)").matches) {
-    state.minimapTransform = null;
-    return;
-  }
-  const viewportWidth = els.viewport.clientWidth / state.viewport.scale;
-  const viewportHeight = els.viewport.clientHeight / state.viewport.scale;
-  const viewportX = -state.viewport.x / state.viewport.scale;
-  const viewportY = -state.viewport.y / state.viewport.scale;
-  const viewportBounds = {
-    x: viewportX,
-    y: viewportY,
-    width: viewportWidth,
-    height: viewportHeight,
-  };
-  const nodeBounds = state.nodes.map((node) => {
-    const element = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
-    return {
-      x: node.x,
-      y: node.y,
-      width: node.width || 320,
-      height: element?.offsetHeight || 280,
-    };
-  });
-  const bounds = [...nodeBounds, viewportBounds];
-  const minX = Math.min(...bounds.map((item) => item.x), -200);
-  const minY = Math.min(...bounds.map((item) => item.y), -200);
-  const maxX = Math.max(...bounds.map((item) => item.x + item.width), viewportX + viewportWidth + 200);
-  const maxY = Math.max(...bounds.map((item) => item.y + item.height), viewportY + viewportHeight + 200);
-  const mapWidth = els.minimapContent.clientWidth || 172;
-  const mapHeight = els.minimapContent.clientHeight || 110;
-  const scale = Math.min(mapWidth / Math.max(1, maxX - minX), mapHeight / Math.max(1, maxY - minY));
-  const ox = (mapWidth - (maxX - minX) * scale) / 2;
-  const oy = (mapHeight - (maxY - minY) * scale) / 2;
-  const mapX = (x) => ox + (x - minX) * scale;
-  const mapY = (y) => oy + (y - minY) * scale;
-  state.minimapTransform = { minX, minY, scale, ox, oy, mapWidth, mapHeight };
-
-  const selected = new Set(selectedNodeIds());
-  const fragments = nodeBounds.map((node, index) => {
-    const item = document.createElement("div");
-    item.className = `minimap-node${selected.has(state.nodes[index].id) ? " selected" : ""}`;
-    item.style.left = `${mapX(node.x)}px`;
-    item.style.top = `${mapY(node.y)}px`;
-    item.style.width = `${Math.max(4, node.width * scale)}px`;
-    item.style.height = `${Math.max(4, node.height * scale)}px`;
-    return item;
-  });
-  els.minimapViewport.style.left = `${mapX(viewportX)}px`;
-  els.minimapViewport.style.top = `${mapY(viewportY)}px`;
-  els.minimapViewport.style.width = `${Math.max(4, viewportWidth * scale)}px`;
-  els.minimapViewport.style.height = `${Math.max(4, viewportHeight * scale)}px`;
-  els.minimapContent.replaceChildren(...fragments, els.minimapViewport);
-}
-
-function minimapEventToWorld(event) {
-  if (!state.minimapTransform) drawMinimap();
-  const transform = state.minimapTransform;
-  if (!transform) return worldCenter();
-  const rect = els.minimapContent.getBoundingClientRect();
-  const canvasX = clamp(event.clientX - rect.left, 0, rect.width);
-  const canvasY = clamp(event.clientY - rect.top, 0, rect.height);
-  return {
-    x: transform.minX + (canvasX - transform.ox) / Math.max(0.0001, transform.scale),
-    y: transform.minY + (canvasY - transform.oy) / Math.max(0.0001, transform.scale),
-  };
-}
-
-function centerViewportOnWorldPoint(point) {
-  state.viewport.x = els.viewport.clientWidth / 2 - point.x * state.viewport.scale;
-  state.viewport.y = els.viewport.clientHeight / 2 - point.y * state.viewport.scale;
-  renderViewport();
-  drawMinimap();
 }
 
 async function loadInitialState() {
@@ -3784,7 +3777,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
   if (
     (event.button !== 0 && !middlePan)
     || (!middlePan && event.target.closest(
-      ".node, button, .link-hit, .link-delete, .minimap, .asset-panel, .debug-bar",
+      ".node, button, .link-hit, .link-delete, .asset-panel, .debug-bar",
     ))
   ) return;
 
@@ -3915,7 +3908,7 @@ els.debugBar?.addEventListener("dblclick", (event) => event.stopPropagation());
 
 els.viewport.addEventListener("dblclick", (event) => {
   if (event.target.closest(
-    ".node, button, .link-hit, .link-delete, .minimap, .asset-panel, .debug-bar",
+    ".node, button, .link-hit, .link-delete, .asset-panel, .debug-bar",
   )) return;
   event.preventDefault();
   addNode(createPromptNode(clientToWorld(event.clientX, event.clientY)));
@@ -3927,7 +3920,7 @@ els.viewport.addEventListener("contextmenu", (event) => {
   if (target?.closest("textarea, input, select, [contenteditable='true']")) return;
   // Overlay surfaces own their own interaction and are not blank canvas.
   if (target?.closest(
-    ".topbar, .asset-panel, .debug-bar, .image-viewer, .project-menu, .minimap, .minimap-toggle-btn",
+    ".topbar, .asset-panel, .debug-bar, .image-viewer, .project-menu",
   )) return;
   // A multi-selection is one editing target. Right-clicking either a selected
   // node or blank canvas must keep that selection intact and expose only the
@@ -4034,53 +4027,6 @@ window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
 
-els.minimap.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) return;
-  event.preventDefault();
-  event.stopPropagation();
-  els.minimap.classList.add("dragging");
-  els.minimap.setPointerCapture(event.pointerId);
-  centerViewportOnWorldPoint(minimapEventToWorld(event));
-
-  const move = (moveEvent) => {
-    moveEvent.preventDefault();
-    centerViewportOnWorldPoint(minimapEventToWorld(moveEvent));
-  };
-  const end = (endEvent) => {
-    els.minimap.classList.remove("dragging");
-    if (els.minimap.hasPointerCapture(endEvent.pointerId)) {
-      els.minimap.releasePointerCapture(endEvent.pointerId);
-    }
-    els.minimap.removeEventListener("pointermove", move);
-    els.minimap.removeEventListener("pointerup", end);
-    els.minimap.removeEventListener("pointercancel", end);
-    scheduleSave(800);
-  };
-
-  els.minimap.addEventListener("pointermove", move);
-  els.minimap.addEventListener("pointerup", end);
-  els.minimap.addEventListener("pointercancel", end);
-});
-
-els.minimap.addEventListener("keydown", (event) => {
-  const directions = {
-    ArrowLeft: [-80, 0],
-    ArrowRight: [80, 0],
-    ArrowUp: [0, -80],
-    ArrowDown: [0, 80],
-  };
-  const direction = directions[event.key];
-  if (!direction) return;
-  event.preventDefault();
-  const multiplier = event.shiftKey ? 2.5 : 1;
-  const center = worldCenter();
-  centerViewportOnWorldPoint({
-    x: center.x + direction[0] * multiplier / state.viewport.scale,
-    y: center.y + direction[1] * multiplier / state.viewport.scale,
-  });
-  scheduleSave(800);
-});
-
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
 document.getElementById("addImageBtn").addEventListener("click", () => {
@@ -4133,24 +4079,22 @@ document.getElementById("selectionContextDelete").addEventListener("click", () =
   deleteNodes(ids);
 });
 document.getElementById("fitBtn").addEventListener("click", fitView);
-els.minimapToggleBtn?.addEventListener("click", () => {
-  state.minimapVisible = !state.minimapVisible;
-  try {
-    localStorage.setItem(MINIMAP_VISIBLE_KEY, state.minimapVisible ? "1" : "0");
-  } catch (_) {
-    // The current browser may disable local storage.
-  }
-  updateMinimapVisibility({ redraw: true });
-});
 els.debugModeBtn?.addEventListener("click", () => {
-  state.debugEnabled = !state.debugEnabled;
+  const next = !state.debugEnabled;
+  state.debugEnabled = next;
   try { localStorage.setItem("bestnaiCanvasDebug", state.debugEnabled ? "1" : "0"); } catch (_) { /* ignore */ }
   els.debugModeBtn.setAttribute("aria-pressed", String(debugModeEnabled()));
   els.debugModeBtn.classList.toggle("active", debugModeEnabled());
+  recordOperation(next ? "开启调试模式" : "关闭调试模式", next ? "详细流水已显示在画布底部" : "调试信息已隐藏");
   renderDebugBar();
   renderAll();
 });
 els.debugBarToggle?.addEventListener("click", () => setDebugBarOpen(!state.debugBarOpen));
+document.getElementById("gridStyleBtn")?.addEventListener("click", cycleGridStyle);
+document.getElementById("debugLogClearBtn")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  clearOperationLog();
+});
 els.undoBtn.addEventListener("click", undo);
 els.redoBtn.addEventListener("click", redo);
 els.arrangeSelectionBtn.addEventListener("click", arrangeSelectedNodes);
@@ -4196,9 +4140,6 @@ document.querySelectorAll("#assetLibraryBtn, #mobileAssetLibraryBtn").forEach((b
   button.addEventListener("click", () => {
     setAssetPanel(!els.assetPanel.classList.contains("open"));
   });
-});
-els.assetExpandBtn?.addEventListener("click", () => {
-  setAssetPanelExpanded(!state.assetPanelExpanded);
 });
 els.assetSelectModeBtn.addEventListener("click", () => setAssetDeleteMode(true));
 els.assetDeleteCancel.addEventListener("click", () => setAssetDeleteMode(false));
@@ -4344,10 +4285,6 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     if (els.assetPanel.classList.contains("open")) {
-      if (state.assetPanelExpanded) {
-        setAssetPanelExpanded(false);
-        return;
-      }
       setAssetPanel(false);
       return;
     }
@@ -4391,18 +4328,9 @@ window.addEventListener("resize", () => {
   setCanvasContextMenu(false);
   setNodeContextMenu(false);
   setSelectionContextMenu(false);
-  drawMinimap();
   alignToastRegion();
-  // The embedded page can receive its first resize after initialization
-  // (for example when a desktop iframe settles).  Keep the desktop-only
-  // expand control in sync with the actual responsive viewport.
-  updateAssetExpandControl();
   if (!els.projectMenu.hidden) alignProjectMenu();
   if (els.assetPanel.classList.contains("open")) {
-    if (state.assetPanelExpanded && window.innerWidth <= 620) {
-      setAssetPanelExpanded(false);
-      return;
-    }
     alignAssetPanel();
     updateAssetGridMetrics();
   }
@@ -4432,7 +4360,8 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 
-updateMinimapVisibility();
+applyGridStyle();
+renderDebugBar();
 refreshIcons();
 setupLogoEasterEgg();
 setupCompositionGuard();

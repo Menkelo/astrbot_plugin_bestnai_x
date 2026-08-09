@@ -66,9 +66,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         self.assertIn(
-            '".node, button, .link-hit, .link-delete, .minimap, .asset-panel, .debug-bar",',
+            '".node, button, .link-hit, .link-delete, .asset-panel, .debug-bar",',
             editor,
         )
+        self.assertNotIn("minimap", html)
+        self.assertNotIn("minimap", editor)
+        self.assertNotIn("minimap", styles)
 
     def test_canvas_uses_cad_style_left_selection_and_middle_pan(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -227,7 +230,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("makeRetagLayerCard(node, sourceImage, element)", render)
         self.assertIn("element.appendChild(retagLayerCard)", render)
         self.assertNotIn("body.appendChild(retagLayerCard)", render)
-        self.assertIn('document.createTextNode("原图标签图层")', editor)
+        self.assertIn('document.createTextNode("原图标签图层 / Source tags")', editor)
         self.assertIn('["auto", "自动"]', editor)
         self.assertIn('["preserve", "锁定"]', editor)
         self.assertIn('["drop", "移除"]', editor)
@@ -326,33 +329,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('card.addEventListener("click", () => addImageAssetToCanvas(item))', editor)
         self.assertIn('thumb.style.aspectRatio = `${item.width} / ${item.height}`', editor)
         self.assertIn("renderImageAssetCard(item, els.assetGrid)", editor)
-        compact_thumb = styles.split(
-            ".asset-grid.compact-layout .asset-thumb img {", 1
-        )[1].split("}", 1)[0]
-        self.assertIn("position: absolute;", compact_thumb)
-        self.assertIn("object-fit: cover;", compact_thumb)
-        self.assertIn("object-position: center;", compact_thumb)
-        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", styles)
+        # 桌面端和移动端都使用同一个全宽素材库，不再有紧凑/展开两套布局。
+        self.assertNotIn("compact-layout", styles)
+        self.assertIn("grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));", styles)
+        self.assertIn("object-fit: contain;", styles)
         # 卡片按面板实宽计算固定高度，网格行保持 auto，让懒加载提示不会占满整张卡片。
         asset_grid = styles.split(".asset-grid {", 1)[1].split("}", 1)[0]
         self.assertIn("padding: 8px;", asset_grid)
         self.assertIn("border-radius: var(--asset-panel-inner-radius);", asset_grid)
-        self.assertIn("scrollbar-gutter: stable both-edges;", asset_grid)
+        self.assertIn("scrollbar-gutter: stable;", asset_grid)
         asset_empty = styles.split(".asset-empty {", 1)[1].split("}", 1)[0]
         self.assertIn("padding: 8px;", asset_empty)
         self.assertIn("border-radius: var(--asset-panel-inner-radius);", asset_empty)
         self.assertIn("grid-auto-rows: auto;", styles)
-        self.assertIn("height: var(--asset-card-height, 112px);", styles)
+        self.assertIn("height: var(--asset-card-height, 148px);", styles)
         self.assertIn("function updateAssetGridMetrics()", editor)
         self.assertIn('els.assetGrid.style.setProperty("--asset-card-height"', editor)
         self.assertIn("window.requestAnimationFrame(updateAssetGridMetrics);", editor)
-        self.assertIn("function setAssetPanelExpanded", editor)
-        self.assertIn("assetPanelExpanded", editor)
-        self.assertIn("gridTemplateColumns", editor)
-        self.assertIn("确认后放入画布", editor)
+        self.assertIn('card.title = "点击预览，拖到画布使用"', editor)
         self.assertIn("const debugRect", editor)
-        self.assertIn("if (state.assetPanelExpanded)", editor)
-        self.assertIn("setAssetPanelExpanded(false)", editor)
         self.assertIn("closeImageViewer();", editor)
         self.assertIn("const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);", editor)
         self.assertIn("y: point.y - nodeHeight / 2", editor)
@@ -363,22 +358,23 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function alignAssetPanel()", editor)
         self.assertIn("function alignedPanelEdges()", editor)
         self.assertIn("buttonRect.left", editor)
-        self.assertIn('els.assetPanel.style.width = `${right - left}px`', editor)
+        self.assertIn('els.assetPanel.style.width = `${Math.max(0, panelRight - panelLeft)}px`', editor)
         self.assertIn("topbarRect.bottom - viewportRect.top + gap", editor)
         align_body = editor.split("function alignAssetPanel()", 1)[1].split(
             "function updateAssetGridMetrics", 1
         )[0]
-        self.assertIn("topbarRect.left - viewportRect.left", align_body)
-        self.assertIn('els.assetPanel.style.width = `${topbarRect.width}px`', align_body)
+        self.assertIn("panelLeft - viewportRect.left", align_body)
+        self.assertIn("const panelRight = Math.min(viewportRect.right - 12, topbarRect.right);", align_body)
+        self.assertIn("const panelLeft = Math.max(viewportRect.left + 12, topbarRect.left);", align_body)
         self.assertNotIn("minimapRect", align_body)
         self.assertIn('document.body.classList.toggle("asset-library-open", open)', editor)
-        self.assertIn("body.asset-library-open .minimap", styles)
-        self.assertIn("body.asset-library-open .minimap-arrange-btn", styles)
-        self.assertIn("max-width: calc(100vw - 24px);", styles)
+        self.assertNotIn("body.asset-library-open .minimap", styles)
+        self.assertIn("width: auto;", styles.split(".asset-panel {", 1)[1].split("}", 1)[0])
+        self.assertIn("max-width: none;", styles.split(".asset-panel {", 1)[1].split("}", 1)[0])
         self.assertNotIn(".asset-image-remove {", styles)
         self.assertIn('id="assetSelectModeBtn"', html)
         self.assertIn('id="assetLibraryCount"', html)
-        self.assertIn('id="assetExpandBtn"', html)
+        self.assertNotIn('id="assetExpandBtn"', html)
         self.assertIn('id="assetDeleteCancel"', html)
         self.assertIn('id="assetDeleteConfirm"', html)
         self.assertLess(html.index('id="assetDeleteConfirm"'), html.index('id="assetDeleteCancel"'))
@@ -712,28 +708,18 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("els.debugBar.hidden = false;", render)
         self.assertIn('"调试信息 · 等待下一次画布请求"', render)
 
-    def test_minimap_has_a_persistent_visibility_toggle(self) -> None:
+    def test_minimap_is_removed_from_the_canvas(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
-        self.assertIn('id="minimapToggleBtn"', html)
-        self.assertIn('class="minimap-toggle-btn"', html)
-        self.assertIn('data-lucide="chevron-down"', html)
-        self.assertLess(html.index('id="minimap"'), html.index('id="minimapToggleBtn"'))
-        self.assertIn('const MINIMAP_VISIBLE_KEY = "bestnaiCanvasMinimapVisible"', editor)
-        self.assertIn('document.body.classList.toggle("minimap-hidden", !visible)', editor)
-        self.assertIn('localStorage.setItem(MINIMAP_VISIBLE_KEY', editor)
-        self.assertIn('visible ? "收起缩略图" : "展开缩略图"', editor)
-        self.assertIn("if (!state.minimapVisible || window.matchMedia", editor)
-        self.assertIn("body.minimap-hidden .minimap", styles)
-        collapsed_arrange = styles.split("body.minimap-hidden .minimap-arrange-btn {", 1)[1].split("}", 1)[0]
-        self.assertIn("bottom: 62px;", collapsed_arrange)
-        self.assertNotIn("display: none;", collapsed_arrange)
-        mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
-            "@media (prefers-reduced-motion", 1
-        )[0]
-        self.assertIn(".minimap-toggle-btn", mobile)
+        self.assertNotIn('id="minimap"', html)
+        self.assertNotIn('id="minimapToggleBtn"', html)
+        self.assertNotIn("minimap", html)
+        self.assertNotIn("minimap", editor)
+        self.assertNotIn("minimap", styles)
+        self.assertIn('id="canvasArrangeBtn"', html)
+        self.assertIn(".arrange-selection-btn", styles)
 
     def test_debug_bar_groups_prompt_merge_details(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

@@ -101,34 +101,36 @@
           <span class="empty-state-mobile">素材图片可预览后放入画布</span>
         </div>
 
-        <button id="canvasArrangeBtn" class="minimap-arrange-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
+        <button id="canvasArrangeBtn" class="arrange-selection-btn" type="button" title="整理选中节点" aria-label="整理选中节点">
           <i data-lucide="layout-grid"></i><span>整理选中</span>
         </button>
-        <div id="minimap" class="minimap" tabindex="0" role="application" aria-label="画布导航小地图" title="拖动定位画布">
-          <div id="minimapContent" class="minimap-content">
-            <div id="minimapViewport" class="minimap-viewport"></div>
-          </div>
-        </div>
-        <button id="minimapToggleBtn" class="minimap-toggle-btn" type="button" title="收起缩略图" aria-label="收起缩略图" aria-pressed="true">
-          <i data-lucide="chevron-down"></i>
-        </button>
         <aside id="debugBar" class="debug-bar" hidden aria-label="调试信息">
-          <button id="debugBarToggle" class="debug-bar-toggle" type="button" aria-expanded="false">
-            <i data-lucide="bug"></i><span id="debugBarSummary">调试信息</span><i data-lucide="chevron-up" class="debug-bar-chevron"></i>
-          </button>
+          <div class="debug-bar-head">
+            <button id="debugBarToggle" class="debug-bar-toggle" type="button" aria-expanded="false">
+              <i data-lucide="bug"></i><span id="debugBarSummary">调试信息 · 等待下一次画布请求</span><i data-lucide="chevron-up" class="debug-bar-chevron"></i>
+            </button>
+            <button id="gridStyleBtn" class="debug-bar-action" type="button" title="切换画布网格样式" aria-label="切换画布网格样式">
+              <i data-lucide="grid-2x2"></i><span id="gridStyleLabel">点</span>
+            </button>
+            <button id="debugLogClearBtn" class="debug-bar-action icon-only" type="button" title="清空操作记录" aria-label="清空操作记录">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
           <div id="debugBarBody" class="debug-bar-body"></div>
         </aside>
         <aside id="assetPanel" class="asset-panel" aria-label="素材库">
+          <header class="asset-panel-head">
+            <div class="asset-panel-title"><i data-lucide="library"></i><strong>素材库 / Library</strong></div>
+            <span id="assetLibraryCount" class="asset-library-count">已收录 0 张</span>
+          </header>
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
           <div class="asset-delete-toolbar">
-            <span id="assetLibraryCount" class="asset-library-count">已收录 0 张</span>
             <div id="assetDeleteActions" class="asset-delete-actions" hidden>
               <span id="assetDeleteCount">已选 0 项</span>
               <button id="assetDeleteConfirm" class="asset-delete-confirm" type="button" disabled><i data-lucide="trash-2"></i><span>删除</span></button>
               <button id="assetDeleteCancel" class="asset-delete-cancel" type="button"><i data-lucide="x"></i><span>取消</span></button>
             </div>
-            <button id="assetExpandBtn" class="asset-expand-btn" type="button" aria-pressed="false" title="展开素材库" aria-label="展开素材库"><i data-lucide="maximize-2"></i><span>展开</span></button>
             <button id="assetSelectModeBtn" class="asset-select-mode-btn" type="button" aria-pressed="false" title="批量选择素材"><i data-lucide="list-checks"></i><span>多选</span></button>
           </div>
         </aside>
@@ -183,12 +185,12 @@
         <img id="imageViewerImage" alt="" />
         <figcaption class="image-viewer-details">
           <div id="imageViewerPromptSection" class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>提示词</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerPrompt" title="复制提示词" aria-label="复制提示词"><i data-lucide="copy"></i></button></div>
+            <div class="image-viewer-copy-head"><span>提示词 / Prompt</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerPrompt" title="复制提示词" aria-label="复制提示词"><i data-lucide="copy"></i></button></div>
             <p id="imageViewerPrompt" class="image-viewer-copy-text">暂无提示词记录</p>
           </div>
           <div class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>英文 tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 tags" aria-label="复制英文 tags"><i data-lucide="copy"></i></button></div>
-            <p id="imageViewerTags" class="image-viewer-copy-text">暂无英文 tags 记录</p>
+            <div class="image-viewer-copy-head"><span>提示词标签 / Prompt tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 tags" aria-label="复制英文 tags"><i data-lucide="copy"></i></button></div>
+            <p id="imageViewerTags" class="image-viewer-copy-text">暂无英文 tags 记录 / No English tags yet</p>
           </div>
           <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </figcaption>
