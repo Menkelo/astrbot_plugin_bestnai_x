@@ -23,6 +23,15 @@ from astrbot_plugin_bestnai_x.models.config import PluginConfig  # noqa: E402
 
 
 class SafetyPromptWordsTest(unittest.TestCase):
+    def test_vision_string_false_is_not_treated_as_truthy(self) -> None:
+        moderator = SafetyModerator(SimpleNamespace())
+
+        blocked = moderator._parse_result('{"safe":"false","reason":"blocked"}')
+        allowed = moderator._parse_result('{"safe":"true","reason":""}')
+
+        self.assertFalse(blocked.safe)
+        self.assertTrue(allowed.safe)
+
     def test_custom_words_replace_builtin_detection_words(self) -> None:
         moderator = SafetyModerator(
             SimpleNamespace(
@@ -76,6 +85,12 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         self.assertEqual(prompt_words["type"], "list")
         self.assertEqual(prompt_words["default"], HARD_BLOCK_WORDS)
+
+    def test_qq_path_filters_the_fully_assembled_prompt(self) -> None:
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("final_prompt_check = self.safety.check_prompt(final_prompt)", main)
+        self.assertIn("已自动过滤最终 prompt", main)
 
 
 if __name__ == "__main__":

@@ -16,13 +16,20 @@ from astrbot_plugin_bestnai_x.core.translator import (
     _result_items,
     apply_character_candidate,
     normalize_translation_text,
+    primary_cn_tag_name,
     prompt_has_tag,
     resolve_character_candidate,
     resolve_translation_cache,
+    tag_lookup_key,
 )
 
 
 class TranslationCacheTest(unittest.TestCase):
+    def test_tag_lookup_keys_and_chinese_names_are_compact(self) -> None:
+        self.assertEqual(tag_lookup_key("{{Blue Hair}}"), "blue_hair")
+        self.assertEqual(tag_lookup_key("blue_hair"), "blue_hair")
+        self.assertEqual(primary_cn_tag_name("蓝发,蓝色头发,发色"), "蓝发")
+
     def test_short_hair_color_terms_are_expanded_for_provider_requests(self) -> None:
         self.assertEqual(normalize_translation_text("蓝发少女"), "蓝头发少女")
         self.assertEqual(normalize_translation_text("蓝头发少女"), "蓝头发少女")

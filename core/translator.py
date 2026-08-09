@@ -391,6 +391,26 @@ def _tag_key(value: str) -> str:
     return re.sub(r"\s+", " ", token).casefold()
 
 
+def tag_lookup_key(value: str) -> str:
+    """Normalize a prompt atom and a canonical Danbooru tag to one key."""
+
+    return re.sub(r"[\s_]+", "_", _tag_key(value)).strip("_")
+
+
+def primary_cn_tag_name(value: str) -> str:
+    """Return the first concise Chinese alias advertised by the tags site."""
+
+    aliases = [
+        part.strip()
+        for part in _ALIAS_SPLIT_RE.split(str(value or ""))
+        if part.strip()
+    ]
+    return next(
+        (alias for alias in aliases if re.search(r"[\u4e00-\u9fff]", alias)),
+        aliases[0] if aliases else "",
+    )
+
+
 def _prompt_tag_tokens(prompt: str) -> List[str]:
     """Return normalized, comma-separated prompt tokens for exact tag lookup."""
     return [token.strip() for token in expand_prompt_tokens(prompt) if token.strip()]
@@ -651,6 +671,67 @@ class DanbooruTagRetriever:
     def __init__(self, base_url: str, timeout: float = 10.0):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+
+    async def lookup_tags(self, tags: List[str]) -> Dict[str, Any]:
+        """Resolve exact English tags and their Chinese names in one request."""
+
+        requested: Dict[str, str] = {}
+        for raw_tag in tags:
+            key = tag_lookup_key(raw_tag)
+            query_tag = _tag_key(raw_tag)
+            if key and query_tag and key not in requested:
+                requested[key] = query_tag
+        empty: Dict[str, Any] = {"items": [], "translations": {}}
+        if not requested:
+            return empty
+
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as session:
+                async with session.post(
+                    f"{self.base_url}/api/search",
+                    json={
+                        "query": ", ".join(requested.values()),
+                        "top_k": min(50, max(10, len(requested))),
+                        "limit": min(500, max(80, len(requested) * 4)),
+                        "popularity_weight": 0.0,
+                        "show_nsfw": False,
+                        "use_segmentation": True,
+                        "target_layers": ["英文"],
+                        "group_mode": "off",
+                    },
+                ) as resp:
+                    if resp.status != 200:
+                        return empty
+                    payload = await resp.json()
+        except Exception:
+            return empty
+
+        items: List[Dict[str, Any]] = []
+        translations: Dict[str, str] = {}
+        seen = set()
+        for item in _result_items(payload):
+            tag = str(item.get("tag") or "").strip()
+            key = tag_lookup_key(tag)
+            if not tag or key not in requested or key in seen:
+                continue
+            seen.add(key)
+            clean_item = {
+                "tag": tag,
+                "cn_name": str(item.get("cn_name") or "").strip(),
+                "category": str(item.get("category") or "General"),
+                "source": str(item.get("source") or ""),
+                "layer": str(item.get("layer") or ""),
+                "sources": item.get("sources", []),
+                "wiki": str(item.get("wiki") or ""),
+            }
+            items.append(clean_item)
+            cn_name = primary_cn_tag_name(clean_item["cn_name"])
+            if cn_name:
+                translations[key] = cn_name
+
+        return {"items": items, "translations": translations}
 
     async def retrieve(self, query: str) -> Dict[str, List[Dict]]:
         """检索语义匹配和共现推荐 tag。失败返回空结构。"""

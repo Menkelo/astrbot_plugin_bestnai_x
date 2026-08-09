@@ -43,9 +43,10 @@ class RetagTranslationTest(unittest.TestCase):
         end = self.retag.index("if not retag_config.enabled:")
         metadata_branch = self.retag[start:end]
 
-        self.assertIn("self._resolve_prompt_identity(source_prompt, timeout=3.0)", metadata_branch)
+        self.assertIn("await self._canvas_source_tag_details(source_prompt)", metadata_branch)
         self.assertIn('"character": source_character', metadata_branch)
         self.assertIn('"series": source_series', metadata_branch)
+        self.assertIn('"tagTranslations": tag_translations', metadata_branch)
 
     def test_retag_uses_one_tagging_request(self) -> None:
         self.assertNotIn("asyncio.gather(", self.retag)

@@ -75,6 +75,10 @@ class CanvasStoreTest(unittest.TestCase):
                             "identity": ["hatsune_miku", "vocaloid"],
                             "hair": ["aqua_hair"],
                         },
+                        "retagTagTranslations": {
+                            "hatsune_miku": "初音未来",
+                            "aqua hair": "水蓝色头发",
+                        },
                         "retagLayerModes": {
                             "identity": "preserve",
                             "hair": "drop",
@@ -95,6 +99,7 @@ class CanvasStoreTest(unittest.TestCase):
                         "ratio": "2:3",
                         "width": 832,
                         "height": 1216,
+                        "tagTranslations": {"1girl": "1个女孩"},
                     },
                 },
                 {
@@ -149,10 +154,18 @@ class CanvasStoreTest(unittest.TestCase):
             loaded["nodes"][0]["meta"]["retagLayerModes"],
             {"identity": "preserve", "hair": "drop"},
         )
+        self.assertEqual(
+            loaded["nodes"][0]["meta"]["retagTagTranslations"],
+            {"hatsune_miku": "初音未来", "aqua_hair": "水蓝色头发"},
+        )
         self.assertEqual(loaded["nodes"][0]["meta"]["retagRatio"], "2:3")
         self.assertEqual(loaded["nodes"][0]["meta"]["tags"], "1girl, hatsune_miku, vocaloid")
         self.assertEqual(len(loaded["connections"]), 1)
         self.assertEqual(loaded["nodes"][1]["meta"]["width"], 832)
+        self.assertEqual(
+            loaded["nodes"][1]["meta"]["tagTranslations"],
+            {"1girl": "1个女孩"},
+        )
         self.assertEqual(loaded["nodes"][2]["width"], 420)
         self.assertEqual(loaded["nodes"][2]["height"], 800)
 
@@ -198,6 +211,10 @@ class CanvasStoreTest(unittest.TestCase):
                                 "pose": "invalid",
                                 "not_allowed": "drop",
                             },
+                            "retagTagTranslations": {
+                                **{f"tag {index}": f"标签 {index}" for index in range(400)},
+                                "x" * 500: "y" * 500,
+                            },
                         },
                     }
                 ],
@@ -214,6 +231,8 @@ class CanvasStoreTest(unittest.TestCase):
             meta["retagLayerModes"],
             {"hair": "preserve", "clothing": "drop"},
         )
+        self.assertEqual(len(meta["retagTagTranslations"]), 320)
+        self.assertEqual(meta["retagTagTranslations"]["tag_0"], "标签 0")
 
     def test_debug_trace_survives_round_trip_and_is_bounded(self) -> None:
         long_value = "x" * 5000
@@ -367,6 +386,7 @@ class CanvasStoreTest(unittest.TestCase):
             "3:2",
             "里番",
             987654321,
+            tag_translations={"blue sky": "蓝天", "clouds": "云"},
         )
         prompt = self.store.save_prompt_asset(
             {"name": "逆光人像", "prompt": "1girl, backlight", "ratio": "2:3"}
@@ -379,6 +399,10 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(library["images"][0]["ratio"], "3:2")
         self.assertEqual(library["images"][0]["artist"], "里番")
         self.assertEqual(library["images"][0]["seed"], 987654321)
+        self.assertEqual(
+            library["images"][0]["tagTranslations"],
+            {"blue_sky": "蓝天", "clouds": "云"},
+        )
         # Re-saving the same asset without metadata must not erase the seed
         # that was already collected from the NovelAI image.
         self.store.add_image_to_library(image, "再次收录", "generated", seed=0)
@@ -389,6 +413,10 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(preserved["tags"], "blue sky, clouds")
         self.assertEqual(preserved["ratio"], "3:2")
         self.assertEqual(preserved["artist"], "里番")
+        self.assertEqual(
+            preserved["tagTranslations"],
+            {"blue_sky": "蓝天", "clouds": "云"},
+        )
         self.assertEqual(library["prompts"][0]["prompt"], "1girl, backlight")
 
         self.store.remove_image_from_library(image["id"])
@@ -542,6 +570,14 @@ class CanvasStoreTest(unittest.TestCase):
         )
         self.assertIn(
             (
+                "/test_plugin/canvas/tags/translate",
+                ("POST",),
+                "Infinite Canvas：读取中英文 Tags",
+            ),
+            routes,
+        )
+        self.assertIn(
+            (
                 "/test_plugin/canvas/asset/download",
                 ("GET",),
                 "Infinite Canvas：下载图片",
@@ -555,6 +591,60 @@ class CanvasStoreTest(unittest.TestCase):
                 "Infinite Canvas：保存用户偏好",
             ),
             routes,
+        )
+
+
+class CanvasTagTranslationEndpointTest(unittest.IsolatedAsyncioTestCase):
+    async def test_tag_translation_callback_returns_ordered_pairs(self) -> None:
+        seen = {}
+
+        async def translate(tags):
+            seen["tags"] = tags
+            return {
+                "pairs": [
+                    {"tag": "blue_hair", "cnName": "蓝发"},
+                    {"tag": "school_uniform", "cnName": "校服"},
+                ],
+                "translations": {
+                    "blue_hair": "蓝发",
+                    "school uniform": "校服",
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = CanvasService(
+                "test_plugin",
+                generate_callback=lambda _payload: None,
+                config_callback=lambda: {},
+                tag_translation_callback=translate,
+                data_dir=Path(temp_dir),
+            )
+            old_request = canvas_module.request
+            old_json_response = canvas_module.json_response
+            old_error_response = canvas_module.error_response
+
+            class FakeRequest:
+                async def json(self, default=None):
+                    return {"tags": "blue_hair, school_uniform"}
+
+            canvas_module.request = FakeRequest()
+            canvas_module.json_response = lambda value: value
+            canvas_module.error_response = lambda message, status_code=500: {
+                "error": message,
+                "status": status_code,
+            }
+            try:
+                result = await service.translate_tags()
+            finally:
+                canvas_module.request = old_request
+                canvas_module.json_response = old_json_response
+                canvas_module.error_response = old_error_response
+
+        self.assertEqual(seen["tags"], "blue_hair, school_uniform")
+        self.assertEqual(result["pairs"][0], {"tag": "blue_hair", "cnName": "蓝发"})
+        self.assertEqual(
+            result["translations"],
+            {"blue_hair": "蓝发", "school_uniform": "校服"},
         )
 
 

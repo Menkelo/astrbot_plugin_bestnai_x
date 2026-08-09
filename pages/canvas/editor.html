@@ -122,7 +122,7 @@
           <header class="asset-panel-head">
             <div class="asset-panel-title-group">
               <div class="asset-panel-title"><i data-lucide="library"></i><strong>素材库 / Library</strong></div>
-              <span class="asset-panel-subtitle">点击预览 · 拖拽到画布</span>
+              <span class="asset-panel-subtitle">点击素材预览</span>
             </div>
             <div class="asset-panel-head-actions">
               <span id="assetLibraryCount" class="asset-library-count">已收录 0 张</span>
@@ -131,14 +131,13 @@
           </header>
           <div class="asset-library-modes" role="tablist" aria-label="素材库视图">
             <button id="assetViewAllBtn" class="asset-library-mode active" type="button" role="tab" aria-selected="true" data-library-view="all"><i data-lucide="layers-3"></i><span>全部</span><b id="assetAllCount">0</b></button>
-            <button id="assetViewFavoritesBtn" class="asset-library-mode" type="button" role="tab" aria-selected="false" data-library-view="favorites"><i data-lucide="star"></i><span>收藏</span><b id="assetFavoritesCount">0</b></button>
             <button id="assetViewRecentBtn" class="asset-library-mode" type="button" role="tab" aria-selected="false" data-library-view="recent"><i data-lucide="history"></i><span>最近</span><b id="assetRecentCount">0</b></button>
             <span id="assetStackTrail" class="asset-stack-trail" hidden></span>
           </div>
           <div id="assetGrid" class="asset-grid"></div>
           <div id="assetEmpty" class="asset-empty"><i data-lucide="library"></i><span>暂无图片素材</span></div>
           <footer class="asset-panel-foot">
-            <span class="asset-panel-foot-hint">点击唱片堆展开 · 星标收藏 · 拖动卡片放入画布</span>
+            <span class="asset-panel-foot-hint">点击唱片堆展开 · 点击图片预览</span>
             <div class="asset-delete-toolbar">
               <div id="assetDeleteActions" class="asset-delete-actions" hidden>
                 <span id="assetDeleteCount">已选 0 项</span>
@@ -195,17 +194,14 @@
       </section>
     </div>
 
-    <div id="imageViewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1" hidden>
+    <div id="imageViewer" class="image-viewer layout-bottom" role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1" hidden>
       <figure class="image-viewer-stage">
         <img id="imageViewerImage" alt="" />
-        <figcaption class="image-viewer-details">
-          <div id="imageViewerPromptSection" class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>提示词 / Prompt</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerPrompt" title="复制提示词" aria-label="复制提示词"><i data-lucide="copy"></i></button></div>
-            <p id="imageViewerPrompt" class="image-viewer-copy-text">暂无提示词记录</p>
-          </div>
+        <figcaption id="imageViewerDetails" class="image-viewer-details">
+          <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true"><span>Tags 标签</span><i data-lucide="chevron-up"></i></button>
           <div class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>提示词标签 / Prompt tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 tags" aria-label="复制英文 tags"><i data-lucide="copy"></i></button></div>
-            <p id="imageViewerTags" class="image-viewer-copy-text">暂无英文 tags 记录 / No English tags yet</p>
+            <div class="image-viewer-copy-head"><span>提示词标签 / Prompt Tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
+            <div id="imageViewerTags" class="image-viewer-tag-grid" role="list" data-copy-text=""></div>
           </div>
           <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </figcaption>

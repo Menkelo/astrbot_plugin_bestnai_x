@@ -37,8 +37,8 @@ const els = {
   arrangeSelectionBtn: document.getElementById("canvasArrangeBtn"),
   imageViewer: document.getElementById("imageViewer"),
   imageViewerImage: document.getElementById("imageViewerImage"),
-  imageViewerPromptSection: document.getElementById("imageViewerPromptSection"),
-  imageViewerPrompt: document.getElementById("imageViewerPrompt"),
+  imageViewerDetails: document.getElementById("imageViewerDetails"),
+  imageViewerDetailsToggle: document.getElementById("imageViewerDetailsToggle"),
   imageViewerTags: document.getElementById("imageViewerTags"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetPanel: document.getElementById("assetPanel"),
@@ -51,10 +51,8 @@ const els = {
   assetEmpty: document.getElementById("assetEmpty"),
   assetLibraryCount: document.getElementById("assetLibraryCount"),
   assetViewAllBtn: document.getElementById("assetViewAllBtn"),
-  assetViewFavoritesBtn: document.getElementById("assetViewFavoritesBtn"),
   assetViewRecentBtn: document.getElementById("assetViewRecentBtn"),
   assetAllCount: document.getElementById("assetAllCount"),
-  assetFavoritesCount: document.getElementById("assetFavoritesCount"),
   assetRecentCount: document.getElementById("assetRecentCount"),
   assetStackTrail: document.getElementById("assetStackTrail"),
   assetRefreshBtn: document.getElementById("assetRefreshBtn"),
@@ -91,9 +89,8 @@ function loadAssetLibraryPreferences() {
     const raw = JSON.parse(localStorage.getItem(ASSET_LIBRARY_PREFS_KEY) || "{}");
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     return {
-      favorites: normalizeAssetIdList(raw.favorites, 240),
       recent: normalizeAssetIdList(raw.recent),
-      view: ["all", "favorites", "recent"].includes(raw.view) ? raw.view : "all",
+      view: ["all", "recent"].includes(raw.view) ? raw.view : "all",
     };
   } catch (_) {
     return {};
@@ -170,7 +167,6 @@ const state = {
   libraryRenderCleanup: null,
   assetLibraryView: INITIAL_ASSET_LIBRARY_PREFERENCES.view || "all",
   assetStackKey: "",
-  assetFavorites: new Set(INITIAL_ASSET_LIBRARY_PREFERENCES.favorites || []),
   assetRecent: INITIAL_ASSET_LIBRARY_PREFERENCES.recent || [],
   assetDeleteMode: false,
   selectedAssetIds: new Set(),
@@ -208,6 +204,11 @@ const state = {
   contextMenuPoint: null,
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
+  viewerImageDimensions: { width: 0, height: 0 },
+  viewerTagLookupSequence: 0,
+  viewerTagTranslationCache: new Map(),
+  retagRequestSequence: 0,
+  retagRequests: new Map(),
 };
 
 const MAX_HISTORY = 40;
@@ -312,7 +313,6 @@ function clearOperationLog() {
 function persistAssetLibraryPreferences() {
   try {
     localStorage.setItem(ASSET_LIBRARY_PREFS_KEY, JSON.stringify({
-      favorites: [...state.assetFavorites].slice(0, 240),
       recent: state.assetRecent.slice(0, ASSET_RECENT_LIMIT),
       view: state.assetLibraryView,
     }));
@@ -323,11 +323,8 @@ function persistAssetLibraryPreferences() {
 
 function reconcileAssetLibraryPreferences() {
   const validIds = new Set((state.library.images || []).map((item) => String(item?.id || "")).filter(Boolean));
-  const favorites = new Set([...state.assetFavorites].filter((id) => validIds.has(id)));
   const recent = state.assetRecent.filter((id) => validIds.has(id));
-  const changed = favorites.size !== state.assetFavorites.size
-    || recent.length !== state.assetRecent.length;
-  state.assetFavorites = favorites;
+  const changed = recent.length !== state.assetRecent.length;
   state.assetRecent = recent;
   if (changed) persistAssetLibraryPreferences();
 }
@@ -335,19 +332,26 @@ function reconcileAssetLibraryPreferences() {
 function assetLibraryVisibleItems() {
   const items = state.library.images || [];
   if (state.assetLibraryView === "all") return items;
-  const ids = state.assetLibraryView === "favorites"
-    ? [...state.assetFavorites]
-    : state.assetRecent;
   const byId = new Map(items.map((item) => [String(item?.id || ""), item]));
-  return ids.map((id) => byId.get(id)).filter(Boolean);
+  return state.assetRecent.map((id) => byId.get(id)).filter(Boolean);
 }
 
 function assetGroupForItem(item) {
   const artist = String(item?.artist || "").trim();
-  if (artist) return { key: `artist:${artist.toLocaleLowerCase()}`, label: artist, detail: "画师" };
-  const source = String(item?.source || "other").trim().toLowerCase();
-  const labels = { retagged: "反推素材", generated: "生图素材", uploaded: "上传图片", other: "其他素材" };
-  return { key: `source:${source}`, label: labels[source] || labels.other, detail: "来源" };
+  if (artist) {
+    return {
+      key: `artist:${artist.replace(/\s+/g, " ").toLocaleLowerCase()}`,
+      label: artist,
+      detail: "画师合集",
+      unassigned: false,
+    };
+  }
+  return {
+    key: "artist:__unassigned__",
+    label: "未分类",
+    detail: "未标注画师",
+    unassigned: true,
+  };
 }
 
 function assetLibraryGroups(items) {
@@ -357,7 +361,7 @@ function assetLibraryGroups(items) {
     if (!groups.has(group.key)) groups.set(group.key, { ...group, items: [] });
     groups.get(group.key).items.push(item);
   });
-  return [...groups.values()];
+  return [...groups.values()].sort((left, right) => Number(left.unassigned) - Number(right.unassigned));
 }
 
 function updateAssetLibraryModeUI() {
@@ -369,11 +373,9 @@ function updateAssetLibraryModeUI() {
       : `${visible} / ${total} 张`;
   }
   if (els.assetAllCount) els.assetAllCount.textContent = String(total);
-  if (els.assetFavoritesCount) els.assetFavoritesCount.textContent = String(state.assetFavorites.size);
   if (els.assetRecentCount) els.assetRecentCount.textContent = String(state.assetRecent.length);
   [
     [els.assetViewAllBtn, "all"],
-    [els.assetViewFavoritesBtn, "favorites"],
     [els.assetViewRecentBtn, "recent"],
   ].forEach(([button, view]) => {
     if (!button) return;
@@ -391,36 +393,12 @@ function updateAssetLibraryModeUI() {
 }
 
 function setAssetLibraryView(view) {
-  if (!["all", "favorites", "recent"].includes(view)) return;
+  if (!["all", "recent"].includes(view)) return;
   state.assetLibraryView = view;
   state.assetStackKey = "";
   persistAssetLibraryPreferences();
   renderAssetLibrary();
-  recordOperation("切换素材视图", view === "favorites" ? "收藏" : view === "recent" ? "最近使用" : "全部素材");
-}
-
-function toggleAssetFavorite(item) {
-  const id = String(item?.id || "").trim();
-  if (!id) return;
-  const favorited = state.assetFavorites.has(id);
-  if (favorited) state.assetFavorites.delete(id);
-  else state.assetFavorites.add(id);
-  persistAssetLibraryPreferences();
-  if (state.assetLibraryView === "favorites") {
-    renderAssetLibrary();
-  } else {
-    els.assetGrid.querySelectorAll(".asset-image-card").forEach((card) => {
-      if (String(card.dataset.assetId || "") !== id) return;
-      const button = card.querySelector(".asset-favorite-btn");
-      const active = state.assetFavorites.has(id);
-      button?.classList.toggle("active", active);
-      button?.setAttribute("aria-pressed", String(active));
-      button?.setAttribute("aria-label", active ? "取消收藏素材" : "收藏素材");
-      if (button) button.title = active ? "取消收藏" : "收藏素材";
-    });
-    updateAssetLibraryModeUI();
-  }
-  recordOperation(favorited ? "取消收藏素材" : "收藏素材", item.name || "图片素材");
+  recordOperation("切换素材视图", view === "recent" ? "最近使用" : "全部素材");
 }
 
 function markAssetRecent(item, { render = true } = {}) {
@@ -1360,6 +1338,9 @@ function renderPromptNode(node) {
     scheduleSave();
     recordOperation("切换原始提示词", raw.checked ? "开启" : "关闭");
   });
+  raw.addEventListener("click", (event) => {
+    if (event.detail > 0) raw.blur();
+  });
   rawLabel.append(raw, document.createTextNode("原始提示词"));
 
   const commands = document.createElement("div");
@@ -1413,27 +1394,27 @@ const DEBUG_SECTIONS = [
 
 const DEBUG_MERGE_NOTE_KEYS = ["提示词冲突处理", "mergeDetails", "promptMerge"];
 const DEBUG_CATEGORY_LABELS = {
-  identity: "角色 / Identity",
-  subject: "主体数量 / Subjects",
-  hair: "发型 / Hair",
-  eyes: "眼睛 / Eyes",
-  skin: "皮肤妆容 / Skin",
-  traits: "身体特征 / Traits",
-  accessory: "配饰 / Accessories",
-  clothing: "服装 / Clothing",
-  legwear: "腿部穿着 / Legwear",
-  footwear: "鞋子 / Footwear",
-  handwear: "手套 / Handwear",
-  pose: "姿势 / Pose",
-  gaze: "视线 / Gaze",
-  gesture: "动作手势 / Gesture",
-  expression: "表情 / Expression",
-  composition: "构图 / Composition",
-  background: "背景 / Background",
-  atmosphere: "氛围天气 / Atmosphere",
-  lighting: "光照 / Lighting",
-  style: "风格 / Style",
-  other: "其他细节 / Other",
+  identity: "角色",
+  subject: "主体数量",
+  hair: "发型",
+  eyes: "眼睛",
+  skin: "皮肤妆容",
+  traits: "身体特征",
+  accessory: "配饰",
+  clothing: "服装",
+  legwear: "腿部穿着",
+  footwear: "鞋子",
+  handwear: "手套",
+  pose: "姿势",
+  gaze: "视线",
+  gesture: "动作手势",
+  expression: "表情",
+  composition: "构图",
+  background: "背景",
+  atmosphere: "氛围天气",
+  lighting: "光照",
+  style: "风格",
+  other: "其他细节",
 };
 
 const RETAG_LAYER_CATEGORY_ORDER = Object.freeze([
@@ -1479,6 +1460,34 @@ function normalizeRetagTagGroups(value) {
   return result;
 }
 
+function retagTagLookupKey(value) {
+  let tag = String(value || "").trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+  while (
+    tag.length >= 2
+    && ((tag.startsWith("{") && tag.endsWith("}"))
+      || (tag.startsWith("[") && tag.endsWith("]")))
+  ) {
+    tag = tag.slice(1, -1).trim();
+  }
+  return tag.toLocaleLowerCase().replace(/[\s_]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function normalizeRetagTagTranslations(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+  Object.entries(value).slice(0, 320).forEach(([rawTag, rawName]) => {
+    const key = retagTagLookupKey(rawTag);
+    const name = String(rawName || "").trim().slice(0, 160);
+    if (key && name) result[key] = name;
+  });
+  return result;
+}
+
+function bilingualRetagTagText(tag, translations) {
+  const name = translations[retagTagLookupKey(tag)] || "";
+  return name ? `${tag} / ${name}` : tag;
+}
+
 function normalizeRetagLayerModes(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result = {};
@@ -1503,9 +1512,21 @@ function retagLayerCategoryLists(node) {
   };
 }
 
+function collapseRetagLayers() {
+  let changed = false;
+  state.nodes.forEach((node) => {
+    if (node.type !== "prompt" || node.meta?.retagLayerExpanded !== true) return;
+    node.meta = { ...(node.meta || {}), retagLayerExpanded: false };
+    changed = true;
+  });
+  if (changed) scheduleSave();
+  return changed;
+}
+
 function makeRetagLayerCard(node, sourceImage, nodeElement) {
   if (!sourceImage) return null;
   const groups = normalizeRetagTagGroups(node?.meta?.retagTagGroups);
+  const tagTranslations = normalizeRetagTagTranslations(node?.meta?.retagTagTranslations);
   const entries = RETAG_LAYER_CATEGORY_ORDER
     .filter((category) => Array.isArray(groups[category]) && groups[category].length)
     .map((category) => [category, groups[category]]);
@@ -1526,7 +1547,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   toggle.setAttribute("aria-expanded", "false");
   const title = document.createElement("span");
   title.className = "retag-layer-title";
-  title.append(icon("layers-3"), document.createTextNode("原图标签图层 / Source tags"));
+  title.append(icon("layers-3"), document.createTextNode("原图标签图层"));
   const summary = document.createElement("span");
   summary.className = "retag-layer-summary";
   const chevron = icon("chevron-down", "retag-layer-chevron");
@@ -1608,8 +1629,8 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     tags.forEach((tag) => {
       const chip = document.createElement("code");
       chip.className = "retag-layer-tag";
-      chip.textContent = tag;
-      chip.title = tag;
+      chip.textContent = bilingualRetagTagText(tag, tagTranslations);
+      chip.title = chip.textContent;
       tagList.appendChild(chip);
     });
     row.append(rowHead, tagList);
@@ -1628,7 +1649,9 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     setOpen(open);
     scheduleSave();
   });
-  body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+  body.addEventListener("wheel", (event) => {
+    if (isNodeSelected(node.id)) event.stopPropagation();
+  }, { passive: true });
   refreshSummary();
   setOpen(node.meta?.retagLayerExpanded === true);
   card.append(toggle, body);
@@ -1679,7 +1702,7 @@ function debugLayerCategoryLabels(value) {
   );
 }
 
-function appendDebugTagGroup(parent, label, values, className = "") {
+function appendDebugTagGroup(parent, label, values, className = "", translations = {}) {
   const tags = debugMergeValues(values);
   if (!tags.length) return;
 
@@ -1696,8 +1719,8 @@ function appendDebugTagGroup(parent, label, values, className = "") {
   visible.forEach((tag) => {
     const chip = document.createElement("code");
     chip.className = "debug-merge-tag";
-    chip.textContent = tag;
-    chip.title = tag;
+    chip.textContent = bilingualRetagTagText(tag, translations);
+    chip.title = chip.textContent;
     tagList.appendChild(chip);
   });
   if (tags.length > visible.length) {
@@ -1710,7 +1733,7 @@ function appendDebugTagGroup(parent, label, values, className = "") {
   parent.appendChild(group);
 }
 
-function appendDebugCategoryGroups(parent, label, values, className = "") {
+function appendDebugCategoryGroups(parent, label, values, className = "", translations = {}) {
   if (!values || typeof values !== "object" || Array.isArray(values)) return;
   const entries = Object.entries(values).filter(([, tags]) => debugMergeValues(tags).length);
   if (!entries.length) return;
@@ -1733,8 +1756,8 @@ function appendDebugCategoryGroups(parent, label, values, className = "") {
     debugMergeValues(tags).slice(0, 40).forEach((tag) => {
       const chip = document.createElement("code");
       chip.className = "debug-merge-tag";
-      chip.textContent = tag;
-      chip.title = tag;
+      chip.textContent = bilingualRetagTagText(tag, translations);
+      chip.title = chip.textContent;
       list.appendChild(chip);
     });
     row.appendChild(list);
@@ -1743,23 +1766,23 @@ function appendDebugCategoryGroups(parent, label, values, className = "") {
   parent.appendChild(wrapper);
 }
 
-function makeDebugMergeSummary(details) {
+function makeDebugMergeSummary(details, translations = {}) {
   if (!details || typeof details !== "object") return null;
   const section = document.createElement("section");
   section.className = "debug-merge-summary";
 
   const head = document.createElement("div");
   head.className = "debug-merge-head";
-  head.textContent = "提示词冲突处理 / Prompt merge";
+  head.textContent = "提示词冲突处理";
   section.appendChild(head);
 
   const counts = document.createElement("div");
   counts.className = "debug-merge-counts";
   [
-    ["added", "新增 / Added", details.added],
-    ["removed", "删除 / Removed", details.removed],
-    ["retained", "保留 / Retained", details.retained],
-    ["duplicates", "去重 / Deduplicated", details.duplicates],
+    ["added", "新增", details.added],
+    ["removed", "删除", details.removed],
+    ["retained", "保留", details.retained],
+    ["duplicates", "去重", details.duplicates],
   ].forEach(([tone, label, values]) => {
     const item = document.createElement("span");
     item.className = `debug-merge-count is-${tone}`;
@@ -1768,69 +1791,69 @@ function makeDebugMergeSummary(details) {
   });
   section.appendChild(counts);
 
-  appendDebugTagGroup(section, "新增提示词 / Added", details.added, "is-added");
-  appendDebugTagGroup(section, "删除冲突 / Removed", details.removed, "is-removed");
-  appendDebugTagGroup(section, "保留原图 / Retained", details.retained, "is-retained");
-  appendDebugTagGroup(section, "重复去重 / Deduplicated", details.duplicates, "is-duplicates");
+  appendDebugTagGroup(section, "新增提示词", details.added, "is-added", translations);
+  appendDebugTagGroup(section, "删除冲突", details.removed, "is-removed", translations);
+  appendDebugTagGroup(section, "保留原图", details.retained, "is-retained", translations);
+  appendDebugTagGroup(section, "重复去重", details.duplicates, "is-duplicates", translations);
   appendDebugTagGroup(
     section,
-    "锁定图层 / Locked layers",
+    "锁定图层",
     debugLayerCategoryLabels(details.preserveCategories),
     "is-retained",
   );
   appendDebugTagGroup(
     section,
-    "移除图层 / Removed layers",
+    "移除图层",
     debugLayerCategoryLabels(details.dropCategories),
     "is-removed",
   );
-  appendDebugCategoryGroups(section, "覆盖分类 / Overridden", details.overrides, "is-overrides");
-  appendDebugCategoryGroups(section, "冲突分类 / Conflicts", details.conflicts, "is-conflicts");
+  appendDebugCategoryGroups(section, "覆盖分类", details.overrides, "is-overrides", translations);
+  appendDebugCategoryGroups(section, "冲突分类", details.conflicts, "is-conflicts", translations);
   return section;
 }
 
-function debugMergePlainText(details) {
+function debugMergePlainText(details, translations = {}) {
   if (!details || typeof details !== "object") return [];
-  const lines = ["  提示词冲突处理 / Prompt merge"];
+  const lines = ["  提示词冲突处理"];
   [
-    ["新增提示词 / Added", details.added],
-    ["删除冲突 / Removed", details.removed],
-    ["保留原图 / Retained", details.retained],
-    ["重复去重 / Deduplicated", details.duplicates],
+    ["新增提示词", details.added],
+    ["删除冲突", details.removed],
+    ["保留原图", details.retained],
+    ["重复去重", details.duplicates],
   ].forEach(([label, values]) => {
-    const tags = debugMergeValues(values);
+    const tags = debugMergeValues(values).map((tag) => bilingualRetagTagText(tag, translations));
     if (tags.length) lines.push(`    ${label}: ${tags.join(", ")}`);
   });
   [
-    ["锁定图层 / Locked layers", details.preserveCategories],
-    ["移除图层 / Removed layers", details.dropCategories],
+    ["锁定图层", details.preserveCategories],
+    ["移除图层", details.dropCategories],
   ].forEach(([label, values]) => {
     const categories = debugLayerCategoryLabels(values);
     if (categories.length) lines.push(`    ${label}: ${categories.join(", ")}`);
   });
   [
-    ["覆盖分类 / Overridden", details.overrides],
-    ["冲突分类 / Conflicts", details.conflicts],
+    ["覆盖分类", details.overrides],
+    ["冲突分类", details.conflicts],
   ].forEach(([label, groups]) => {
     if (!groups || typeof groups !== "object" || Array.isArray(groups)) return;
     Object.entries(groups).forEach(([category, values]) => {
-      const tags = debugMergeValues(values);
+      const tags = debugMergeValues(values).map((tag) => bilingualRetagTagText(tag, translations));
       if (tags.length) {
-        lines.push(`    ${label} / ${DEBUG_CATEGORY_LABELS[category] || category}: ${tags.join(", ")}`);
+        lines.push(`    ${label} · ${DEBUG_CATEGORY_LABELS[category] || category}: ${tags.join(", ")}`);
       }
     });
   });
   return lines;
 }
 
-function debugPlainText(runs) {
+function debugPlainText(runs, translations = {}) {
   const lines = [];
   runs.forEach(({ label, run }) => {
     lines.push(`${label} 总耗时 ${run.totalMs}ms`);
     (run.stages || []).forEach((stage) => {
       lines.push(`  · ${stage.name} ${stage.ms}ms${stage.error ? ` · 失败：${stage.error}` : ""}`);
     });
-    lines.push(...debugMergePlainText(debugMergeDetails(run)));
+    lines.push(...debugMergePlainText(debugMergeDetails(run), translations));
     Object.entries(run.notes || {}).forEach(([key, value]) => {
       if (isDebugMergeNote(key)) return;
       lines.push(`  ${key}: ${formatDebugValue(value)}`);
@@ -1867,6 +1890,7 @@ function makeDebugPanel(node) {
 
   const body = document.createElement("div");
   body.className = "debug-body";
+  const tagTranslations = normalizeRetagTagTranslations(node.meta?.retagTagTranslations);
 
   runs.forEach(({ label, run }) => {
     const section = document.createElement("section");
@@ -1895,7 +1919,7 @@ function makeDebugPanel(node) {
     });
 
     const mergeDetails = debugMergeDetails(run);
-    const mergeSummary = makeDebugMergeSummary(mergeDetails);
+    const mergeSummary = makeDebugMergeSummary(mergeDetails, tagTranslations);
     if (mergeSummary) section.appendChild(mergeSummary);
 
     Object.entries(run.notes || {}).filter(([key]) => !isDebugMergeNote(key)).forEach(([key, value]) => {
@@ -1920,7 +1944,7 @@ function makeDebugPanel(node) {
   copy.textContent = "复制全部";
   copy.addEventListener("click", (event) => {
     event.stopPropagation();
-    copyPlainText(debugPlainText(runs), "复制调试信息");
+    copyPlainText(debugPlainText(runs, tagTranslations), "复制调试信息");
   });
   body.appendChild(copy);
 
@@ -2091,8 +2115,8 @@ function renderImageNode(node) {
   frame.className = "image-preview-wrap";
   frame.tabIndex = 0;
   frame.setAttribute("role", "button");
-  frame.setAttribute("aria-label", "放大图片并查看提示词");
-  frame.title = "点击放大图片并查看提示词";
+  frame.setAttribute("aria-label", "放大图片并查看 Tags");
+  frame.title = "点击放大图片并查看 Tags";
   const imageArtist = artistDisplayName(node);
   if (imageArtist) {
     const artistBadge = document.createElement("span");
@@ -2489,6 +2513,9 @@ function attachConnectionPort(port, nodeId, role) {
           scheduleSave();
           recordOperation("连接节点", `${findNode(source)?.title || source} → ${findNode(destination)?.title || destination}`);
           renderAll();
+          if (findNode(source)?.type === "image" && findNode(destination)?.type === "prompt") {
+            void retagFromNode(destination, false, { expandLayer: true, automatic: true });
+          }
           return;
         }
       }
@@ -3040,6 +3067,7 @@ async function generateFromNode(id, {
         meta: {
           prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
           tags: result.meta?.translatedPrompt || workingPrompt,
+          tagTranslations: normalizeRetagTagTranslations(node.meta?.retagTagTranslations),
           artist: result.meta?.artist || "",
           ratio: result.meta?.ratio || node.ratio,
           retagged,
@@ -3082,6 +3110,25 @@ function sourceImageForPrompt(promptId) {
   return edge ? findNode(edge.source) : null;
 }
 
+function beginRetagRequest(node, sourceImage) {
+  const token = ++state.retagRequestSequence;
+  state.retagRequests.set(node.id, {
+    token,
+    assetId: String(sourceImage?.assetId || ""),
+  });
+  return token;
+}
+
+function isLatestRetagRequest(node, token) {
+  return findNode(node?.id) === node
+    && state.retagRequests.get(node.id)?.token === token;
+}
+
+function retagRequestStillMatchesSource(node, token, assetId) {
+  return isLatestRetagRequest(node, token)
+    && String(sourceImageForPrompt(node.id)?.assetId || "") === String(assetId || "");
+}
+
 function clearRetagCache(node) {
   if (state.lastDebugNodeId === node?.id) state.lastDebugNodeId = "";
   const {
@@ -3099,6 +3146,7 @@ function clearRetagCache(node) {
     retagFromMetadata: _retagFromMetadata,
     retagFromCanvasCache: _retagFromCanvasCache,
     retagTagGroups: _retagTagGroups,
+    retagTagTranslations: _retagTagTranslations,
     retagLayerModes: _retagLayerModes,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
@@ -3209,6 +3257,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     fromMetadata: !!meta.retagFromMetadata,
     fromCanvasCache: !!meta.retagFromCanvasCache,
     tagGroups,
+    tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
   };
 }
 
@@ -3230,9 +3279,13 @@ function recordRunDebug(node, stage, payload) {
   state.lastDebugNodeId = node.id;
 }
 
-async function retagFromNode(id, generateAfter = false) {
+async function retagFromNode(
+  id,
+  generateAfter = false,
+  { expandLayer = false, automatic = false } = {},
+) {
   const node = findNode(id);
-  if (!node || node.status) return false;
+  if (!node || (node.status && !(automatic && node.status === "retagging"))) return false;
 
   const sourceImage = sourceImageForPrompt(id);
   if (!sourceImage?.assetId) {
@@ -3241,6 +3294,8 @@ async function retagFromNode(id, generateAfter = false) {
     renderAll();
     return false;
   }
+  const sourceAssetId = String(sourceImage.assetId);
+  const requestToken = beginRetagRequest(node, sourceImage);
 
   const basePrompt = node.prompt?.trim() || "";
   const cachedRetag = cachedRetagResult(node, sourceImage, basePrompt);
@@ -3266,6 +3321,7 @@ async function retagFromNode(id, generateAfter = false) {
       seed: sourceSeed || undefined,
       sourcePrompt: sourceImageRetagPrompt(sourceImage),
     });
+    if (!retagRequestStillMatchesSource(node, requestToken, sourceAssetId)) return false;
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
     const recoveredSeed = normalizeNaiSeed(result?.seed);
@@ -3287,6 +3343,8 @@ async function retagFromNode(id, generateAfter = false) {
       retagFromMetadata: !!result.fromMetadata,
       retagFromCanvasCache: !!result.fromCanvasCache,
       retagTagGroups: normalizeRetagTagGroups(result?.tagGroups),
+      retagTagTranslations: normalizeRetagTagTranslations(result?.tagTranslations),
+      retagLayerExpanded: expandLayer || node.meta?.retagLayerExpanded === true,
       translatedPrompt: retagPrompt,
     };
     // Keep the source image self-describing after the first retag.  This is
@@ -3301,6 +3359,7 @@ async function retagFromNode(id, generateAfter = false) {
       // value here would make the same dirty tags reappear after a library
       // round trip.
       tags: retagPrompt,
+      tagTranslations: normalizeRetagTagTranslations(result?.tagTranslations),
       ratio: result?.ratio || sourceImage.meta?.ratio || "",
     };
     recordRunDebug(node, "retag", result.debug);
@@ -3320,12 +3379,23 @@ async function retagFromNode(id, generateAfter = false) {
     succeeded = true;
     recordOperation("反推完成", result.fromMetadata ? "读取内嵌参数" : "提取 tags 完成", "success");
   } catch (error) {
-    node.error = error.message || "图片反推失败";
-    recordOperation("反推失败", node.error, "error");
-    toast(node.error, "error");
+    if (!retagRequestStillMatchesSource(node, requestToken, sourceAssetId)) return false;
+    const message = error.message || "图片反推失败";
+    if (automatic) {
+      node.error = "";
+      node.statusText = "";
+      recordOperation("自动反推跳过", message, "warning");
+    } else {
+      node.error = message;
+      recordOperation("反推失败", node.error, "error");
+      toast(node.error, "error");
+    }
   } finally {
-    node.status = "";
-    renderAll();
+    if (isLatestRetagRequest(node, requestToken)) {
+      state.retagRequests.delete(node.id);
+      if (node.status === "retagging") node.status = "";
+      renderAll();
+    }
   }
   if (succeeded && generateAfter) {
     await generateFromNode(id, {
@@ -3401,38 +3471,166 @@ async function downloadImage(node) {
   }
 }
 
+function preferredImageViewerLayout(width, height) {
+  const imageWidth = Number(width) || 0;
+  const imageHeight = Number(height) || 0;
+  if (!imageWidth || !imageHeight || window.matchMedia("(max-width: 760px)").matches) return "bottom";
+  const aspect = imageWidth / imageHeight;
+  if (aspect < .92) return "side";
+  if (aspect > 1.12) return "bottom";
+  return window.innerWidth >= 1100 ? "side" : "bottom";
+}
+
+function applyImageViewerLayout(width, height) {
+  const imageWidth = Number(width) || els.imageViewerImage.naturalWidth || 0;
+  const imageHeight = Number(height) || els.imageViewerImage.naturalHeight || 0;
+  if (imageWidth && imageHeight) {
+    state.viewerImageDimensions = { width: imageWidth, height: imageHeight };
+  }
+  const layout = preferredImageViewerLayout(imageWidth, imageHeight);
+  els.imageViewer.classList.toggle("layout-side", layout === "side");
+  els.imageViewer.classList.toggle("layout-bottom", layout === "bottom");
+  els.imageViewer.dataset.layout = layout;
+}
+
+function setImageViewerDetailsCollapsed(collapsed) {
+  const next = !!collapsed;
+  els.imageViewerDetails.classList.toggle("collapsed", next);
+  els.imageViewerDetailsToggle.setAttribute("aria-expanded", String(!next));
+}
+
+function imageViewerTagKeys(tags) {
+  return String(tags || "")
+    .split(/[,;\n]+/)
+    .map((tag) => tag.trim()
+      .replace(/^-?\d+(?:\.\d+)?::\s*/, "")
+      .replace(/\s*::$/, ""))
+    .map(retagTagLookupKey)
+    .filter(Boolean);
+}
+
+function imageViewerTagEntries(pairs, translations = {}, tags = "") {
+  const normalizedTranslations = normalizeRetagTagTranslations(translations);
+  const source = Array.isArray(pairs) && pairs.length
+    ? pairs.map((item) => String(item?.tag || "").trim()).filter(Boolean)
+    : String(tags || "")
+        .split(/[,;\n]+/)
+        .map((tag) => tag.trim()
+          .replace(/^-?\d+(?:\.\d+)?::\s*/, "")
+          .replace(/\s*::$/, ""))
+        .filter(Boolean);
+  const pairNames = new Map(
+    (Array.isArray(pairs) ? pairs : [])
+      .map((item) => [
+        retagTagLookupKey(item?.tag),
+        String(item?.cnName || "").trim(),
+      ])
+      .filter(([key]) => key),
+  );
+  return source.slice(0, 320).map((tag) => {
+    const key = retagTagLookupKey(tag);
+    return {
+      tag,
+      cnName: pairNames.get(key) || normalizedTranslations[key] || "",
+    };
+  });
+}
+
+function renderImageViewerTags(tags, pairs = [], translations = {}) {
+  const rawTags = String(tags || "").trim();
+  els.imageViewerTags.dataset.copyText = rawTags;
+  els.imageViewerTags.replaceChildren();
+  const entries = imageViewerTagEntries(pairs, translations, rawTags);
+  if (!entries.length) {
+    const empty = document.createElement("span");
+    empty.className = "image-viewer-tag-empty";
+    empty.textContent = "暂无英文 Tags 记录 / No English Tags yet";
+    els.imageViewerTags.appendChild(empty);
+    return;
+  }
+  entries.forEach(({ tag, cnName }) => {
+    const chip = document.createElement("code");
+    chip.className = "image-viewer-tag-chip";
+    chip.setAttribute("role", "listitem");
+    chip.textContent = cnName ? `${tag} / ${cnName}` : tag;
+    chip.title = chip.textContent;
+    chip.classList.toggle("bilingual", !!cnName);
+    els.imageViewerTags.appendChild(chip);
+  });
+}
+
+async function hydrateImageViewerChineseTags(node, tags, lookupSequence) {
+  const initialTranslations = normalizeRetagTagTranslations(
+    node?.meta?.tagTranslations || node?.meta?.retagTagTranslations,
+  );
+  renderImageViewerTags(tags, [], initialTranslations);
+  const tagKeys = imageViewerTagKeys(tags);
+  if (tagKeys.length && tagKeys.every((key) => initialTranslations[key])) return;
+
+  try {
+    let result = state.viewerTagTranslationCache.get(tags);
+    if (!result) {
+      result = await bridge.apiPost("canvas/tags/translate", { tags });
+      if (state.viewerTagTranslationCache.size >= 80) {
+        state.viewerTagTranslationCache.delete(
+          state.viewerTagTranslationCache.keys().next().value,
+        );
+      }
+      state.viewerTagTranslationCache.set(tags, result);
+    }
+    if (lookupSequence !== state.viewerTagLookupSequence || els.imageViewer.hidden) return;
+    const translations = {
+      ...initialTranslations,
+      ...normalizeRetagTagTranslations(result?.translations),
+    };
+    renderImageViewerTags(tags, result?.pairs, translations);
+    if (Object.keys(translations).length) {
+      node.meta = { ...(node.meta || {}), tagTranslations: translations };
+      if (findNode(node.id) === node) scheduleSave();
+      if (state.viewerLibraryAsset) {
+        state.viewerLibraryAsset.tagTranslations = translations;
+      }
+    }
+  } catch (_) {
+    // The English chips are already visible; a tags-site outage should not
+    // replace them with an error state or interrupt image preview.
+  }
+}
+
 function openImageViewer(node, { libraryAsset = null, operationLabel = "打开图片预览" } = {}) {
   if (!node?.dataUrl) {
     toast("图片仍在读取，请稍后重试", "error");
     return;
   }
   const meta = node.meta || {};
+  state.viewerImageDimensions = {
+    width: Number(meta.width) || 0,
+    height: Number(meta.height) || 0,
+  };
+  applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
+  setImageViewerDetailsCollapsed(false);
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.alt = node.title || "画布图片";
-  const prompt = String(meta.prompt || "").trim();
   const tags = String(meta.tags || meta.finalPrompt || "").trim();
-  els.imageViewerPromptSection.hidden = !!tags && isPureEnglishPrompt(prompt);
-  els.imageViewerPrompt.textContent = prompt || "暂无提示词记录";
-  els.imageViewerTags.textContent = tags || "暂无英文 tags 记录 / No English tags yet";
+  renderImageViewerTags(tags);
   state.viewerLibraryAsset = libraryAsset;
+  const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
+  if (tags) void hydrateImageViewerChineseTags(node, tags, lookupSequence);
   recordOperation(operationLabel, node.title || "图片");
-}
-
-function isPureEnglishPrompt(value) {
-  const text = String(value || "").trim();
-  return !!text && /^[\x00-\x7F]+$/.test(text) && /[A-Za-z]/.test(text);
 }
 
 function closeImageViewer() {
   const wasOpen = !els.imageViewer.hidden;
+  state.viewerTagLookupSequence += 1;
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
-  els.imageViewerPromptSection.hidden = false;
-  els.imageViewerPrompt.textContent = "暂无提示词记录";
-  els.imageViewerTags.textContent = "暂无英文 tags 记录 / No English tags yet";
+  renderImageViewerTags("");
+  setImageViewerDetailsCollapsed(false);
+  state.viewerImageDimensions = { width: 0, height: 0 };
+  applyImageViewerLayout(0, 0);
   state.viewerLibraryAsset = null;
   els.imageViewerPlaceBtn.hidden = true;
   if (wasOpen) recordOperation("关闭图片预览");
@@ -3591,7 +3789,7 @@ function renderAssetLibrary() {
   const groups = state.assetLibraryView === "all" && !state.assetStackKey
     ? assetLibraryGroups(items)
     : [];
-  const stackView = groups.some((group) => group.items.length > 1);
+  const stackView = groups.length > 0;
   updateAssetLibraryModeUI();
   els.assetGrid.replaceChildren();
   els.assetGrid.scrollTop = 0;
@@ -3600,17 +3798,13 @@ function renderAssetLibrary() {
   els.assetEmpty.classList.toggle("visible", items.length === 0);
   const emptyLabels = {
     all: "暂无图片素材",
-    favorites: "还没有收藏素材",
     recent: "还没有最近使用的素材",
   };
   els.assetEmpty.querySelector("span").textContent = emptyLabels[state.assetLibraryView] || emptyLabels.all;
 
   if (items.length) {
     if (stackView) {
-      groups.forEach((group) => {
-        if (group.items.length > 1) renderAssetStackCard(group, els.assetGrid);
-        else renderImageAssetCard(group.items[0], els.assetGrid);
-      });
+      groups.forEach((group) => renderAssetStackCard(group, els.assetGrid));
     } else {
       const group = state.assetStackKey
         ? assetLibraryGroups(state.library.images).find((candidate) => candidate.key === state.assetStackKey)
@@ -3655,17 +3849,12 @@ function renderAssetStackCard(group, container = els.assetGrid) {
   count.className = "asset-stack-count";
   count.textContent = `${group.items.length} 张`;
   cover.appendChild(count);
-
-  const info = document.createElement("span");
-  info.className = "asset-stack-info";
-  const label = document.createElement("strong");
-  label.className = "asset-stack-label";
-  label.textContent = group.label;
-  const detail = document.createElement("span");
-  detail.className = "asset-stack-detail";
-  detail.textContent = `${group.detail} · 点击展开`;
-  info.append(label, detail);
-  card.append(cover, info);
+  const artistBadge = document.createElement("span");
+  artistBadge.className = "asset-artist-badge asset-stack-artist";
+  artistBadge.textContent = group.label;
+  artistBadge.title = group.unassigned ? "未标注画师" : `画师：${group.label}`;
+  cover.appendChild(artistBadge);
+  card.appendChild(cover);
   card.addEventListener("click", () => {
     state.assetStackKey = group.key;
     updateAssetLibraryModeUI();
@@ -3755,7 +3944,7 @@ function updateAssetGridMetrics() {
   const availableWidth = Math.max(0, els.assetGrid.clientWidth - horizontalPadding);
   const stackView = els.assetGrid.classList.contains("asset-stack-grid");
   const minTile = stackView
-    ? (window.innerWidth <= 620 ? 150 : 188)
+    ? (window.innerWidth <= 620 ? 150 : window.innerWidth <= 980 ? 190 : 238)
     : (window.innerWidth <= 620 ? 132 : 156);
   const minimumColumns = window.innerWidth <= 620 ? 2 : 3;
   const columns = clamp(
@@ -3768,35 +3957,18 @@ function updateAssetGridMetrics() {
     96,
     Math.floor((availableWidth - columnGap * (columns - 1)) / columns),
   );
-  const tileHeight = stackView
-    ? clamp(Math.round(tileWidth * 0.72), 148, 220)
-    : clamp(Math.round(tileWidth * 0.86), 148, 248);
+  if (stackView) {
+    els.assetGrid.style.removeProperty("--asset-card-height");
+    return;
+  }
+  const tileHeight = clamp(Math.round(tileWidth * 0.86), 148, 248);
   els.assetGrid.style.setProperty("--asset-card-height", `${tileHeight}px`);
-}
-
-function assetRatioLabel(item) {
-  const explicit = String(item?.ratio || "").trim();
-  if (explicit) return explicit;
-  const width = Number(item?.width) || 0;
-  const height = Number(item?.height) || 0;
-  if (!width || !height) return "";
-  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
-  const divisor = gcd(Math.round(width), Math.round(height)) || 1;
-  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
-}
-
-function assetSourceLabel(item) {
-  return item?.source === "retagged"
-    ? "反推"
-    : item?.source === "generated"
-      ? "生图"
-      : "图片";
 }
 
 function renderImageAssetCard(item, container = els.assetGrid) {
   const card = document.createElement("article");
   card.className = "asset-card asset-image-card";
-  card.title = "点击预览，拖到画布使用";
+  card.title = "点击预览";
   card.dataset.assetId = item.id;
   card.classList.toggle("selected", state.selectedAssetIds.has(item.id));
   card.setAttribute("aria-selected", String(state.selectedAssetIds.has(item.id)));
@@ -3820,25 +3992,6 @@ function renderImageAssetCard(item, container = els.assetGrid) {
     loading.textContent = "图片读取失败";
   });
   thumb.append(loading, image);
-  const sourceBadge = document.createElement("span");
-  sourceBadge.className = "asset-thumb-source";
-  sourceBadge.textContent = assetSourceLabel(item);
-  sourceBadge.title = item.source === "retagged" ? "反推素材" : "生成或上传素材";
-  thumb.appendChild(sourceBadge);
-  const favorite = document.createElement("button");
-  favorite.type = "button";
-  favorite.className = "asset-favorite-btn";
-  const isFavorite = state.assetFavorites.has(String(item.id || ""));
-  favorite.classList.toggle("active", isFavorite);
-  favorite.setAttribute("aria-pressed", String(isFavorite));
-  favorite.setAttribute("aria-label", isFavorite ? "取消收藏素材" : "收藏素材");
-  favorite.title = isFavorite ? "取消收藏" : "收藏素材";
-  favorite.appendChild(icon("star"));
-  favorite.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleAssetFavorite(item);
-  });
-  thumb.appendChild(favorite);
   const selected = document.createElement("span");
   selected.className = "asset-select-indicator";
   selected.setAttribute("aria-hidden", "true");
@@ -3850,102 +4003,18 @@ function renderImageAssetCard(item, container = els.assetGrid) {
   }).catch(() => {
     if (loading.isConnected) loading.textContent = "图片读取失败";
   });
-  const footer = document.createElement("footer");
-  footer.className = "asset-card-footer";
-  const name = document.createElement("strong");
-  name.className = "asset-card-name";
-  name.textContent = String(item.name || "未命名素材").trim() || "未命名素材";
-  name.title = name.textContent;
-  const meta = document.createElement("span");
-  meta.className = "asset-card-meta";
-  const metaParts = [assetRatioLabel(item), String(item.artist || "").trim()].filter(Boolean);
-  meta.textContent = metaParts.join(" · ") || "无附加信息";
-  meta.title = meta.textContent;
-  footer.append(name, meta);
-  card.append(thumb, footer);
-  attachLibraryImageDrag(card, item);
+  card.appendChild(thumb);
+  attachLibraryImagePreview(card, item);
   container.appendChild(card);
 }
 
-function isCanvasDropPoint(clientX, clientY) {
-  const rect = els.viewport.getBoundingClientRect();
-  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
-    return false;
-  }
-  const target = document.elementFromPoint(clientX, clientY);
-  return !target?.closest(".asset-panel, .topbar, .image-viewer");
-}
-
-function attachLibraryImageDrag(card, item) {
-  let suppressClick = false;
+function attachLibraryImagePreview(card, item) {
   card.addEventListener("click", () => {
     if (state.assetDeleteMode) {
       toggleAssetSelection(card, item.id);
       return;
     }
-    if (suppressClick) {
-      suppressClick = false;
-      return;
-    }
     openLibraryImageViewer(item);
-  });
-  card.addEventListener("pointerdown", (event) => {
-    if (
-      state.assetDeleteMode
-      || event.pointerType === "touch"
-      || event.button !== 0
-      || event.target.closest("button")
-    ) return;
-    const cardRect = card.getBoundingClientRect();
-    const start = {
-      x: event.clientX,
-      y: event.clientY,
-      grabOffsetX: event.clientX - cardRect.left,
-      grabOffsetY: event.clientY - cardRect.top,
-      cardWidth: cardRect.width,
-    };
-    let dragging = false;
-    let ghost = null;
-    let canDrop = false;
-    const moveGhost = (moveEvent) => {
-      ghost.style.left = `${moveEvent.clientX - start.grabOffsetX}px`;
-      ghost.style.top = `${moveEvent.clientY - start.grabOffsetY}px`;
-    };
-    const move = (moveEvent) => {
-      if (!dragging && Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < 6) return;
-      moveEvent.preventDefault();
-      if (!dragging) {
-        dragging = true;
-        card.classList.add("dragging");
-        ghost = card.cloneNode(true);
-        ghost.className = "asset-drag-ghost";
-        ghost.style.width = `${start.cardWidth}px`;
-        ghost.querySelectorAll("button").forEach((button) => button.remove());
-        document.body.appendChild(ghost);
-      }
-      moveGhost(moveEvent);
-      canDrop = isCanvasDropPoint(moveEvent.clientX, moveEvent.clientY);
-      els.viewport.classList.toggle("drag-over", canDrop);
-      ghost.classList.toggle("can-drop", canDrop);
-    };
-    const end = (endEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
-      card.classList.remove("dragging");
-      ghost?.remove();
-      clearDropOverlay();
-      if (!dragging) return;
-      endEvent.preventDefault();
-      suppressClick = true;
-      window.setTimeout(() => { suppressClick = false; }, 120);
-      if (canDrop && isCanvasDropPoint(endEvent.clientX, endEvent.clientY)) {
-        placeImageAssetOnCanvas(item, clientToWorld(endEvent.clientX, endEvent.clientY));
-      }
-    };
-    window.addEventListener("pointermove", move, { passive: false });
-    window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
   });
 }
 
@@ -3959,6 +4028,7 @@ async function openLibraryImageViewer(item) {
       meta: {
         prompt: item.prompt || "",
         tags: item.tags || "",
+        tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
         artist: item.artist || "",
         width: item.width,
         height: item.height,
@@ -3991,6 +4061,7 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
       meta: {
         prompt: item.prompt || item.name || "素材图片",
         tags: item.tags || "",
+        tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
         artist: item.artist || "",
         width: item.width,
         height: item.height,
@@ -4024,6 +4095,9 @@ async function saveImageToLibrary(node) {
       source: node.meta?.retagged ? "retagged" : "generated",
       prompt: node.meta?.prompt || "",
       tags: node.meta?.tags || node.meta?.finalPrompt || linkedRetag.retagPrompt || "",
+      tagTranslations: normalizeRetagTagTranslations(
+        node.meta?.tagTranslations || linkedRetag.retagTagTranslations,
+      ),
       artist: node.meta?.artist || "",
       ratio: node.meta?.ratio || linkedRetag.retagRatio || "",
       // A source image may only reveal its seed during the retag pass; keep
@@ -4174,6 +4248,7 @@ function handleCanvasTouchStart(event) {
   }
   els.viewport.classList.add("panning");
   if (canvasTouchPointers.size === 1) {
+    collapseRetagLayers();
     clearSelection();
     document.querySelectorAll(".node.selected").forEach((node) => node.classList.remove("selected"));
     requestAnimationFrame(renderConnections);
@@ -4328,6 +4403,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
           baseSelection,
         });
       } else if (!additive && !toggle) {
+        collapseRetagLayers();
         clearSelection();
         renderAll();
       }
@@ -4368,7 +4444,9 @@ els.viewport.addEventListener("pointercancel", handleCanvasTouchEnd);
 function nodeEditorOwnsWheel(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   if (!targetElement) return false;
-  if (targetElement.closest(".asset-panel, .image-viewer-details, .debug-bar, .retag-layer-card")) return true;
+  if (targetElement.closest(".asset-panel, .image-viewer-details, .debug-bar")) return true;
+  const retagLayer = targetElement.closest(".retag-layer-card");
+  if (retagLayer) return !!retagLayer.closest(".node.selected");
   const editor = targetElement.closest(".prompt-text, .note-text");
   return !!editor?.closest(".node.selected");
 }
@@ -4737,6 +4815,13 @@ els.imageViewerPlaceBtn.addEventListener("click", async () => {
   setAssetPanel(false);
   toast("已放入画布");
 });
+els.imageViewerImage.addEventListener("load", () => {
+  if (els.imageViewer.hidden) return;
+  applyImageViewerLayout(els.imageViewerImage.naturalWidth, els.imageViewerImage.naturalHeight);
+});
+els.imageViewerDetailsToggle.addEventListener("click", () => {
+  setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
+});
 els.imageViewer.addEventListener("pointerdown", (event) => {
   if (!event.target.closest("#imageViewerImage, .image-viewer-details")) closeImageViewer();
 });
@@ -4745,7 +4830,8 @@ document.querySelectorAll("[data-copy-target]").forEach((button) => {
 });
 
 async function copyViewerText(targetId, label) {
-  const text = document.getElementById(targetId)?.textContent?.trim() || "";
+  const target = document.getElementById(targetId);
+  const text = target?.dataset.copyText?.trim() || target?.textContent?.trim() || "";
   if (!text || text.startsWith("暂无")) {
     toast("没有可复制的内容", "error");
     return;
@@ -4855,6 +4941,9 @@ window.addEventListener("resize", () => {
   setSelectionContextMenu(false);
   alignToastRegion();
   scheduleOverlayAlignment();
+  if (!els.imageViewer.hidden) {
+    applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
+  }
 });
 window.addEventListener("online", checkConnection);
 window.addEventListener("offline", () => setConnectionState("offline"));

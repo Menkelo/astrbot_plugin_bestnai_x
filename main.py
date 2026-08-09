@@ -32,6 +32,7 @@ from .core.generator import (
     ServerBusyError,
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
+from .core.prompt_tokens import expand_prompt_tokens
 from .core.safety import SafetyModerator
 from .core.translator import (
     apply_character_candidate,
@@ -42,6 +43,7 @@ from .core.translator import (
     prompt_has_tag,
     resolve_character_candidate,
     resolve_translation_cache,
+    tag_lookup_key,
 )
 from .image_store import send_image_best_effort
 from .models.config import GenerationConfig, PluginConfig
@@ -184,6 +186,7 @@ class BestNAIPlugin(Star):
             generate_callback=self._canvas_generate,
             config_callback=self._canvas_config,
             retag_callback=self._canvas_retag,
+            tag_translation_callback=self._canvas_translate_tags,
         )
 
         api_source = (
@@ -278,6 +281,83 @@ class BestNAIPlugin(Star):
 
         return result
 
+    async def _canvas_translate_tags(self, prompt: str) -> Dict[str, object]:
+        """Return ordered Chinese names for the English tags shown in the viewer."""
+
+        tags = [
+            str(tag or "").strip()
+            for tag in expand_prompt_tokens(prompt)
+            if str(tag or "").strip()
+        ][:320]
+        translations: Dict[str, str] = {}
+        api_url = str(
+            getattr(self.plugin_config, "danbooru_api_url", "") or ""
+        ).strip()
+        if tags and api_url:
+            retriever = DanbooruTagRetriever(base_url=api_url, timeout=8.0)
+            lookup = await retriever.lookup_tags(tags)
+            if isinstance(lookup, dict):
+                translations = dict(lookup.get("translations") or {})
+
+        return {
+            "pairs": [
+                {
+                    "tag": tag,
+                    "cnName": translations.get(tag_lookup_key(tag), ""),
+                }
+                for tag in tags
+            ],
+            "translations": translations,
+        }
+
+    async def _canvas_source_tag_details(
+        self,
+        prompt: str,
+        *,
+        character: str = "",
+        series: str = "",
+    ) -> Tuple[str, str, Dict[str, List[str]], Dict[str, str]]:
+        """Group source tags and attach exact Chinese names from the tags site."""
+
+        resolved_character = str(character or "").strip()
+        resolved_series = str(series or "").strip()
+        groups = group_prompt_tags(
+            prompt,
+            character=resolved_character,
+            series=resolved_series,
+        )
+        tags = [tag for values in groups.values() for tag in values]
+        translations: Dict[str, str] = {}
+        api_url = str(
+            getattr(self.plugin_config, "danbooru_api_url", "") or ""
+        ).strip()
+        if tags and api_url:
+            retriever = DanbooruTagRetriever(base_url=api_url, timeout=8.0)
+            lookup = await retriever.lookup_tags(tags)
+            items = lookup.get("items") if isinstance(lookup, dict) else []
+            translations = (
+                dict(lookup.get("translations") or {})
+                if isinstance(lookup, dict)
+                else {}
+            )
+            candidate_character, candidate_series = resolve_character_candidate(
+                prompt,
+                {
+                    "search": items if isinstance(items, list) else [],
+                    "related": [],
+                },
+            )
+            resolved_character = resolved_character or candidate_character
+            resolved_series = resolved_series or candidate_series
+            if resolved_character or resolved_series:
+                groups = group_prompt_tags(
+                    prompt,
+                    character=resolved_character,
+                    series=resolved_series,
+                )
+
+        return resolved_character, resolved_series, groups, translations
+
     async def _canvas_retag(
         self,
         image_path: str,
@@ -334,14 +414,15 @@ class BestNAIPlugin(Star):
                 f"[BestNAI/Canvas] 命中{source_label}，直接复用：seed={source_seed}"
             )
 
-            # PNG metadata already contains the canonical prompt, but it does
-            # not carry the structured character/series fields used by the
-            # overlay merger.  Resolve exact tags once so replacing a role in
-            # a metadata-backed image cannot leave the old identity behind.
-            with trace.stage("原图角色标签检索"):
-                source_character, source_series = (
-                    await self._resolve_prompt_identity(source_prompt, timeout=3.0)
-                )
+            # One exact tags-site request supplies both identity metadata and
+            # the Chinese names shown beside the English source tags.
+            with trace.stage("原图 Tags 中英检索"):
+                (
+                    source_character,
+                    source_series,
+                    tag_groups,
+                    tag_translations,
+                ) = await self._canvas_source_tag_details(source_prompt)
 
             # Return only image tags. The caller translates and weights the
             # current hand-written hint exactly once during generation.
@@ -379,11 +460,8 @@ class BestNAIPlugin(Star):
                     "prompt": image_tags,
                     "character": source_character,
                     "series": source_series,
-                    "tagGroups": group_prompt_tags(
-                        image_tags,
-                        character=source_character,
-                        series=source_series,
-                    ),
+                    "tagGroups": tag_groups,
+                    "tagTranslations": tag_translations,
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
@@ -423,6 +501,18 @@ class BestNAIPlugin(Star):
         if not prompt:
             raise ValueError("图片反推结果为空")
 
+        with trace.stage("原图 Tags 中英检索"):
+            (
+                retag_character,
+                retag_series,
+                tag_groups,
+                tag_translations,
+            ) = await self._canvas_source_tag_details(
+                prompt,
+                character=str(retag_result.get("character") or ""),
+                series=str(retag_result.get("series") or ""),
+            )
+
         trace.note("反推 tags", prompt)
         trace.note("手写提示词", user_hint or "(空)")
 
@@ -439,13 +529,10 @@ class BestNAIPlugin(Star):
             trace,
             {
                 "prompt": prompt,
-                "character": str(retag_result.get("character") or ""),
-                "series": str(retag_result.get("series") or ""),
-                "tagGroups": group_prompt_tags(
-                    prompt,
-                    character=str(retag_result.get("character") or ""),
-                    series=str(retag_result.get("series") or ""),
-                ),
+                "character": retag_character,
+                "series": retag_series,
+                "tagGroups": tag_groups,
+                "tagTranslations": tag_translations,
                 "ratio": ratio,
                 "seed": source_seed,
                 "fromMetadata": False,
@@ -1949,6 +2036,17 @@ class BestNAIPlugin(Star):
                 artist_prompt=artist_prompt,
                 suffix=self.plugin_config.prompt_suffix or "",
             )
+
+        # Run the QQ prompt filter again after translation, retag merging,
+        # artist presets, and the quality suffix have all been assembled. This
+        # closes the gap where a later-added English tag could bypass the
+        # earlier user-input-only check.
+        final_prompt_check = self.safety.check_prompt(final_prompt)
+        if final_prompt_check.filtered_prompt != final_prompt:
+            logger.info(
+                f"[BestNAI/Safety] 已自动过滤最终 prompt：{final_prompt_check.reason}"
+            )
+            final_prompt = final_prompt_check.filtered_prompt
 
         if not final_prompt:
             yield event.plain_result("❌ 提示词清理后为空，请输入英文提示词或开启中文翻译")

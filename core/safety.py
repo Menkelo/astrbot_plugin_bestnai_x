@@ -333,11 +333,24 @@ class SafetyModerator:
         # 缺少 safe 字段说明模型没按格式回答，按模块约定继续走文本兜底，
         # 不能默认成 False 把正常图片拦下来。
         if isinstance(data, dict) and "safe" in data:
-            return SafetyCheckResult(
-                safe=bool(data.get("safe")),
-                reason=str(data.get("reason", "") or ""),
-                source="vision",
-            )
+            safe_value = data.get("safe")
+            parsed_safe: bool | None = None
+            if isinstance(safe_value, bool):
+                parsed_safe = safe_value
+            elif isinstance(safe_value, (int, float)) and safe_value in {0, 1}:
+                parsed_safe = bool(safe_value)
+            elif isinstance(safe_value, str):
+                normalized = safe_value.strip().casefold()
+                if normalized in {"true", "safe", "yes", "1", "安全"}:
+                    parsed_safe = True
+                elif normalized in {"false", "unsafe", "no", "0", "不安全"}:
+                    parsed_safe = False
+            if parsed_safe is not None:
+                return SafetyCheckResult(
+                    safe=parsed_safe,
+                    reason=str(data.get("reason", "") or ""),
+                    source="vision",
+                )
 
         lower = raw.lower()
 

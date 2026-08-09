@@ -30,6 +30,7 @@ GenerateCallback = Callable[
     Awaitable[Tuple[List[Tuple[str, bytes]], Dict[str, Any]]],
 ]
 ConfigCallback = Callable[[], Dict[str, Any]]
+TagTranslationCallback = Callable[[str], Awaitable[Dict[str, Any]]]
 # The current callback accepts ``(path, hint, debug, source_seed, source_prompt)``.
 # Keep this open-ended so older plugin hosts with the former three-argument
 # callback can still register the canvas service during a hot reload.
@@ -79,6 +80,8 @@ RETAG_LAYER_MODES = frozenset({"auto", "preserve", "drop"})
 MAX_RETAG_TAGS_PER_GROUP = 64
 MAX_RETAG_TAGS_TOTAL = 320
 MAX_RETAG_TAG_LENGTH = 160
+MAX_RETAG_TAG_TRANSLATIONS = 320
+MAX_RETAG_TAG_TRANSLATION_LENGTH = 160
 
 # 刚生成、还没被放进节点的图片不能马上回收，
 # 否则前端拿到 assetId 却还没保存工作区时会被误删。
@@ -158,6 +161,27 @@ def _sanitize_retag_layer_modes(value: Any) -> Dict[str, str]:
         mode = str(value.get(category) or "").strip().casefold()
         if mode in RETAG_LAYER_MODES:
             result[category] = mode
+    return result
+
+
+def _sanitize_retag_tag_translations(value: Any) -> Dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: Dict[str, str] = {}
+    for raw_key, raw_name in value.items():
+        if len(result) >= MAX_RETAG_TAG_TRANSLATIONS:
+            break
+        key = re.sub(
+            r"[\s_]+",
+            "_",
+            _short_text(raw_key, MAX_RETAG_TAG_LENGTH).strip().casefold(),
+        ).strip("_")
+        name = _short_text(
+            raw_name,
+            MAX_RETAG_TAG_TRANSLATION_LENGTH,
+        ).strip(" ,;，；\n\t")
+        if key and name:
+            result[key] = name
     return result
 
 
@@ -639,6 +663,14 @@ class CanvasStore:
             retag_tag_groups = _sanitize_retag_tag_groups(raw_meta.get("retagTagGroups"))
             if retag_tag_groups:
                 meta["retagTagGroups"] = retag_tag_groups
+            tag_translations = _sanitize_retag_tag_translations(raw_meta.get("tagTranslations"))
+            if tag_translations:
+                meta["tagTranslations"] = tag_translations
+            retag_tag_translations = _sanitize_retag_tag_translations(
+                raw_meta.get("retagTagTranslations")
+            )
+            if retag_tag_translations:
+                meta["retagTagTranslations"] = retag_tag_translations
             retag_layer_modes = _sanitize_retag_layer_modes(raw_meta.get("retagLayerModes"))
             if retag_layer_modes:
                 meta["retagLayerModes"] = retag_layer_modes
@@ -929,6 +961,7 @@ class CanvasStore:
         ratio: Any = "",
         artist: Any = "",
         seed: Any = 0,
+        tag_translations: Any = None,
     ) -> Dict[str, Any]:
         with self._lock:
             asset_id = str(asset.get("id") or "")
@@ -939,6 +972,12 @@ class CanvasStore:
             entry = existing or {"id": asset_id, "createdAt": self._timestamp()}
             incoming_seed = normalize_nai_seed(seed) or 0
             previous_seed = normalize_nai_seed(entry.get("seed")) or 0
+            translations = _sanitize_retag_tag_translations(tag_translations)
+            if not translations:
+                translations = _sanitize_retag_tag_translations(
+                    entry.get("tagTranslations")
+                )
+
             def _keep_text(value: Any, key: str, limit: int) -> str:
                 incoming = _short_text(value, limit).strip()
                 return incoming or _short_text(entry.get(key), limit).strip()
@@ -960,6 +999,8 @@ class CanvasStore:
                     "seed": incoming_seed or previous_seed,
                 }
             )
+            if translations:
+                entry["tagTranslations"] = translations
             if existing is None:
                 library["images"].insert(0, entry)
             self._write_json(self.library_path, library)
@@ -1023,12 +1064,14 @@ class CanvasService:
         generate_callback: GenerateCallback,
         config_callback: ConfigCallback,
         retag_callback: RetagCallback | None = None,
+        tag_translation_callback: TagTranslationCallback | None = None,
         data_dir: Path | None = None,
     ) -> None:
         self.plugin_name = plugin_name
         self.generate_callback = generate_callback
         self.config_callback = config_callback
         self.retag_callback = retag_callback
+        self.tag_translation_callback = tag_translation_callback
         self.store = CanvasStore(plugin_name, data_dir=data_dir)
 
     def register(self, context: Any) -> None:
@@ -1040,6 +1083,7 @@ class CanvasService:
             ("preferences", self.save_preferences, ["POST"], "Infinite Canvas：保存用户偏好"),
             ("generate", self.generate, ["POST"], "Infinite Canvas：生成图片"),
             ("retag", self.retag, ["POST"], "Infinite Canvas：反推图片提示词"),
+            ("tags/translate", self.translate_tags, ["POST"], "Infinite Canvas：读取中英文 Tags"),
             ("workspace", self.load_workspace, ["GET"], "Infinite Canvas：加载工作区"),
             ("workspace", self.save_workspace, ["POST"], "Infinite Canvas：保存工作区"),
             ("workspace/import", self.import_workspace, ["POST"], "Infinite Canvas：导入工作区"),
@@ -1208,6 +1252,7 @@ class CanvasService:
                 payload.get("ratio"),
                 payload.get("artist"),
                 payload.get("seed"),
+                tag_translations=payload.get("tagTranslations"),
             )
             return json_response({"image": entry, **asset_payload})
         except FileNotFoundError:
@@ -1267,6 +1312,40 @@ class CanvasService:
             logger.exception(f"[BestNAI/Canvas] 生成失败: {exc}")
             message = getattr(exc, "message", None) or str(exc) or "生成失败"
             return error_response(message, status_code=502)
+
+    async def translate_tags(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+
+        tags = _short_text(payload.get("tags"), 6000).strip()
+        if not tags or self.tag_translation_callback is None:
+            return json_response({"pairs": [], "translations": {}})
+
+        try:
+            result = await self.tag_translation_callback(tags)
+            raw_pairs = result.get("pairs") if isinstance(result, dict) else []
+            pairs: List[Dict[str, str]] = []
+            if isinstance(raw_pairs, list):
+                for item in raw_pairs[:MAX_RETAG_TAG_TRANSLATIONS]:
+                    if not isinstance(item, dict):
+                        continue
+                    tag = _short_text(item.get("tag"), MAX_RETAG_TAG_LENGTH).strip()
+                    cn_name = _short_text(
+                        item.get("cnName"),
+                        MAX_RETAG_TAG_TRANSLATION_LENGTH,
+                    ).strip(" ,;，；\n\t")
+                    if tag:
+                        pairs.append({"tag": tag, "cnName": cn_name})
+            translations = _sanitize_retag_tag_translations(
+                result.get("translations") if isinstance(result, dict) else {}
+            )
+            return json_response({"pairs": pairs, "translations": translations})
+        except ValueError as exc:
+            return error_response(str(exc), status_code=422)
+        except Exception as exc:
+            logger.warning(f"[BestNAI/Canvas] Tags 中英对照读取失败: {exc}")
+            return error_response("中文 Tags 读取失败", status_code=502)
 
     async def retag(self) -> Any:
         payload = await request.json(default={})
