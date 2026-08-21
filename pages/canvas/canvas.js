@@ -4775,46 +4775,6 @@ async function loadInitialState() {
   startHealthMonitor();
 }
 
-// Studio 工作区通过同页事件交接生成结果：收到后把图片放成一个节点。
-// 之所以不用 localStorage/整页跳转：AstrBot 的 asset_token 只有 60 秒有效期。
-document.addEventListener("bestnai:studio-place", (event) => {
-  consumeStudioHandoff(event.detail || {});
-});
-
-async function consumeStudioHandoff(handoff) {
-  if (!handoff?.assetId) return;
-  try {
-    const asset = await bridge.apiGet("canvas/asset", { id: handoff.assetId });
-    const sourceWidth = asset?.width || 832;
-    const sourceHeight = asset?.height || 1216;
-    const nodeWidth = fittedImageNodeWidth(sourceWidth, sourceHeight);
-    const point = worldCenter();
-    const imageNode = {
-      id: uid("image"),
-      type: "image",
-      x: point.x - nodeWidth / 2,
-      y: point.y - estimatedImageNodeHeight(nodeWidth, sourceWidth, sourceHeight) / 2,
-      width: nodeWidth,
-      title: "Studio 生成结果",
-      assetId: asset?.id || handoff.assetId,
-      dataUrl: asset?.dataUrl || handoff.dataUrl || "",
-      createdAt: new Date().toISOString(),
-      meta: {
-        prompt: handoff.prompt || "Studio 生成结果",
-        tags: handoff.prompt || "",
-        width: sourceWidth,
-        height: sourceHeight,
-      },
-    };
-    addNode(imageNode);
-    setSelection([imageNode.id], imageNode.id);
-    recordOperation("Studio 交接", "已放入 Studio 生成的图片", "success");
-    scheduleSave();
-  } catch (error) {
-    recordOperation("Studio 交接失败", error.message, "error");
-  }
-}
-
 const canvasTouchPointers = new Map();
 let canvasTouchGesture = null;
 
@@ -5196,8 +5156,6 @@ window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
-// Studio 工作区是本页内的 #studio-shell 覆盖层，显隐切换由 studio.js 接管，
-// 不做整页跳转（asset_token 60 秒过期，跳转必挂）。
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
 document.getElementById("addImageBtn").addEventListener("click", () => {
   state.pendingUploadPoint = null;

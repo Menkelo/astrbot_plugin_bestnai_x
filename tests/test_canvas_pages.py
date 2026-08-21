@@ -910,7 +910,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="assetLibraryBtn"', html)
         self.assertIn('data-lucide="images"', html)
         self.assertIn(
-            '"identity identity identity identity identity identity identity asset studio project"',
+            '"identity identity identity identity identity identity identity identity asset project"',
             mobile_styles,
         )
         self.assertIn('"tools tools tools tools tools tools tools tools tools tools"', mobile_styles)
@@ -1433,118 +1433,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
             image_branch.index("yield event.plain_result(retag_progress)"),
             image_branch.index("retag_result = await self.image_retagger.retag_details"),
         )
-
-
-class StudioPageTest(unittest.TestCase):
-    """仿 NovelAI 的 Studio 工作区（内嵌 editor.html 的 #studio-shell 覆盖层）。
-
-    Studio 不做整页跳转：AstrBot 的 asset_token 只有 60 秒有效期
-    （PLUGIN_PAGE_ASSET_TOKEN_TTL_SECONDS），跨页面导航必然「Token 过期」，
-    所以工作区切换必须是同页 DOM 显隐。
-    """
-
-    def test_studio_embedded_in_editor_with_bridge_loaded_first(self) -> None:
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        studio_script = '<script type="module" src="./studio.js"></script>'
-        self.assertIn('id="studio-shell"', html)
-        self.assertIn('<link rel="stylesheet" href="./studio.css" />', html)
-        self.assertIn(studio_script, html)
-        self.assertIn(BRIDGE_SDK, html)
-        self.assertLess(html.index(BRIDGE_SDK), html.index(studio_script))
-        self.assertFalse((PAGE_ROOT / "studio.html").exists())
-
-    def test_studio_script_waits_for_delayed_bridge(self) -> None:
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn("while (!window.AstrBotPluginPage", studio)
-
-    def test_studio_uses_canvas_backend_routes(self) -> None:
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn('bridge.apiPost("canvas/generate"', studio)
-        self.assertIn('bridge.apiGet("canvas/library"', studio)
-        self.assertIn('bridge.apiGet("canvas/health"', studio)
-        self.assertIn('bridge.apiGet("canvas/config"', studio)
-
-    def test_studio_sends_extended_generation_params(self) -> None:
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn("negativePrompt", studio)
-        self.assertIn("noiseSchedule", studio)
-        self.assertIn("cfgRescale", studio)
-        self.assertIn("sampler", studio)
-
-    def test_studio_uses_dark_theme_scoped_to_shell(self) -> None:
-        styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
-        self.assertIn("color-scheme: dark", styles)
-        # 暗色变量必须挂在 #studio-shell 上，不能进 :root 污染画布浅色主题
-        self.assertNotIn(":root", styles)
-        self.assertIn("#studio-shell {", styles)
-
-    def test_studio_hidden_attribute_beats_display_rules(self) -> None:
-        # 查看器/加载层等浮层用 hidden 属性隐藏；若 display 规则压过 [hidden]，
-        # 它们会从页面加载起就一直盖在界面上。
-        styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
-        self.assertIn("#studio-shell[hidden] { display: none !important; }", styles)
-        self.assertIn("#studio-shell [hidden] { display: none !important; }", styles)
-
-    def test_workspace_switch_stays_on_the_same_page(self) -> None:
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn('id="studioSwitchBtn"', html)
-        self.assertIn('id="studioBackBtn"', html)
-        # 切换只做覆盖层显隐，禁止任何整页导航
-        self.assertIn("els.shell.hidden = false", studio)
-        self.assertIn("els.shell.hidden = true", studio)
-        self.assertNotIn("window.location.assign", studio)
-        self.assertNotIn('new URL("./studio.html"', editor)
-        self.assertNotIn("window.location.href =", editor)
-
-    def test_studio_switch_button_lives_in_topbar_not_toolbar_grid(self) -> None:
-        # 移动端工具栏是固定 10 列网格，切换按钮必须放顶栏专属格子，
-        # 否则会把工具行挤错位。
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
-        toolbar_block = html.split('id="quickToolbar"', 1)[1].split("</nav>", 1)[0]
-        self.assertIn('class="workspace-switcher toolbar-workspace-switcher"', html)
-        self.assertNotIn('id="studioSwitchBtn"', toolbar_block)
-        mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
-            "@media (prefers-reduced-motion", 1
-        )[0]
-        self.assertIn("grid-area: studio;", mobile)
-        topbar_grid = mobile.split(".topbar {", 1)[1].split("}", 1)[0]
-        self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", topbar_grid)
-
-    def test_studio_handoff_places_image_node_on_canvas(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn('new CustomEvent(STUDIO_PLACE_EVENT', studio)
-        self.assertIn('document.addEventListener("bestnai:studio-place"', editor)
-        self.assertIn("consumeStudioHandoff(event.detail", editor)
-
-    def test_studio_status_hud_matches_canvas_debug_bar_position(self) -> None:
-        # 状态栏位置以画布操作记录条为准：浮动 HUD、左右/底部 24px 内缩
-        # （移动端 12px）、毛玻璃面板，不再占布局空间。
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        studio_styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
-        canvas_styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
-        self.assertIn('id="studioStatusHud"', html)
-        hud = studio_styles.split("#studio-shell .status-hud {", 1)[1].split("}", 1)[0]
-        self.assertIn("position: absolute;", hud)
-        self.assertIn("--studio-status-inset: 24px;", hud)
-        self.assertIn("bottom: var(--studio-status-inset);", hud)
-        mobile = studio_styles.split("@media (max-width: 760px) {", 1)[1]
-        self.assertIn("--studio-status-inset: 12px;", mobile)
-        # 与画布 debug bar 的内缩量保持一致
-        canvas_hud = canvas_styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
-        self.assertIn("--debug-bar-left: 24px;", canvas_hud)
-        self.assertIn("bottom: 24px;", canvas_hud)
-
-    def test_studio_uses_lucide_icons_and_toasts(self) -> None:
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn('id="studio-shell"', html)
-        self.assertIn("data-lucide=", html)
-        self.assertIn("lucide.createIcons", studio)
-        self.assertIn('id="studioToastRegion"', html)
 
 
 if __name__ == "__main__":

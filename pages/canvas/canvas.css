@@ -137,18 +137,7 @@ select:focus-visible {
   flex: 0 0 38px;
 }
 
-/* Studio 工作区切换按钮：放顶栏（项目切换器旁），不进工具栏网格——
-   移动端工具栏是固定 10 列，多一个按钮会把整行挤错位。 */
-.workspace-switcher {
-  position: relative;
-  flex: 0 0 38px;
-}
-
 .toolbar-project-switcher {
-  margin: 0 2px 0 0;
-}
-
-.toolbar-workspace-switcher {
   margin: 0 2px 0 0;
 }
 
@@ -2937,7 +2926,7 @@ select:focus-visible {
   .topbar {
     display: grid;
     grid-template-areas:
-      "identity identity identity identity identity identity identity asset studio project"
+      "identity identity identity identity identity identity identity identity asset project"
       "tools tools tools tools tools tools tools tools tools tools";
     grid-template-columns: repeat(10, minmax(28px, 1fr));
     column-gap: 0;
@@ -3053,15 +3042,6 @@ select:focus-visible {
     grid-area: asset;
     width: 100%;
     margin-top: 4px;
-    align-self: start;
-    place-items: center;
-  }
-
-  .toolbar-workspace-switcher {
-    display: grid;
-    grid-area: studio;
-    width: 100%;
-    margin: 4px 0 0;
     align-self: start;
     place-items: center;
   }

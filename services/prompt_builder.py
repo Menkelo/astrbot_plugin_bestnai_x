@@ -15,61 +15,6 @@ from ..models.config import GenerationConfig, PluginConfig
 
 FIXED_MODEL = "nai-diffusion-4-5-full"
 
-# Studio 工作区允许覆盖的采样器与噪声调度白名单（NovelAI V4.5 常用集合），
-# 列表顺序即前端下拉框的展示顺序。
-ALLOWED_SAMPLERS: tuple = (
-    "k_euler_ancestral",
-    "k_euler",
-    "k_dpmpp_2s",
-    "k_dpmpp_2m",
-    "k_dpmpp_sde",
-)
-ALLOWED_NOISE_SCHEDULES: tuple = (
-    "karras",
-    "native",
-    "exponential",
-    "polyexponential",
-)
-_SAMPLER_SET = frozenset(ALLOWED_SAMPLERS)
-_NOISE_SCHEDULE_SET = frozenset(ALLOWED_NOISE_SCHEDULES)
-
-
-def apply_generation_overrides(
-    gen_config: GenerationConfig,
-    negative_prompt: str = "",
-    sampler: str = "",
-    noise_schedule: str = "",
-    cfg_rescale: object = None,
-) -> GenerationConfig:
-    """把 Studio 工作区传入的参数覆盖到生成配置上。
-
-    空值直接沿用配置；采样器 / 噪声调度不在白名单内时忽略该覆盖，
-    cfg_rescale 收敛到 [0, 1]，负面提示词走与配置一致的 ASCII 清洗。
-    """
-    overrides: dict = {}
-
-    if negative_prompt:
-        cleaned_negative = normalize_prompt_ascii(negative_prompt)
-        if cleaned_negative:
-            overrides["negative_prompt"] = cleaned_negative
-
-    if sampler in _SAMPLER_SET:
-        overrides["sampler"] = sampler
-
-    if noise_schedule in _NOISE_SCHEDULE_SET:
-        overrides["noise_schedule"] = noise_schedule
-
-    if cfg_rescale is not None:
-        try:
-            overrides["cfg_rescale"] = max(0.0, min(1.0, float(cfg_rescale)))
-        except (TypeError, ValueError):
-            pass
-
-    if not overrides:
-        return gen_config
-
-    return replace(gen_config, **overrides)
-
 # 反推时给用户手写提示词加的正向权重。
 # NovelAI 数值语法：`1.3::tag, tag::`，比花括号叠加更好控制强度。
 RETAG_USER_PROMPT_WEIGHT = 1.3
