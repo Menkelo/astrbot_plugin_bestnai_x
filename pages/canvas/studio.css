@@ -17,6 +17,10 @@
 
 * { box-sizing: border-box; }
 
+/* 面板/浮层用 hidden 属性控制显隐，必须压过任何 display 规则，
+   否则查看器、加载层会从加载起就一直显示。 */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;

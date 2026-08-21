@@ -1468,6 +1468,12 @@ class StudioPageTest(unittest.TestCase):
         styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
         self.assertIn("color-scheme: dark", styles)
 
+    def test_studio_hidden_attribute_beats_display_rules(self) -> None:
+        # 查看器/加载层等浮层用 hidden 属性隐藏；若 display 规则压过 [hidden]，
+        # 它们会从页面加载起就一直盖在界面上。
+        styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
+        self.assertIn("[hidden] { display: none !important; }", styles)
+
     def test_studio_and_editor_can_switch_to_each_other(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
