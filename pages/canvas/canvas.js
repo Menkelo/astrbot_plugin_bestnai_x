@@ -5202,11 +5202,13 @@ window.addEventListener("blur", clearDropOverlay);
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
 document.getElementById("studioSwitchBtn").addEventListener("click", () => {
-  // 跳转到 Studio 工作区时保留 project / canvas 参数，方便来回切换
+  // 跳转到 Studio 工作区时带上当前 query/hash（含 AstrBot 页面认证参数），再叠加 project/canvas
   const target = new URL("./studio.html", window.location.href);
+  target.search = window.location.search;
+  target.hash = window.location.hash;
   target.searchParams.set("project", projectId);
   if (canvasId) target.searchParams.set("id", canvasId);
-  window.location.assign(target.href);
+  window.location.assign(target);
 });
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
 document.getElementById("addImageBtn").addEventListener("click", () => {

@@ -349,6 +349,15 @@ function downloadActive() {
   link.click();
 }
 
+// 跳回无限画布时必须原样转发 query/hash：AstrBot 页面认证参数就在 query 里，
+// 新建 URL 会丢掉它，切过去就是「未授权」。
+function canvasWorkspaceUrl() {
+  const target = new URL("./editor.html", window.location.href);
+  target.search = window.location.search;
+  target.hash = window.location.hash;
+  return target;
+}
+
 function sendToCanvas() {
   const entry = state.activeEntry;
   if (!entry) return;
@@ -364,8 +373,7 @@ function sendToCanvas() {
     toast("本地存储不可用，无法发送到画布", "error");
     return;
   }
-  const target = new URL("./editor.html", window.location.href);
-  window.location.assign(target.href);
+  window.location.assign(canvasWorkspaceUrl().href);
 }
 
 // ---------- 资产库 ----------
@@ -473,8 +481,7 @@ function bindEvents() {
   });
   els.libraryClose.addEventListener("click", closeLibrary);
   els.canvasSwitch.addEventListener("click", () => {
-    const target = new URL("./editor.html", window.location.href);
-    window.location.assign(target.href);
+    window.location.assign(canvasWorkspaceUrl().href);
   });
   els.panelToggle?.addEventListener("click", () => {
     const open = els.controlPanel.classList.toggle("open");

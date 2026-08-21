@@ -1476,6 +1476,16 @@ class StudioPageTest(unittest.TestCase):
         self.assertIn('new URL("./studio.html"', editor)
         self.assertIn('new URL("./editor.html"', studio)
 
+    def test_workspace_switch_forwards_auth_query_and_hash(self) -> None:
+        # AstrBot 页面认证参数在 query 里，切换工作区必须原样转发，
+        # 否则目标页面所有 bridge 请求都会返回「未授权」。
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        for name, source in (("canvas.js", editor), ("studio.js", studio)):
+            with self.subTest(page=name):
+                self.assertIn("target.search = window.location.search;", source)
+                self.assertIn("target.hash = window.location.hash;", source)
+
     def test_studio_handoff_places_image_node_on_canvas(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
