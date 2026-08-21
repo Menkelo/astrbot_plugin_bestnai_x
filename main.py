@@ -64,6 +64,9 @@ from .services.mention_avatar import (
     remove_mention_from_prompt,
 )
 from .services.prompt_builder import (
+    ALLOWED_NOISE_SCHEDULES,
+    ALLOWED_SAMPLERS,
+    apply_generation_overrides,
     apply_prompt_weight,
     cleanup_file,
     find_non_ascii_chars,
@@ -251,6 +254,15 @@ class BestNAIPlugin(Star):
             "defaultArtist": self._get_default_artist_display_name(),
             "ratios": ratios,
             "artists": artists,
+            "samplers": [
+                {"value": name, "label": name} for name in ALLOWED_SAMPLERS
+            ],
+            "noiseSchedules": [
+                {"value": name, "label": name}
+                for name in ALLOWED_NOISE_SCHEDULES
+            ],
+            "defaultNegativePrompt": self.plugin_config.generation.negative_prompt,
+            "defaultSampler": self.plugin_config.generation.sampler,
             "retagControlPrompts": self.plugin_config.get_retag_control_prompts(),
             "maxConcurrency": self.plugin_config.max_concurrency,
             "translatorEnabled": self.plugin_config.translator.enabled,
@@ -615,6 +627,12 @@ class BestNAIPlugin(Star):
         ratio = str(payload.get("ratio") or self.default_ratio).strip()
         artist_name = str(payload.get("artist") or "").strip()
         raw_mode = bool(payload.get("raw", False))
+        # Studio 工作区扩展参数（画布节点不传时保持原行为）
+        negative_prompt = str(payload.get("negativePrompt") or "").strip()
+        if len(negative_prompt) > 6000:
+            raise ValueError("负面提示词不能超过 6000 个字符")
+        sampler_override = str(payload.get("sampler") or "").strip()
+        noise_schedule_override = str(payload.get("noiseSchedule") or "").strip()
 
         if not prompt and not retag_prompt:
             raise ValueError("请输入提示词")
@@ -784,6 +802,13 @@ class BestNAIPlugin(Star):
             steps=self._clamp_steps(payload.get("steps"), gen_config.steps),
             scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
         )
+        gen_config = apply_generation_overrides(
+            gen_config,
+            negative_prompt=negative_prompt,
+            sampler=sampler_override,
+            noise_schedule=noise_schedule_override,
+            cfg_rescale=payload.get("cfgRescale"),
+        )
 
         resolved_artist_name = ""
         artist_prompt = ""
@@ -824,6 +849,10 @@ class BestNAIPlugin(Star):
                 "scale": gen_config.scale,
                 "seed": payload.get("seed") or "(随机)",
                 "raw": raw_mode,
+                "sampler": gen_config.sampler,
+                "noiseSchedule": gen_config.noise_schedule,
+                "cfgRescale": gen_config.cfg_rescale,
+                "negativePrompt": gen_config.negative_prompt,
             },
         )
 
@@ -866,6 +895,10 @@ class BestNAIPlugin(Star):
                 "seed": result.seed,
                 "steps": gen_config.steps,
                 "scale": gen_config.scale,
+                "sampler": gen_config.sampler,
+                "noiseSchedule": gen_config.noise_schedule,
+                "cfgRescale": gen_config.cfg_rescale,
+                "negativePrompt": gen_config.negative_prompt,
             },
         )
 

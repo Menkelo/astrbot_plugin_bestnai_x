@@ -1435,5 +1435,61 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
 
 
+class StudioPageTest(unittest.TestCase):
+    """仿 NovelAI 的 Studio 工作区（studio.html / studio.css / studio.js）。"""
+
+    def test_studio_loads_bridge_before_page_script(self) -> None:
+        html = (PAGE_ROOT / "studio.html").read_text(encoding="utf-8")
+        studio_script = '<script type="module" src="./studio.js"></script>'
+        self.assertIn(BRIDGE_SDK, html)
+        self.assertLess(html.index(BRIDGE_SDK), html.index(studio_script))
+        self.assertIn('<link rel="stylesheet" href="./studio.css" />', html)
+        self.assertIn('<script src="./vendor/lucide.js"></script>', html)
+
+    def test_studio_script_waits_for_delayed_bridge(self) -> None:
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn("while (!window.AstrBotPluginPage", studio)
+
+    def test_studio_uses_canvas_backend_routes(self) -> None:
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn('bridge.apiPost("canvas/generate"', studio)
+        self.assertIn('bridge.apiGet("canvas/library"', studio)
+        self.assertIn('bridge.apiGet("canvas/health"', studio)
+        self.assertIn('bridge.apiGet("canvas/config"', studio)
+
+    def test_studio_sends_extended_generation_params(self) -> None:
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn("negativePrompt", studio)
+        self.assertIn("noiseSchedule", studio)
+        self.assertIn("cfgRescale", studio)
+        self.assertIn("sampler", studio)
+
+    def test_studio_uses_dark_theme(self) -> None:
+        styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
+        self.assertIn("color-scheme: dark", styles)
+
+    def test_studio_and_editor_can_switch_to_each_other(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn('id="studioSwitchBtn"', html)
+        self.assertIn('new URL("./studio.html"', editor)
+        self.assertIn('new URL("./editor.html"', studio)
+
+    def test_studio_handoff_places_image_node_on_canvas(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn("bestnaiStudioHandoff", studio)
+        self.assertIn("consumeStudioHandoff", editor)
+        self.assertIn("await consumeStudioHandoff();", editor)
+
+    def test_studio_uses_lucide_icons_and_toasts(self) -> None:
+        html = (PAGE_ROOT / "studio.html").read_text(encoding="utf-8")
+        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn("data-lucide=", html)
+        self.assertIn("lucide.createIcons", studio)
+        self.assertIn('id="toastRegion"', html)
+
+
 if __name__ == "__main__":
     unittest.main()
