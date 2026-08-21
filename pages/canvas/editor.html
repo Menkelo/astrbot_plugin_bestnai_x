@@ -51,9 +51,6 @@
             </div>
             <span class="toolbar-divider" aria-hidden="true"></span>
             <div class="toolbar-group toolbar-workspace-group" aria-label="素材与工作区">
-              <button class="tool-btn icon-only" id="studioSwitchBtn" type="button" title="切换到 Studio 工作区" aria-label="切换到 Studio 工作区">
-                <i data-lucide="frame"></i>
-              </button>
               <button class="tool-btn icon-only" id="assetLibraryBtn" type="button" title="素材库" aria-label="素材库" aria-controls="assetPanel" aria-expanded="false">
                 <i data-lucide="images"></i>
               </button>
@@ -78,6 +75,11 @@
         <div class="mobile-asset-library-switcher">
           <button id="mobileAssetLibraryBtn" class="tool-btn icon-only mobile-asset-library-trigger" type="button" title="素材库" aria-label="素材库" aria-controls="assetPanel" aria-expanded="false">
             <i data-lucide="images"></i>
+          </button>
+        </div>
+        <div class="workspace-switcher toolbar-workspace-switcher">
+          <button id="studioSwitchBtn" class="tool-btn icon-only" type="button" title="切换到 Studio 工作区" aria-label="切换到 Studio 工作区">
+            <i data-lucide="frame"></i>
           </button>
         </div>
         <div class="project-switcher toolbar-project-switcher">
@@ -285,22 +287,24 @@
             <span class="spinner" aria-hidden="true"></span>
             <span id="previewLoadingText">正在生成图片…</span>
           </div>
-          <section id="metaBar" class="meta-bar" hidden aria-label="生成元数据">
-            <div class="meta-items">
-              <span class="meta-item" id="studioSeed" title="点击复制种子"></span>
-              <span class="meta-item" id="metaSize"></span>
-              <span class="meta-item" id="metaSteps"></span>
-              <span class="meta-item" id="metaScale"></span>
-              <span class="meta-item" id="metaSampler"></span>
-            </div>
-            <div class="meta-actions">
-              <button id="metaDownloadBtn" class="mini-btn" type="button"><i data-lucide="download"></i><span>下载</span></button>
-              <button id="metaSendCanvasBtn" class="mini-btn" type="button"><i data-lucide="frame"></i><span>发送到无限画布</span></button>
-            </div>
-          </section>
-          <section id="historyStrip" class="history-strip" aria-label="本次会话历史">
-            <div id="historyTrack" class="history-track"></div>
-          </section>
+          <div id="studioStatusHud" class="status-hud" aria-label="生成状态">
+            <section id="metaBar" class="meta-bar" hidden aria-label="生成元数据">
+              <div class="meta-items">
+                <span class="meta-item" id="studioSeed" title="点击复制种子"></span>
+                <span class="meta-item" id="metaSize"></span>
+                <span class="meta-item" id="metaSteps"></span>
+                <span class="meta-item" id="metaScale"></span>
+                <span class="meta-item" id="metaSampler"></span>
+              </div>
+              <div class="meta-actions">
+                <button id="metaDownloadBtn" class="mini-btn" type="button"><i data-lucide="download"></i><span>下载</span></button>
+                <button id="metaSendCanvasBtn" class="mini-btn" type="button"><i data-lucide="frame"></i><span>发送到无限画布</span></button>
+              </div>
+            </section>
+            <section id="historyStrip" class="history-strip" aria-label="本次会话历史">
+              <div id="historyTrack" class="history-track"></div>
+            </section>
+          </div>
         </main>
       </div>
 

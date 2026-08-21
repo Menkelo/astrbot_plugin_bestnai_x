@@ -910,7 +910,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="assetLibraryBtn"', html)
         self.assertIn('data-lucide="images"', html)
         self.assertIn(
-            '"identity identity identity identity identity identity identity identity asset project"',
+            '"identity identity identity identity identity identity identity asset studio project"',
             mobile_styles,
         )
         self.assertIn('"tools tools tools tools tools tools tools tools tools tools"', mobile_styles)
@@ -1498,12 +1498,45 @@ class StudioPageTest(unittest.TestCase):
         self.assertNotIn('new URL("./studio.html"', editor)
         self.assertNotIn("window.location.href =", editor)
 
+    def test_studio_switch_button_lives_in_topbar_not_toolbar_grid(self) -> None:
+        # 移动端工具栏是固定 10 列网格，切换按钮必须放顶栏专属格子，
+        # 否则会把工具行挤错位。
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        toolbar_block = html.split('id="quickToolbar"', 1)[1].split("</nav>", 1)[0]
+        self.assertIn('class="workspace-switcher toolbar-workspace-switcher"', html)
+        self.assertNotIn('id="studioSwitchBtn"', toolbar_block)
+        mobile = styles.split("@media (max-width: 620px) {", 1)[1].split(
+            "@media (prefers-reduced-motion", 1
+        )[0]
+        self.assertIn("grid-area: studio;", mobile)
+        topbar_grid = mobile.split(".topbar {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", topbar_grid)
+
     def test_studio_handoff_places_image_node_on_canvas(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
         self.assertIn('new CustomEvent(STUDIO_PLACE_EVENT', studio)
         self.assertIn('document.addEventListener("bestnai:studio-place"', editor)
         self.assertIn("consumeStudioHandoff(event.detail", editor)
+
+    def test_studio_status_hud_matches_canvas_debug_bar_position(self) -> None:
+        # 状态栏位置以画布操作记录条为准：浮动 HUD、左右/底部 24px 内缩
+        # （移动端 12px）、毛玻璃面板，不再占布局空间。
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
+        studio_styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
+        canvas_styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        self.assertIn('id="studioStatusHud"', html)
+        hud = studio_styles.split("#studio-shell .status-hud {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: absolute;", hud)
+        self.assertIn("--studio-status-inset: 24px;", hud)
+        self.assertIn("bottom: var(--studio-status-inset);", hud)
+        mobile = studio_styles.split("@media (max-width: 760px) {", 1)[1]
+        self.assertIn("--studio-status-inset: 12px;", mobile)
+        # 与画布 debug bar 的内缩量保持一致
+        canvas_hud = canvas_styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
+        self.assertIn("--debug-bar-left: 24px;", canvas_hud)
+        self.assertIn("bottom: 24px;", canvas_hud)
 
     def test_studio_uses_lucide_icons_and_toasts(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
