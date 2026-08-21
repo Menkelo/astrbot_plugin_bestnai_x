@@ -4772,7 +4772,52 @@ async function loadInitialState() {
   reconcileAssetLibraryPreferences();
   preloadLibraryImages();
   await switchCanvas(canvasMeta, { saveCurrent: false });
+  await consumeStudioHandoff();
   startHealthMonitor();
+}
+
+// Studio 工作区通过 localStorage 交接生成结果：加载画布时取出并放成一个图片节点。
+const STUDIO_HANDOFF_KEY = "bestnaiStudioHandoff";
+
+async function consumeStudioHandoff() {
+  let handoff = null;
+  try {
+    handoff = JSON.parse(localStorage.getItem(STUDIO_HANDOFF_KEY) || "null");
+    localStorage.removeItem(STUDIO_HANDOFF_KEY);
+  } catch (_) {
+    return;
+  }
+  if (!handoff?.assetId) return;
+  try {
+    const asset = await bridge.apiGet("canvas/asset", { id: handoff.assetId });
+    const sourceWidth = asset?.width || 832;
+    const sourceHeight = asset?.height || 1216;
+    const nodeWidth = fittedImageNodeWidth(sourceWidth, sourceHeight);
+    const point = worldCenter();
+    const imageNode = {
+      id: uid("image"),
+      type: "image",
+      x: point.x - nodeWidth / 2,
+      y: point.y - estimatedImageNodeHeight(nodeWidth, sourceWidth, sourceHeight) / 2,
+      width: nodeWidth,
+      title: "Studio 生成结果",
+      assetId: asset?.id || handoff.assetId,
+      dataUrl: asset?.dataUrl || handoff.dataUrl || "",
+      createdAt: new Date().toISOString(),
+      meta: {
+        prompt: handoff.prompt || "Studio 生成结果",
+        tags: handoff.prompt || "",
+        width: sourceWidth,
+        height: sourceHeight,
+      },
+    };
+    addNode(imageNode);
+    setSelection([imageNode.id], imageNode.id);
+    recordOperation("Studio 交接", "已放入 Studio 生成的图片", "success");
+    scheduleSave();
+  } catch (error) {
+    recordOperation("Studio 交接失败", error.message, "error");
+  }
 }
 
 const canvasTouchPointers = new Map();
@@ -5156,6 +5201,13 @@ window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
+document.getElementById("studioSwitchBtn").addEventListener("click", () => {
+  // 跳转到 Studio 工作区时保留 project / canvas 参数，方便来回切换
+  const target = new URL("./studio.html", window.location.href);
+  target.searchParams.set("project", projectId);
+  if (canvasId) target.searchParams.set("id", canvasId);
+  window.location.assign(target.href);
+});
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
 document.getElementById("addImageBtn").addEventListener("click", () => {
   state.pendingUploadPoint = null;

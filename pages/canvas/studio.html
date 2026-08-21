@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BestNAI Studio</title>
+    <link rel="stylesheet" href="./studio.css" />
+    <script src="./vendor/lucide.js"></script>
+  </head>
+  <body>
+    <div id="shell" class="shell">
+      <div class="topbar">
+        <section class="studio-nav" aria-label="工作室状态">
+          <span class="studio-mark" aria-hidden="true"><img src="./plugin-logo.webp" alt="" /></span>
+          <div class="studio-nav-meta">
+            <strong class="studio-title">BestNAI Studio</strong>
+            <span class="studio-sub">
+              <span id="studioModel" class="studio-model">nai-diffusion-4-5-full</span>
+              <span id="connectionIndicator" class="connection-indicator checking" role="status" aria-label="正在检测服务连接" title="正在检测服务连接"></span>
+            </span>
+          </div>
+        </section>
+        <nav class="topbar-actions" aria-label="工作区切换">
+          <button class="top-btn mobile-panel-toggle" id="panelToggleBtn" type="button" title="参数面板" aria-label="参数面板" aria-controls="controlPanel" aria-expanded="false">
+            <i data-lucide="sliders-horizontal"></i>
+          </button>
+          <button class="top-btn" id="libraryBtn" type="button" title="资产库" aria-label="资产库" aria-controls="libraryPanel" aria-expanded="false">
+            <i data-lucide="library"></i><span>资产库</span>
+          </button>
+          <button class="top-btn primary" id="canvasSwitchBtn" type="button" title="切换到无限画布" aria-label="切换到无限画布">
+            <i data-lucide="frame"></i><span>无限画布</span>
+          </button>
+        </nav>
+      </div>
+
+      <div class="studio-body">
+        <aside id="controlPanel" class="control-panel" aria-label="生成参数">
+          <div class="panel-section prompt-section">
+            <label class="field-label" for="promptInput">
+              <i data-lucide="text-cursor-input"></i><span>提示词 Prompt</span>
+            </label>
+            <textarea id="promptInput" class="prompt-area" rows="6" maxlength="6000" placeholder="1girl, silver hair, night city …（支持中文，会自动翻译）"></textarea>
+          </div>
+
+          <div class="panel-section">
+            <label class="field-label" for="negativeInput">
+              <i data-lucide="ban"></i><span>负面提示词 UC</span>
+            </label>
+            <textarea id="negativeInput" class="prompt-area negative" rows="3" maxlength="6000" placeholder="lowres, bad anatomy, bad hands …（留空使用插件配置）"></textarea>
+          </div>
+
+          <div class="panel-section grid-2">
+            <div class="field">
+              <label class="field-label" for="ratioSelect"><i data-lucide="proportions"></i><span>画幅</span></label>
+              <select id="ratioSelect" class="select"></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="artistSelect"><i data-lucide="palette"></i><span>画师预设</span></label>
+              <select id="artistSelect" class="select"></select>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <div class="field">
+              <div class="field-head">
+                <label class="field-label" for="stepsRange"><i data-lucide="layers"></i><span>步数 Steps</span></label>
+                <output id="stepsValue" class="field-value">28</output>
+              </div>
+              <input id="stepsRange" type="range" min="1" max="50" step="1" value="28" />
+            </div>
+            <div class="field">
+              <div class="field-head">
+                <label class="field-label" for="scaleRange"><i data-lucide="sliders-horizontal"></i><span>引导 Scale</span></label>
+                <output id="scaleValue" class="field-value">7.0</output>
+              </div>
+              <input id="scaleRange" type="range" min="0" max="10" step="0.1" value="7" />
+            </div>
+            <div class="field">
+              <div class="field-head">
+                <label class="field-label" for="cfgRescaleRange"><i data-lucide="blend"></i><span>CFG Rescale</span></label>
+                <output id="cfgRescaleValue" class="field-value">0.00</output>
+              </div>
+              <input id="cfgRescaleRange" type="range" min="0" max="1" step="0.05" value="0" />
+            </div>
+          </div>
+
+          <div class="panel-section grid-2">
+            <div class="field">
+              <label class="field-label" for="samplerSelect"><i data-lucide="waves"></i><span>采样器</span></label>
+              <select id="samplerSelect" class="select"></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="noiseSelect"><i data-lucide="audio-waveform"></i><span>噪声调度</span></label>
+              <select id="noiseSelect" class="select"></select>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <div class="field">
+              <label class="field-label" for="seedInput"><i data-lucide="dices"></i><span>种子 Seed</span></label>
+              <div class="seed-row">
+                <input id="seedInput" class="input" type="text" inputmode="numeric" placeholder="留空随机" />
+                <button id="randomSeedBtn" class="icon-btn" type="button" title="清空种子（随机）" aria-label="清空种子（随机）">
+                  <i data-lucide="dices"></i>
+                </button>
+              </div>
+            </div>
+            <label class="toggle-row" for="rawToggle">
+              <span class="toggle-text"><i data-lucide="code"></i>原始提示词模式（Raw）</span>
+              <input id="rawToggle" type="checkbox" />
+              <span class="toggle-switch" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div class="panel-section generate-section">
+            <button id="generateBtn" class="generate-btn" type="button" disabled>
+              <i data-lucide="sparkles"></i><span id="generateBtnText">生成 Generate</span>
+            </button>
+            <p id="generateHint" class="generate-hint">正在连接服务…</p>
+          </div>
+        </aside>
+
+        <main class="stage" aria-label="预览区">
+          <div id="previewEmpty" class="preview-empty">
+            <i data-lucide="image"></i>
+            <strong>还没有生成图片</strong>
+            <span>在左侧填写提示词，点击「生成」开始创作</span>
+          </div>
+          <figure id="previewFrame" class="preview-frame" hidden>
+            <img id="previewImage" alt="生成结果" />
+          </figure>
+          <div id="previewLoading" class="preview-loading" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="previewLoadingText">正在生成图片…</span>
+          </div>
+          <section id="metaBar" class="meta-bar" hidden aria-label="生成元数据">
+            <div class="meta-items">
+              <span class="meta-item" id="metaSeed" title="点击复制种子"></span>
+              <span class="meta-item" id="metaSize"></span>
+              <span class="meta-item" id="metaSteps"></span>
+              <span class="meta-item" id="metaScale"></span>
+              <span class="meta-item" id="metaSampler"></span>
+            </div>
+            <div class="meta-actions">
+              <button id="metaDownloadBtn" class="mini-btn" type="button"><i data-lucide="download"></i><span>下载</span></button>
+              <button id="metaSendCanvasBtn" class="mini-btn" type="button"><i data-lucide="frame"></i><span>发送到无限画布</span></button>
+            </div>
+          </section>
+          <section id="historyStrip" class="history-strip" aria-label="本次会话历史">
+            <div id="historyTrack" class="history-track"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <aside id="libraryPanel" class="library-panel" aria-label="资产库" hidden>
+      <header class="library-head">
+        <div class="library-title"><i data-lucide="library"></i><strong>资产库</strong></div>
+        <button id="libraryCloseBtn" class="icon-btn" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+      </header>
+      <div id="libraryGrid" class="library-grid"></div>
+      <div id="libraryEmpty" class="library-empty"><i data-lucide="library"></i><span>暂无图片</span></div>
+    </aside>
+
+    <div id="viewerModal" class="viewer-backdrop" hidden>
+      <figure class="viewer-stage">
+        <div class="viewer-image-frame">
+          <img id="viewerImage" alt="" />
+        </div>
+        <figcaption class="viewer-meta">
+          <div class="viewer-tags-head">
+            <span>Prompt Tags / 提示词标签</span>
+            <button id="viewerCopyBtn" class="mini-btn" type="button" title="复制最终提示词"><i data-lucide="copy"></i><span>复制</span></button>
+          </div>
+          <div id="viewerTags" class="viewer-tag-grid"></div>
+        </figcaption>
+      </figure>
+      <button id="viewerCloseBtn" class="viewer-close" type="button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+    </div>
+
+    <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="/api/plugin/page/bridge-sdk.js"></script>
+    <script type="module" src="./studio.js"></script>
+  </body>
+</html>
