@@ -1,6 +1,7 @@
 // BestNAI Studio —— 仿 NovelAI 的表单式工作区。
-// 与无限画布（editor.html/canvas.js）共用后端路由（canvas/*），
-// 通过顶栏按钮在两个工作区之间互跳。
+// 内嵌在 editor.html 的 #studio-shell 覆盖层里，与无限画布共用同一份
+// bridge 与后端路由（canvas/*）。切换工作区只做 DOM 显隐，不整页跳转：
+// AstrBot 的 asset_token 只有 60 秒有效期，跨页面导航必然「Token 过期」。
 
 let bridge = null;
 
@@ -18,7 +19,7 @@ async function getBridge() {
 }
 
 const PREFS_KEY = "bestnaiStudioPrefs";
-const HANDOFF_KEY = "bestnaiStudioHandoff";
+const STUDIO_PLACE_EVENT = "bestnai:studio-place";
 
 const SAMPLERS = [
   { value: "k_euler_ancestral", label: "Euler Ancestral" },
@@ -43,10 +44,12 @@ const state = {
   healthTimer: null,
   healthChecking: false,
   generating: false,
+  initialized: false,
 };
 
 const els = {
-  indicator: document.getElementById("connectionIndicator"),
+  shell: document.getElementById("studio-shell"),
+  indicator: document.getElementById("studioIndicator"),
   model: document.getElementById("studioModel"),
   prompt: document.getElementById("promptInput"),
   negative: document.getElementById("negativeInput"),
@@ -72,7 +75,7 @@ const els = {
   previewLoading: document.getElementById("previewLoading"),
   previewLoadingText: document.getElementById("previewLoadingText"),
   metaBar: document.getElementById("metaBar"),
-  metaSeed: document.getElementById("metaSeed"),
+  metaSeed: document.getElementById("studioSeed"),
   metaSize: document.getElementById("metaSize"),
   metaSteps: document.getElementById("metaSteps"),
   metaScale: document.getElementById("metaScale"),
@@ -81,19 +84,19 @@ const els = {
   metaSendCanvas: document.getElementById("metaSendCanvasBtn"),
   historyStrip: document.getElementById("historyStrip"),
   historyTrack: document.getElementById("historyTrack"),
-  libraryBtn: document.getElementById("libraryBtn"),
-  libraryPanel: document.getElementById("libraryPanel"),
+  libraryBtn: document.getElementById("studioLibraryBtn"),
+  libraryPanel: document.getElementById("studioLibraryPanel"),
   libraryGrid: document.getElementById("libraryGrid"),
-  libraryClose: document.getElementById("libraryCloseBtn"),
-  canvasSwitch: document.getElementById("canvasSwitchBtn"),
+  libraryClose: document.getElementById("studioLibraryCloseBtn"),
+  backBtn: document.getElementById("studioBackBtn"),
   panelToggle: document.getElementById("panelToggleBtn"),
-  controlPanel: document.getElementById("controlPanel"),
+  controlPanel: document.getElementById("studioControlPanel"),
   viewerModal: document.getElementById("viewerModal"),
   viewerImage: document.getElementById("viewerImage"),
   viewerTags: document.getElementById("viewerTags"),
   viewerClose: document.getElementById("viewerCloseBtn"),
   viewerCopy: document.getElementById("viewerCopyBtn"),
-  toastRegion: document.getElementById("toastRegion"),
+  toastRegion: document.getElementById("studioToastRegion"),
 };
 
 function refreshIcons() {
@@ -163,6 +166,25 @@ function setGenerating(busy, text) {
   els.generateText.textContent = busy ? "生成中…" : "生成 Generate";
 }
 
+// ---------- 工作区切换（DOM 覆盖层，不导航） ----------
+
+function openStudio() {
+  els.shell.hidden = false;
+  refreshIcons();
+  if (!state.initialized) {
+    initStudio().catch(() => {
+      setIndicator("bad");
+      els.generateHint.textContent = "Studio 初始化失败，请关闭后重试";
+    });
+  }
+}
+
+function closeStudio() {
+  els.shell.hidden = true;
+  closeLibrary();
+  closeViewer();
+}
+
 // ---------- 连接状态 ----------
 
 async function checkConnection() {
@@ -194,8 +216,8 @@ function startHealthMonitor() {
 
 // ---------- 初始化 ----------
 
-async function initPanel() {
-  const [config] = await Promise.all([bridge.apiGet("canvas/config")]);
+async function initStudio() {
+  const config = await bridge.apiGet("canvas/config");
   state.config = config || state.config;
   els.model.textContent = state.config.model || "nai-diffusion-4-5-full";
 
@@ -210,6 +232,7 @@ async function initPanel() {
     prefs.ratio || state.config.defaultRatio || optionValue(ratios[0]));
   fillSelect(els.artist, artists.length ? artists : [{ value: "", label: "配置画师预设" }],
     prefs.artist ?? state.config.defaultArtist ?? "__none__");
+
   const samplers = Array.isArray(state.config.samplers) && state.config.samplers.length
     ? state.config.samplers
     : SAMPLERS;
@@ -228,12 +251,11 @@ async function initPanel() {
   if (prefs.negative !== undefined) els.negative.value = prefs.negative;
   if (prefs.steps !== undefined) els.steps.value = prefs.steps;
   if (prefs.scale !== undefined) els.scale.value = prefs.scale;
-  if (prefs.cfgRescale !== undefined) els.cfgRescale.value = prefs.cfgRescale;
-  els.raw.checked = !!prefs.raw;
+  if (prefs.cfgRescale !== undefined) els.cfgRescale.value = String(Number(prefs.cfgRescale) || 0);
 
-  els.steps.value = Number(els.steps.value) || 28;
-  els.scale.value = Number(els.scale.value) || 7;
-  els.cfgRescale.value = String(Number(prefs.cfgRescale) || 0);
+  els.steps.value = String(Number(els.steps.value) || 28);
+  els.scale.value = String(Number(els.scale.value) || 7);
+  els.raw.checked = !!prefs.raw;
 
   els.generate.disabled = !state.config.configured;
   els.generateHint.textContent = state.config.configured
@@ -243,7 +265,12 @@ async function initPanel() {
   [els.prompt, els.negative].forEach((el) => el.addEventListener("input", savePrefs));
   [els.ratio, els.artist, els.sampler, els.noise].forEach((el) => el.addEventListener("change", savePrefs));
   els.raw.addEventListener("change", savePrefs);
+  bindRange(els.steps, els.stepsValue, (v) => String(v));
+  bindRange(els.scale, els.scaleValue, (v) => Number(v).toFixed(1));
+  bindRange(els.cfgRescale, els.cfgRescaleValue, (v) => Number(v).toFixed(2));
   refreshIcons();
+  startHealthMonitor();
+  state.initialized = true;
 }
 
 // ---------- 生成 ----------
@@ -349,31 +376,20 @@ function downloadActive() {
   link.click();
 }
 
-// 跳回无限画布时必须原样转发 query/hash：AstrBot 页面认证参数就在 query 里，
-// 新建 URL 会丢掉它，切过去就是「未授权」。
-function canvasWorkspaceUrl() {
-  const target = new URL("./editor.html", window.location.href);
-  target.search = window.location.search;
-  target.hash = window.location.hash;
-  return target;
-}
-
 function sendToCanvas() {
   const entry = state.activeEntry;
   if (!entry) return;
-  const handoff = {
-    assetId: entry.asset?.id || "",
-    dataUrl: entry.asset?.dataUrl || "",
-    prompt: entry.meta?.finalPrompt || els.prompt.value.trim(),
-    createdAt: Date.now(),
-  };
-  try {
-    localStorage.setItem(HANDOFF_KEY, JSON.stringify(handoff));
-  } catch {
-    toast("本地存储不可用，无法发送到画布", "error");
-    return;
-  }
-  window.location.assign(canvasWorkspaceUrl().href);
+  // 同页面内用事件交接，canvas.js 监听后把图片放成节点；不整页跳转。
+  document.dispatchEvent(
+    new CustomEvent(STUDIO_PLACE_EVENT, {
+      detail: {
+        assetId: entry.asset?.id || "",
+        dataUrl: entry.asset?.dataUrl || "",
+        prompt: entry.meta?.finalPrompt || els.prompt.value.trim(),
+      },
+    }),
+  );
+  closeStudio();
 }
 
 // ---------- 资产库 ----------
@@ -448,6 +464,8 @@ function closeViewer() {
 // ---------- 事件绑定 ----------
 
 function bindEvents() {
+  document.getElementById("studioSwitchBtn").addEventListener("click", openStudio);
+  els.backBtn.addEventListener("click", closeStudio);
   els.generate.addEventListener("click", generate);
   els.randomSeed.addEventListener("click", () => { els.seed.value = ""; });
   els.metaDownload.addEventListener("click", downloadActive);
@@ -480,14 +498,12 @@ function bindEvents() {
     else closeLibrary();
   });
   els.libraryClose.addEventListener("click", closeLibrary);
-  els.canvasSwitch.addEventListener("click", () => {
-    window.location.assign(canvasWorkspaceUrl().href);
-  });
   els.panelToggle?.addEventListener("click", () => {
     const open = els.controlPanel.classList.toggle("open");
     els.panelToggle.setAttribute("aria-expanded", String(open));
   });
   document.addEventListener("keydown", (event) => {
+    if (els.shell.hidden) return;
     if (event.key === "Escape") {
       if (!els.viewerModal.hidden) closeViewer();
       else if (!els.libraryPanel.hidden) closeLibrary();
@@ -497,9 +513,6 @@ function bindEvents() {
       generate();
     }
   });
-  bindRange(els.steps, els.stepsValue, (v) => String(v));
-  bindRange(els.scale, els.scaleValue, (v) => Number(v).toFixed(1));
-  bindRange(els.cfgRescale, els.cfgRescaleValue, (v) => Number(v).toFixed(2));
 }
 
 // ---------- 启动 ----------
@@ -513,13 +526,6 @@ async function boot() {
     return;
   }
   bindEvents();
-  try {
-    await initPanel();
-  } catch {
-    setIndicator("bad");
-    els.generateHint.textContent = "配置加载失败，请刷新重试";
-  }
-  startHealthMonitor();
   refreshIcons();
 }
 

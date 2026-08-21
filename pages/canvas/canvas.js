@@ -4772,21 +4772,16 @@ async function loadInitialState() {
   reconcileAssetLibraryPreferences();
   preloadLibraryImages();
   await switchCanvas(canvasMeta, { saveCurrent: false });
-  await consumeStudioHandoff();
   startHealthMonitor();
 }
 
-// Studio 工作区通过 localStorage 交接生成结果：加载画布时取出并放成一个图片节点。
-const STUDIO_HANDOFF_KEY = "bestnaiStudioHandoff";
+// Studio 工作区通过同页事件交接生成结果：收到后把图片放成一个节点。
+// 之所以不用 localStorage/整页跳转：AstrBot 的 asset_token 只有 60 秒有效期。
+document.addEventListener("bestnai:studio-place", (event) => {
+  consumeStudioHandoff(event.detail || {});
+});
 
-async function consumeStudioHandoff() {
-  let handoff = null;
-  try {
-    handoff = JSON.parse(localStorage.getItem(STUDIO_HANDOFF_KEY) || "null");
-    localStorage.removeItem(STUDIO_HANDOFF_KEY);
-  } catch (_) {
-    return;
-  }
+async function consumeStudioHandoff(handoff) {
   if (!handoff?.assetId) return;
   try {
     const asset = await bridge.apiGet("canvas/asset", { id: handoff.assetId });
@@ -5201,15 +5196,8 @@ window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
-document.getElementById("studioSwitchBtn").addEventListener("click", () => {
-  // 跳转到 Studio 工作区时带上当前 query/hash（含 AstrBot 页面认证参数），再叠加 project/canvas
-  const target = new URL("./studio.html", window.location.href);
-  target.search = window.location.search;
-  target.hash = window.location.hash;
-  target.searchParams.set("project", projectId);
-  if (canvasId) target.searchParams.set("id", canvasId);
-  window.location.assign(target);
-});
+// Studio 工作区是本页内的 #studio-shell 覆盖层，显隐切换由 studio.js 接管，
+// 不做整页跳转（asset_token 60 秒过期，跳转必挂）。
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
 document.getElementById("addImageBtn").addEventListener("click", () => {
   state.pendingUploadPoint = null;

@@ -1436,15 +1436,22 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
 
 class StudioPageTest(unittest.TestCase):
-    """仿 NovelAI 的 Studio 工作区（studio.html / studio.css / studio.js）。"""
+    """仿 NovelAI 的 Studio 工作区（内嵌 editor.html 的 #studio-shell 覆盖层）。
 
-    def test_studio_loads_bridge_before_page_script(self) -> None:
-        html = (PAGE_ROOT / "studio.html").read_text(encoding="utf-8")
+    Studio 不做整页跳转：AstrBot 的 asset_token 只有 60 秒有效期
+    （PLUGIN_PAGE_ASSET_TOKEN_TTL_SECONDS），跨页面导航必然「Token 过期」，
+    所以工作区切换必须是同页 DOM 显隐。
+    """
+
+    def test_studio_embedded_in_editor_with_bridge_loaded_first(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         studio_script = '<script type="module" src="./studio.js"></script>'
+        self.assertIn('id="studio-shell"', html)
+        self.assertIn('<link rel="stylesheet" href="./studio.css" />', html)
+        self.assertIn(studio_script, html)
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(studio_script))
-        self.assertIn('<link rel="stylesheet" href="./studio.css" />', html)
-        self.assertIn('<script src="./vendor/lucide.js"></script>', html)
+        self.assertFalse((PAGE_ROOT / "studio.html").exists())
 
     def test_studio_script_waits_for_delayed_bridge(self) -> None:
         studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
@@ -1464,47 +1471,47 @@ class StudioPageTest(unittest.TestCase):
         self.assertIn("cfgRescale", studio)
         self.assertIn("sampler", studio)
 
-    def test_studio_uses_dark_theme(self) -> None:
+    def test_studio_uses_dark_theme_scoped_to_shell(self) -> None:
         styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
         self.assertIn("color-scheme: dark", styles)
+        # 暗色变量必须挂在 #studio-shell 上，不能进 :root 污染画布浅色主题
+        self.assertNotIn(":root", styles)
+        self.assertIn("#studio-shell {", styles)
 
     def test_studio_hidden_attribute_beats_display_rules(self) -> None:
         # 查看器/加载层等浮层用 hidden 属性隐藏；若 display 规则压过 [hidden]，
         # 它们会从页面加载起就一直盖在界面上。
         styles = (PAGE_ROOT / "studio.css").read_text(encoding="utf-8")
-        self.assertIn("[hidden] { display: none !important; }", styles)
+        self.assertIn("#studio-shell[hidden] { display: none !important; }", styles)
+        self.assertIn("#studio-shell [hidden] { display: none !important; }", styles)
 
-    def test_studio_and_editor_can_switch_to_each_other(self) -> None:
+    def test_workspace_switch_stays_on_the_same_page(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
         self.assertIn('id="studioSwitchBtn"', html)
-        self.assertIn('new URL("./studio.html"', editor)
-        self.assertIn('new URL("./editor.html"', studio)
-
-    def test_workspace_switch_forwards_auth_query_and_hash(self) -> None:
-        # AstrBot 页面认证参数在 query 里，切换工作区必须原样转发，
-        # 否则目标页面所有 bridge 请求都会返回「未授权」。
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        for name, source in (("canvas.js", editor), ("studio.js", studio)):
-            with self.subTest(page=name):
-                self.assertIn("target.search = window.location.search;", source)
-                self.assertIn("target.hash = window.location.hash;", source)
+        self.assertIn('id="studioBackBtn"', html)
+        # 切换只做覆盖层显隐，禁止任何整页导航
+        self.assertIn("els.shell.hidden = false", studio)
+        self.assertIn("els.shell.hidden = true", studio)
+        self.assertNotIn("window.location.assign", studio)
+        self.assertNotIn('new URL("./studio.html"', editor)
+        self.assertNotIn("window.location.href =", editor)
 
     def test_studio_handoff_places_image_node_on_canvas(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
-        self.assertIn("bestnaiStudioHandoff", studio)
-        self.assertIn("consumeStudioHandoff", editor)
-        self.assertIn("await consumeStudioHandoff();", editor)
+        self.assertIn('new CustomEvent(STUDIO_PLACE_EVENT', studio)
+        self.assertIn('document.addEventListener("bestnai:studio-place"', editor)
+        self.assertIn("consumeStudioHandoff(event.detail", editor)
 
     def test_studio_uses_lucide_icons_and_toasts(self) -> None:
-        html = (PAGE_ROOT / "studio.html").read_text(encoding="utf-8")
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         studio = (PAGE_ROOT / "studio.js").read_text(encoding="utf-8")
+        self.assertIn('id="studio-shell"', html)
         self.assertIn("data-lucide=", html)
         self.assertIn("lucide.createIcons", studio)
-        self.assertIn('id="toastRegion"', html)
+        self.assertIn('id="studioToastRegion"', html)
 
 
 if __name__ == "__main__":
