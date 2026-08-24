@@ -20,7 +20,11 @@ class Nai0RawModeTranslationTest(unittest.TestCase):
     """
 
     def test_main_generation_path_skips_translation_in_raw_mode(self) -> None:
-        self.assertIn("if not raw_mode and has_chinese(clean_prompt):", MAIN_SOURCE)
+        # raw 模式与 V5 中文直通都不进翻译
+        self.assertIn(
+            "if not raw_mode and not model_supports_cjk(current_model) and has_chinese(clean_prompt):",
+            MAIN_SOURCE,
+        )
 
     def test_retag_merge_path_skips_translation_and_identity_in_raw_mode(self) -> None:
         self.assertIn(

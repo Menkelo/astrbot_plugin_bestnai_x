@@ -48,7 +48,7 @@ from .core.translator import (
     tag_lookup_key,
 )
 from .image_store import send_image_best_effort
-from .models.config import GenerationConfig, PluginConfig
+from .models.config import GenerationConfig, PluginConfig, model_supports_cjk
 from .services.artist_gallery import ArtistGalleryService
 from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
@@ -692,7 +692,23 @@ class BestNAIPlugin(Star):
                 },
             )
 
-        if has_chinese(clean_prompt):
+        # 原始提示词模式与 V5 中文直通都不进翻译；4.x 中文仍需翻译成英文 tags
+        if has_chinese(clean_prompt) and (
+            raw_mode
+            or model_supports_cjk(self.plugin_config.generation.model)
+        ):
+            skip_reason = (
+                "原始提示词模式，中文原样直通"
+                if raw_mode
+                else "V5 原生支持中文，未走翻译"
+            )
+            trace.note("翻译", skip_reason)
+            translation_source = ""
+            translated_source = ""
+            translated_character = ""
+            translated_series = ""
+            identity_checked = False
+        elif has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
                     clean_prompt,
@@ -868,7 +884,13 @@ class BestNAIPlugin(Star):
 
         if raw_mode:
             gen_config = replace(gen_config, quality=False)
-            final_prompt = normalize_prompt_ascii(working_prompt)
+            # V5 原生支持中文，raw 模式保留原文；4.x 仍做 ASCII 清理
+            final_prompt = normalize_prompt_ascii(
+                working_prompt,
+                keep_non_ascii=model_supports_cjk(
+                    self.plugin_config.generation.model
+                ),
+            )
         else:
             if artist_name == "__none__":
                 artist_prompt = ""
@@ -2052,9 +2074,10 @@ class BestNAIPlugin(Star):
 
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
+        current_model = self.plugin_config.generation.model
 
-        # nai0 原始提示词模式不翻译：写什么发什么（非 ASCII 由下方清理）
-        if not raw_mode and has_chinese(clean_prompt):
+        # nai0 原始提示词模式与 V5 中文直通都不翻译（非 ASCII 清理见下方）
+        if not raw_mode and not model_supports_cjk(current_model) and has_chinese(clean_prompt):
             if not tr_cfg.enabled:
                 yield event.plain_result(
                     "❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。"
@@ -2080,9 +2103,16 @@ class BestNAIPlugin(Star):
 
         if raw_mode:
             raw_before_clean = final_prompt
-            final_prompt = normalize_prompt_ascii(final_prompt)
+            # V5 原生支持中文，nai0 保留原文直通；4.x 维持 ASCII 清理
+            keep_non_ascii = model_supports_cjk(current_model)
+            final_prompt = normalize_prompt_ascii(
+                final_prompt,
+                keep_non_ascii=keep_non_ascii,
+            )
 
-            removed_chars = find_non_ascii_chars(raw_before_clean)
+            removed_chars = (
+                [] if keep_non_ascii else find_non_ascii_chars(raw_before_clean)
+            )
 
             if removed_chars:
                 logger.info(

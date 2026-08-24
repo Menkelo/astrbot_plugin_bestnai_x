@@ -10,6 +10,17 @@ MODEL_V5_FULL = "nai-diffusion-5-full"
 
 FIXED_MODEL = MODEL_V45_FULL
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
+
+
+def model_supports_cjk(model: str) -> bool:
+    """V5 官方原生支持中/日文提示词；V4.x 及以下只吃 ASCII 标签。
+
+    决定两件事：中文提示是否必须先翻译，以及提交前要不要做
+    非 ASCII 清理。
+    """
+    return "diffusion-5" in str(model or "").lower()
+
+DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 DEFAULT_NEGATIVE_PROMPT = "lowres, bad anatomy, bad hands, text, error, missing fingers"
 DEFAULT_DANBOORU_API_URL = "https://sakizuki-danboorusearch.hf.space"
 
