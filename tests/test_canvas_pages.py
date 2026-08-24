@@ -850,8 +850,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.9.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.9.0"', constants)
+        self.assertIn("version: 3.9.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.9.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1058,6 +1058,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             main_source,
         )
         self.assertIn("V5 角色增强", main_source)
+        self.assertIn("timeout=10.0", main_source)
         self.assertIn("await self._resolve_prompt_identity(", main_source)
 
     def test_canvas_generate_round_trips_char_prompt_entries(self) -> None:

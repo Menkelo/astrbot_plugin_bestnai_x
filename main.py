@@ -717,11 +717,12 @@ class BestNAIPlugin(Star):
             translated_series = ""
             identity_checked = False
             # 中文角色别名（如"鸣潮爱弥斯"）V5 未必认识，
-            # 检索命中则把英文角色/作品 tag 追加进提示词
+            # 检索命中则把英文角色/作品 tag 追加进提示词。
+            # HF Space 有冷启动，超时给足 10 秒
             try:
                 character, series = await self._resolve_prompt_identity(
                     clean_prompt,
-                    timeout=4.0,
+                    timeout=10.0,
                 )
             except Exception as exc:
                 logger.warning(f"[BestNAI] V5 角色检索失败（忽略）: {exc}")
@@ -730,6 +731,8 @@ class BestNAIPlugin(Star):
             if identity_parts:
                 clean_prompt = f"{clean_prompt}, {', '.join(identity_parts)}"
                 trace.note("V5 角色增强", ", ".join(identity_parts))
+            else:
+                trace.note("V5 角色增强", "未命中角色（服务超时或无中文别名）")
         elif has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
@@ -2158,10 +2161,11 @@ class BestNAIPlugin(Star):
         # 翻译策略由模型决定：4.5（含 /nai0）翻译成英文 tags；
         # V5 中文直通，但会做 Danbooru 身份检索增强角色识别
         if has_chinese(clean_prompt) and model_supports_cjk(current_model):
+            # HF Space 有冷启动，超时给足 10 秒
             try:
                 character, series = await self._resolve_prompt_identity(
                     clean_prompt,
-                    timeout=4.0,
+                    timeout=10.0,
                 )
             except Exception as exc:
                 logger.warning(f"[BestNAI] V5 角色检索失败（忽略）: {exc}")
@@ -2170,6 +2174,8 @@ class BestNAIPlugin(Star):
             if identity_parts:
                 clean_prompt = f"{clean_prompt}, {', '.join(identity_parts)}"
                 logger.info(f"[BestNAI] V5 角色增强：{', '.join(identity_parts)}")
+            else:
+                logger.info("[BestNAI] V5 角色增强未命中（服务超时或无中文别名）")
         elif not model_supports_cjk(current_model) and has_chinese(clean_prompt):
             v5_hint = (
                 "\n💡 或把模型切换为 V5（/nai5 或 /nai0 选 V5），中文可直通"
