@@ -164,14 +164,38 @@ class NaiMetadataTest(unittest.TestCase):
                 "use_coords": True,
                 "use_order": True,
             },
+            "v4_negative_prompt": {
+                "caption": {
+                    "base_caption": NAI_COMMENT["uc"],
+                    "char_captions": [
+                        {"char_caption": "bad hands"},
+                        {"char_caption": ""},
+                    ],
+                },
+            },
         }
 
         info = parse_nai_info({"Comment": json.dumps(comment)})
 
         self.assertEqual(
             info["characterPrompts"],
-            ["hatsune miku, twintails", "kagamine rin, blonde hair"],
+            [
+                {
+                    "prompt": "hatsune miku, twintails",
+                    "negative": "bad hands",
+                    "x": 0.3,
+                    "y": 0.5,
+                },
+                {
+                    "prompt": "kagamine rin, blonde hair",
+                    "negative": "",
+                    "x": None,
+                    "y": None,
+                },
+            ],
         )
+        self.assertTrue(info["characterUseCoords"])
+        self.assertTrue(info["characterUseOrder"])
 
     def test_char_captions_absent_without_v4_prompt_or_malformed_entries(self) -> None:
         # V4.5 之前的图没有 v4_prompt 结构
@@ -198,12 +222,18 @@ class NaiMetadataTest(unittest.TestCase):
                     "base_caption": NAI_COMMENT["prompt"],
                     "char_captions": [{"char_caption": "hatsune miku"}],
                 },
+                "use_coords": False,
+                "use_order": True,
             },
         )
 
         info = read_image_generation_info(path)
 
-        self.assertEqual(info["characterPrompts"], ["hatsune miku"])
+        self.assertEqual(
+            info["characterPrompts"],
+            [{"prompt": "hatsune miku", "negative": "", "x": None, "y": None}],
+        )
+        self.assertFalse(info["characterUseCoords"])
         # 带角色提示词不影响可信判定与种子读取
         self.assertTrue(is_trusted_nai_generation_info(info))
         self.assertEqual(info["seed"], 3405988762)

@@ -191,6 +191,11 @@ class ImageGenerator:
         if gen_config.uc_preset:
             user_payload["uc_preset"] = gen_config.uc_preset
 
+        if gen_config.characters:
+            user_payload["characters"] = gen_config.characters
+            user_payload["use_coords"] = gen_config.use_coords
+            user_payload["use_order"] = gen_config.use_order
+
         payload = {
             "model": gen_config.model,
             "messages": [

@@ -22,6 +22,7 @@ from .constants import (
     normalize_nai_seed,
 )
 from .core.api_errors import describe_api_error
+from .core.char_prompts import normalize_char_entries
 from .core.debug_trace import DebugTrace
 from .core.generator import (
     APIKeyError,
@@ -397,22 +398,15 @@ class BestNAIPlugin(Star):
         source_prompt = embedded_prompt or cached_prompt
         from_metadata = bool(embedded_prompt)
         # V4+ 元数据可能带角色提示词（v4_prompt.caption.char_captions）。
-        # 画布生成走单条 prompt，把它们并入还原出的 tags 即可生效；
-        # 只在命中可信内嵌参数时提取，画布缓存里已经合并过、不再重复叠加。
-        embedded_char_prompts = (
-            [
-                stripped
-                for stripped in (
-                    strip_control_tags(
-                        str(text or "").strip(),
-                        extra_control_tags=retag_control_prompts,
-                    )
-                    for text in (source_info.get("characterPrompts") or [])
-                )
-                if stripped
-            ]
+        # 结构化透传给生图网关做真正的分区生成，不再并进 base tags；
+        # 只在命中可信内嵌参数时提取，画布缓存路径不会重复产出。
+        char_prompts = (
+            normalize_char_entries(source_info.get("characterPrompts"))
             if from_metadata
             else []
+        )
+        char_use_coords = bool(
+            from_metadata and source_info.get("characterUseCoords") and char_prompts
         )
         # A canvas cache can fill either half of the pair (seed or prompt).
         # Keep the provenance separate so the diagnostics never claim that a
@@ -441,9 +435,7 @@ class BestNAIPlugin(Star):
 
             # Return only image tags. The caller translates and weights the
             # current hand-written hint exactly once during generation.
-            image_tags = ", ".join(
-                part for part in (source_prompt, *embedded_char_prompts) if part
-            )
+            image_tags = source_prompt
 
             trace.note(
                 "走的分支",
@@ -453,8 +445,14 @@ class BestNAIPlugin(Star):
             )
             trace.note("手写提示词（不送反推）", user_hint or "(空)")
             trace.note("原图图片 tags", image_tags)
-            if embedded_char_prompts:
-                trace.note("原图角色提示词（char_captions）", embedded_char_prompts)
+            if char_prompts:
+                trace.note(
+                    "原图角色提示词（char_captions）",
+                    {
+                        "characters": char_prompts,
+                        "useCoords": char_use_coords,
+                    },
+                )
             if from_canvas_cache:
                 trace.note("画布缓存提示词", cached_prompt)
             trace.note(
@@ -484,7 +482,8 @@ class BestNAIPlugin(Star):
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
-                    "charCaptions": embedded_char_prompts,
+                    "charPrompts": char_prompts,
+                    "charUseCoords": char_use_coords,
                     "fromMetadata": from_metadata,
                     "fromCanvasCache": from_canvas_cache,
                     "steps": source_info.get("steps"),
@@ -808,6 +807,20 @@ class BestNAIPlugin(Star):
             scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
         )
 
+        # 反推命中的多角色参数：结构化透传给网关做分区生成
+        char_prompts = normalize_char_entries(payload.get("retagCharPrompts"))
+        if char_prompts:
+            gen_config = replace(
+                gen_config,
+                characters=char_prompts,
+                use_coords=bool(payload.get("retagUseCoords")),
+                use_order=True,
+            )
+            trace.note(
+                "角色参数",
+                {"characters": char_prompts, "useCoords": bool(payload.get("retagUseCoords"))},
+            )
+
         resolved_artist_name = ""
         artist_prompt = ""
 
@@ -853,11 +866,27 @@ class BestNAIPlugin(Star):
         # 信号量占用也算进耗时：并发满了在这儿排队，用户看到的就是"生图很慢"
         with trace.stage("生图"):
             async with self._generation_semaphore:
-                result = await self.generator.generate(
-                    final_prompt,
-                    gen_config,
-                    seed=payload.get("seed"),
-                )
+                try:
+                    result = await self.generator.generate(
+                        final_prompt,
+                        gen_config,
+                        seed=payload.get("seed"),
+                    )
+                except GenerationError as exc:
+                    # 网关若不认识 characters 参数会以 400 拒绝；
+                    # 去掉角色参数重试一次，宁可丢分区也不要整次失败。
+                    if not (gen_config.characters and exc.status_code == 400):
+                        raise
+                    logger.warning(
+                        "[BestNAI/Canvas] 生图网关拒绝角色参数（400），已去除 characters 重试"
+                    )
+                    trace.note("角色参数回退", f"网关返回 400：{exc.message}")
+                    gen_config = replace(gen_config, characters=[], use_coords=False)
+                    result = await self.generator.generate(
+                        final_prompt,
+                        gen_config,
+                        seed=payload.get("seed"),
+                    )
 
         trace.note("返回种子", result.seed)
         trace.note("返回图片数", len(result.images))

@@ -170,6 +170,37 @@ def _sanitize_retag_layer_modes(value: Any) -> Dict[str, str]:
     return result
 
 
+MAX_CHAR_PROMPTS_STORED = 16
+MAX_CHAR_PROMPT_LENGTH = 2000
+_CHAR_POSITION_RE = re.compile(r"^[A-E][1-5]$")
+
+
+def _sanitize_char_prompts(value: Any) -> List[Dict[str, str]]:
+    """工作区里缓存的多角色参数，边界与 core/char_prompts 保持一致。"""
+    if not isinstance(value, list):
+        return []
+    result: List[Dict[str, str]] = []
+    for raw_entry in value[:MAX_CHAR_PROMPTS_STORED]:
+        if not isinstance(raw_entry, dict):
+            continue
+        prompt = _short_text(raw_entry.get("prompt"), MAX_CHAR_PROMPT_LENGTH).strip()
+        if not prompt:
+            continue
+        entry = {
+            "prompt": prompt,
+            "negative_prompt": _short_text(
+                raw_entry.get("negative_prompt"),
+                MAX_CHAR_PROMPT_LENGTH,
+            ).strip(),
+            "position": "",
+        }
+        position = str(raw_entry.get("position") or "").strip().upper()
+        if _CHAR_POSITION_RE.fullmatch(position):
+            entry["position"] = position
+        result.append(entry)
+    return result
+
+
 def _sanitize_retag_tag_translations(value: Any) -> Dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -682,6 +713,11 @@ class CanvasStore:
             retag_layer_modes = _sanitize_retag_layer_modes(raw_meta.get("retagLayerModes"))
             if retag_layer_modes:
                 meta["retagLayerModes"] = retag_layer_modes
+            # V4+ 多角色参数：结构化透传给生图网关的分区生成
+            char_prompts = _sanitize_char_prompts(raw_meta.get("retagCharPrompts"))
+            if char_prompts:
+                meta["retagCharPrompts"] = char_prompts
+                meta["retagUseCoords"] = bool(raw_meta.get("retagUseCoords", False))
 
             node = {
                 "id": node_id,

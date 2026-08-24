@@ -205,6 +205,47 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertTrue(sanitized["nodes"][0]["meta"]["ratioManual"])
         self.assertFalse(sanitized["nodes"][1]["meta"]["ratioManual"])
 
+    def test_workspace_keeps_sanitized_char_prompt_entries(self) -> None:
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_1",
+                        "type": "prompt",
+                        "x": 0,
+                        "y": 0,
+                        "prompt": "1girl",
+                        "meta": {
+                            "retagCharPrompts": [
+                                {
+                                    "prompt": "hatsune miku, twintails",
+                                    "negative_prompt": "bad hands",
+                                    "position": "B3",
+                                },
+                                {"prompt": ""},
+                                "junk",
+                            ],
+                            "retagUseCoords": True,
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+
+        meta = sanitized["nodes"][0]["meta"]
+        self.assertEqual(
+            meta["retagCharPrompts"],
+            [
+                {
+                    "prompt": "hatsune miku, twintails",
+                    "negative_prompt": "bad hands",
+                    "position": "B3",
+                }
+            ],
+        )
+        self.assertTrue(meta["retagUseCoords"])
+
     def test_workspace_drops_malformed_seed_values_instead_of_clamping_them(self) -> None:
         workspace = self.store.sanitize_workspace(
             {

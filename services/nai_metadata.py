@@ -32,12 +32,13 @@ _FLOAT_FIELDS = ("scale", "cfg_rescale")
 _MAX_CHAR_CAPTIONS = 16
 
 
-def _parse_char_captions(comment: Dict[str, Any]) -> List[str]:
+def _parse_char_captions(comment: Dict[str, Any]) -> List[Dict[str, Any]]:
     """读取 V4+ 元数据里的角色提示词。
 
     NovelAI 把多角色提示词放在 ``v4_prompt.caption.char_captions[]``，
-    每项的 ``char_caption`` 是该角色的提示词文本；坐标等其余字段与
-    文本还原无关，这里只取文本。
+    每项的 ``char_caption`` 是该角色的提示词文本，``centers[0].x/y``
+    是 0~1 的中心点坐标；负面提示词在 ``v4_negative_prompt`` 里有
+    平行的同序数组。这里按索引对齐取文本与坐标。
     """
     v4_prompt = comment.get("v4_prompt")
     if not isinstance(v4_prompt, dict):
@@ -51,11 +52,40 @@ def _parse_char_captions(comment: Dict[str, Any]) -> List[str]:
     if not isinstance(raw_captions, list):
         return []
 
-    result: List[str] = []
-    for item in raw_captions[:_MAX_CHAR_CAPTIONS]:
+    negative_captions: Any = None
+    v4_negative = comment.get("v4_negative_prompt")
+    if isinstance(v4_negative, dict) and isinstance(v4_negative.get("caption"), dict):
+        negative_captions = v4_negative["caption"].get("char_captions")
+
+    def negative_at(index: int) -> str:
+        if not isinstance(negative_captions, list) or index >= len(negative_captions):
+            return ""
+        item = negative_captions[index]
         text = item.get("char_caption") if isinstance(item, dict) else item
-        if isinstance(text, str) and text.strip():
-            result.append(text.strip())
+        return text.strip() if isinstance(text, str) else ""
+
+    result: List[Dict[str, Any]] = []
+    for index, item in enumerate(raw_captions[:_MAX_CHAR_CAPTIONS]):
+        text = item.get("char_caption") if isinstance(item, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            continue
+
+        center_x: Any = None
+        center_y: Any = None
+        if isinstance(item, dict) and isinstance(item.get("centers"), list) and item["centers"]:
+            first = item["centers"][0]
+            if isinstance(first, dict):
+                center_x = first.get("x")
+                center_y = first.get("y")
+
+        entry: Dict[str, Any] = {
+            "prompt": text.strip(),
+            "negative": negative_at(index),
+            "x": center_x,
+            "y": center_y,
+        }
+        result.append(entry)
+
     return result
 
 
@@ -129,6 +159,10 @@ def parse_nai_info(info: Dict[str, Any]) -> Dict[str, Any]:
             char_captions = _parse_char_captions(comment)
             if char_captions:
                 result["characterPrompts"] = char_captions
+                v4_prompt = comment.get("v4_prompt")
+                if isinstance(v4_prompt, dict):
+                    result["characterUseCoords"] = bool(v4_prompt.get("use_coords", False))
+                    result["characterUseOrder"] = bool(v4_prompt.get("use_order", True))
 
     # Comment 里没有 prompt 时退回 Description，NovelAI 两处都会写
     if "prompt" not in result:

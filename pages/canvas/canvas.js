@@ -1491,6 +1491,26 @@ function normalizeRetagTagTranslations(value) {
   return result;
 }
 
+// 与后端 core/char_prompts.normalize_char_entries 的边界保持一致
+const MAX_CHAR_PROMPTS = 16;
+
+function normalizeCharPromptEntries(value) {
+  if (!Array.isArray(value)) return [];
+  const result = [];
+  for (const item of value.slice(0, MAX_CHAR_PROMPTS)) {
+    if (!item || typeof item !== "object") continue;
+    const prompt = String(item.prompt ?? item.caption ?? "").trim().slice(0, 2000);
+    if (!prompt) continue;
+    const entry = {
+      prompt,
+      negative_prompt: String(item.negative_prompt ?? item.negative ?? "").trim().slice(0, 2000),
+      position: String(item.position || "").trim().toUpperCase(),
+    };
+    result.push(entry);
+  }
+  return result;
+}
+
 function bilingualRetagTagText(tag, translations) {
   const name = translations[retagTagLookupKey(tag)] || "";
   return name ? `${tag} / ${name}` : tag;
@@ -3079,6 +3099,8 @@ async function generateFromNode(id, {
       cachedTranslationCharacter: node.meta?.translationCharacter || "",
       cachedTranslationSeries: node.meta?.translationSeries || "",
       debug: debugModeEnabled(),
+      retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : [],
+      retagUseCoords: retagged ? !!node.meta?.retagUseCoords : false,
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       // A seed collected from an image belongs to the retag flow.  If the
       // source connection was removed, a plain prompt generation must not
@@ -3312,6 +3334,8 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     fromCanvasCache: !!meta.retagFromCanvasCache,
     tagGroups,
     tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
+    charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts),
+    charUseCoords: !!meta.retagUseCoords,
   };
 }
 
@@ -3398,6 +3422,9 @@ async function retagFromNode(
       retagFromCanvasCache: !!result.fromCanvasCache,
       retagTagGroups: normalizeRetagTagGroups(result?.tagGroups),
       retagTagTranslations: normalizeRetagTagTranslations(result?.tagTranslations),
+      // V4+ 内嵌参数里的多角色提示词，结构化透传给生图网关
+      retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts),
+      retagUseCoords: !!result?.charUseCoords,
       retagLayerExpanded: node.meta?.retagLayerExpanded === true,
       translatedPrompt: retagPrompt,
     };

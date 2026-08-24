@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.4.4", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.4.4"', constants)
+        self.assertIn("version: 3.4.5", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.4.5"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1025,11 +1025,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("ratioManual: true", editor)
 
     def test_retag_merges_embedded_char_captions_into_image_tags(self) -> None:
-        # 反推命中内嵌参数时，V4+ 的角色提示词要并入还原 tags 才能在画布生效
+        # 反推命中内嵌参数时，V4+ 角色提示词要结构化透传给网关做分区生成
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn('source_info.get("characterPrompts")', main_source)
-        self.assertIn('"charCaptions": embedded_char_prompts', main_source)
+        self.assertIn('"charPrompts": char_prompts', main_source)
+        self.assertIn('"charUseCoords": char_use_coords', main_source)
         self.assertIn("原图角色提示词（char_captions）", main_source)
+        # 网关拒绝角色参数（400）时自动去除 characters 重试一次
+        self.assertIn("已去除 characters 重试", main_source)
+
+    def test_canvas_generate_round_trips_char_prompt_entries(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
+        self.assertIn("retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts)", editor)
+        self.assertIn("charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts)", editor)
+        self.assertIn(
+            "retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : []",
+            editor,
+        )
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
