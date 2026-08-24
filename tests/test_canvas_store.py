@@ -226,6 +226,10 @@ class CanvasStoreTest(unittest.TestCase):
                                 "junk",
                             ],
                             "retagUseCoords": True,
+                            "retagSteps": 28,
+                            "retagScale": 5.1,
+                            "retagCfgRescale": 0.34,
+                            "retagNoiseSchedule": "karras",
                         },
                     }
                 ],
@@ -245,6 +249,39 @@ class CanvasStoreTest(unittest.TestCase):
             ],
         )
         self.assertTrue(meta["retagUseCoords"])
+        # 沿用原图采样参数的缓存字段也要能过清洗器
+        self.assertEqual(meta["retagSteps"], 28)
+        self.assertEqual(meta["retagScale"], 5.1)
+        self.assertEqual(meta["retagCfgRescale"], 0.34)
+        self.assertEqual(meta["retagNoiseSchedule"], "karras")
+
+    def test_workspace_clamps_out_of_range_source_sampling_params(self) -> None:
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_1",
+                        "type": "prompt",
+                        "x": 0,
+                        "y": 0,
+                        "prompt": "1girl",
+                        "meta": {
+                            "retagSteps": 9999,
+                            "retagScale": -5,
+                            "retagCfgRescale": "not-a-number",
+                            "retagNoiseSchedule": "x" * 99,
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+
+        meta = sanitized["nodes"][0]["meta"]
+        self.assertEqual(meta["retagSteps"], 200)
+        self.assertEqual(meta["retagScale"], 0)
+        self.assertEqual(meta["retagCfgRescale"], 0)
+        self.assertLessEqual(len(meta["retagNoiseSchedule"]), 32)
 
     def test_workspace_drops_malformed_seed_values_instead_of_clamping_them(self) -> None:
         workspace = self.store.sanitize_workspace(

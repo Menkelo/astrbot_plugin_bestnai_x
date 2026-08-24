@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.5.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.5.0"', constants)
+        self.assertIn("version: 3.5.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.5.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1051,6 +1051,28 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : []",
             editor,
         )
+
+    def test_canvas_generate_reuses_source_sampling_params(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        # 命中内嵌参数时缓存原图采样参数，生成时随载荷回传
+        for key in ("retagSteps", "retagScale", "retagCfgRescale", "retagNoiseSchedule"):
+            self.assertIn(f"{key}: result.fromMetadata", editor)
+        self.assertIn("cfgRescale: node.meta?.retagCfgRescale || undefined", editor)
+        self.assertIn("noiseSchedule: node.meta?.retagNoiseSchedule || undefined", editor)
+        # 断开重连时这些缓存必须一并清除
+        for key in (
+            "retagSteps",
+            "retagScale",
+            "retagCfgRescale",
+            "retagNoiseSchedule",
+            "retagCharPrompts",
+        ):
+            self.assertIn(f"{key}: _{key}", editor.split("function clearRetagCache", 1)[1].split("function clearTranslationCache", 1)[0])
+        # 后端把回传参数写进生图配置并在调试栏注明来源
+        self.assertIn('for key in ("steps", "scale", "cfg_rescale", "noise_schedule")', main_source)
+        self.assertIn("沿用原图采样参数", main_source)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

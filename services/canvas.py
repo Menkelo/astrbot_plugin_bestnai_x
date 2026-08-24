@@ -695,6 +695,13 @@ class CanvasStore:
                 "userResized": bool(raw_meta.get("userResized", False)),
                 # 用户手动选过画幅后，首次链接图片的自动对齐不再生效
                 "ratioManual": bool(raw_meta.get("ratioManual", False)),
+                # 命中内嵌参数时沿用的原图采样参数（0/空 = 未命中）
+                "retagSteps": int(_bounded_number(raw_meta.get("retagSteps"), 0, 0, 200)),
+                "retagScale": _bounded_number(raw_meta.get("retagScale"), 0, 0, 100),
+                "retagCfgRescale": _bounded_number(
+                    raw_meta.get("retagCfgRescale"), 0, 0, 100
+                ),
+                "retagNoiseSchedule": _short_text(raw_meta.get("retagNoiseSchedule"), 32),
             }
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:

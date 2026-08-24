@@ -3101,6 +3101,11 @@ async function generateFromNode(id, {
       debug: debugModeEnabled(),
       retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : [],
       retagUseCoords: retagged ? !!node.meta?.retagUseCoords : false,
+      // 命中过内嵌参数时沿用原图采样参数；缺省时后端用插件配置默认值
+      steps: node.meta?.retagSteps || undefined,
+      scale: node.meta?.retagScale || undefined,
+      cfgRescale: node.meta?.retagCfgRescale || undefined,
+      noiseSchedule: node.meta?.retagNoiseSchedule || undefined,
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       // A seed collected from an image belongs to the retag flow.  If the
       // source connection was removed, a plain prompt generation must not
@@ -3224,6 +3229,12 @@ function clearRetagCache(node) {
     retagTagTranslations: _retagTagTranslations,
     retagLayerModes: _retagLayerModes,
     retagLayerExpanded: _retagLayerExpanded,
+    retagCharPrompts: _retagCharPrompts,
+    retagUseCoords: _retagUseCoords,
+    retagSteps: _retagSteps,
+    retagScale: _retagScale,
+    retagCfgRescale: _retagCfgRescale,
+    retagNoiseSchedule: _retagNoiseSchedule,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
     translationResult: _translationResult,
@@ -3274,6 +3285,11 @@ function normalizeNaiSeed(value) {
   if (typeof value === "string" && !/^\d+$/.test(value.trim())) return 0;
   const seed = Number(value);
   return Number.isInteger(seed) && seed >= 1 && seed <= 4_294_967_295 ? seed : 0;
+}
+
+function boundedMetaNumber(value, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= min && number <= max ? number : 0;
 }
 
 function sourceImageSeed(node) {
@@ -3336,6 +3352,10 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
     charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts),
     charUseCoords: !!meta.retagUseCoords,
+    steps: boundedMetaNumber(meta.retagSteps, 1, 200),
+    scale: boundedMetaNumber(meta.retagScale, 0.1, 100),
+    cfgRescale: boundedMetaNumber(meta.retagCfgRescale, 0, 100),
+    noiseSchedule: String(meta.retagNoiseSchedule || "").trim(),
   };
 }
 
@@ -3425,6 +3445,19 @@ async function retagFromNode(
       // V4+ 内嵌参数里的多角色提示词，结构化透传给生图网关
       retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts),
       retagUseCoords: !!result?.charUseCoords,
+      // 命中内嵌参数时沿用原图的采样参数（steps/scale/cfg_rescale/噪声计划）
+      retagSteps: result.fromMetadata
+        ? boundedMetaNumber(result?.steps, 1, 200)
+        : 0,
+      retagScale: result.fromMetadata
+        ? boundedMetaNumber(result?.scale, 0.1, 100)
+        : 0,
+      retagCfgRescale: result.fromMetadata
+        ? boundedMetaNumber(result?.cfgRescale, 0, 100)
+        : 0,
+      retagNoiseSchedule: result.fromMetadata
+        ? String(result?.noiseSchedule || "").trim()
+        : "",
       retagLayerExpanded: node.meta?.retagLayerExpanded === true,
       translatedPrompt: retagPrompt,
     };

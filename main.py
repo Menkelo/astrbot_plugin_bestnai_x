@@ -498,10 +498,13 @@ class BestNAIPlugin(Star):
                     "sourcePrompt": source_prompt,
                     "charPrompts": char_prompts,
                     "charUseCoords": char_use_coords,
-                    "fromMetadata": from_metadata,
-                    "fromCanvasCache": from_canvas_cache,
+                    # 原图采样参数：前端缓存后随生图请求回传，缺省用插件配置
                     "steps": source_info.get("steps"),
                     "scale": source_info.get("scale"),
+                    "cfgRescale": source_info.get("cfg_rescale"),
+                    "noiseSchedule": str(source_info.get("noise_schedule") or ""),
+                    "fromMetadata": from_metadata,
+                    "fromCanvasCache": from_canvas_cache,
                 },
             )
 
@@ -825,6 +828,26 @@ class BestNAIPlugin(Star):
             steps=self._clamp_steps(payload.get("steps"), gen_config.steps),
             scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
         )
+
+        # 反推命中内嵌参数时前端会回传原图采样参数，缺省保持插件配置
+        try:
+            cfg_rescale = float(payload.get("cfg_rescale"))
+        except (TypeError, ValueError):
+            cfg_rescale = gen_config.cfg_rescale
+        cfg_rescale = min(max(cfg_rescale, 0.0), 10.0)
+        noise_schedule = str(payload.get("noise_schedule") or "").strip()
+        applied_source_params = {
+            key: payload[key]
+            for key in ("steps", "scale", "cfg_rescale", "noise_schedule")
+            if payload.get(key)
+        }
+        gen_config = replace(
+            gen_config,
+            cfg_rescale=cfg_rescale,
+            noise_schedule=noise_schedule or gen_config.noise_schedule,
+        )
+        if applied_source_params:
+            trace.note("沿用原图采样参数", applied_source_params)
 
         # 反推命中的多角色参数：仅在网关支持分区生成时结构化透传
         char_prompts = normalize_char_entries(payload.get("retagCharPrompts"))
