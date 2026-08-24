@@ -844,8 +844,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.8.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.8.0"', constants)
+        self.assertIn("version: 3.8.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.8.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1159,11 +1159,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'toggle.addEventListener("pointerdown", (event) => event.stopPropagation());',
             adv_body,
         )
-        # 挂载卡片反向缩放：视觉尺寸不随画布缩放变化
-        self.assertIn('--canvas-zoom', editor)
+        # 挂载卡片反向缩放：视觉尺寸不随画布缩放变化（倒数由 JS 计算）
+        self.assertIn('"--canvas-zoom"', editor)
+        self.assertIn('"--canvas-inverse"', editor)
         stack_block = styles.split(".node-attach-stack {", 1)[1].split("}", 1)[0]
-        self.assertIn("transform: scale(calc(1 / var(--canvas-zoom, 1)))", stack_block)
+        self.assertIn("transform: scale(var(--canvas-inverse, 1))", stack_block)
         self.assertIn("width: calc(100% * var(--canvas-zoom, 1))", stack_block)
+        # adv 卡的 grid 布局不得覆盖 [hidden] 的 display:none（否则无法折叠）
+        self.assertIn(
+            ".adv-card .retag-layer-body:not([hidden])",
+            styles,
+        )
         # 提示词卡片默认尺寸放大
         self.assertIn("width: 380,", editor)
         self.assertIn("height: 430,", editor)

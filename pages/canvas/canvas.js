@@ -2826,8 +2826,10 @@ function renderViewport() {
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-  // 挂载卡片（高级参数/标签图层）反向缩放，保持视觉尺寸不随画布缩放变化
+  // 挂载卡片（高级参数/标签图层）反向缩放，保持视觉尺寸不随画布缩放变化。
+  // 倒数在 JS 里算好，避开 CSS calc 除以 var() 的兼容性风险
   els.world.style.setProperty("--canvas-zoom", String(scale));
+  els.world.style.setProperty("--canvas-inverse", String(1 / scale));
 }
 
 let viewportProjectionFrame = 0;
