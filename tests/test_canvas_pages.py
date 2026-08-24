@@ -844,8 +844,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.7.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.7.0"', constants)
+        self.assertIn("version: 3.7.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.7.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1154,6 +1154,28 @@ class CanvasPageBridgeTest(unittest.TestCase):
         thumb_block = styles.split(".asset-stack-thumb {", 1)[1].split("}", 1)[0]
         self.assertIn("height: 72%", thumb_block)
         self.assertNotIn("aspect-ratio", thumb_block)
+
+    def test_canvas_scripts_must_parse(self) -> None:
+        # canvas.js 一旦语法错误整个画布都会白屏（图标全空、节点不渲染），
+        # 用 node --check 把语法关纳入测试
+        import shutil
+        import subprocess
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node 不在 PATH，跳过 JS 语法检查")
+
+        for name in ("canvas.js", "entry.js", "manager.js"):
+            with self.subTest(script=name):
+                proc = subprocess.run(
+                    [node, "--check", str(PAGE_ROOT / name)],
+                    capture_output=True,
+                )
+                self.assertEqual(
+                    proc.returncode,
+                    0,
+                    proc.stderr.decode("utf-8", "replace"),
+                )
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

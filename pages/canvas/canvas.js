@@ -1397,15 +1397,6 @@ function renderPromptNode(node) {
     runPromptNode(node.id);
   });
   commands.append(generate);
-  const countField = makeSelectField(
-    "张数",
-    [1, 2, 3, 4].map((n) => ({ value: String(n), label: `${n} 张` })),
-    String(clamp(Math.round(Number(node.meta?.count)) || 1, 1, 4)),
-    (value) => {
-      node.meta = { ...(node.meta || {}), count: clamp(parseInt(value, 10) || 1, 1, 4) };
-      scheduleSave();
-    },
-  );
   footer.append(rawLabel, commands);
 
   const status = document.createElement("div");
