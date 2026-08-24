@@ -1421,6 +1421,7 @@ function renderPromptNode(node) {
     stack.className = "node-attach-stack";
     if (advCard) stack.appendChild(advCard);
     if (retagLayerCard) stack.appendChild(retagLayerCard);
+    stack.style.transform = `scale(${1 / (state.viewport.scale || 1)})`;
     element.appendChild(stack);
   }
   const resizeHandle = document.createElement("span");
@@ -2826,10 +2827,16 @@ function renderViewport() {
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-  // 挂载卡片（高级参数/标签图层）反向缩放，保持视觉尺寸不随画布缩放变化。
-  // 倒数在 JS 里算好，避开 CSS calc 除以 var() 的兼容性风险
-  els.world.style.setProperty("--canvas-zoom", String(scale));
-  els.world.style.setProperty("--canvas-inverse", String(1 / scale));
+  applyAttachStackScale();
+}
+
+// 挂载卡片（高级参数/标签图层）反向缩放：视觉尺寸不随画布缩放变化。
+// 直接写 inline transform，不依赖 CSS 变量（旧缓存页面拿不到变量会失效）
+function applyAttachStackScale() {
+  const inverse = 1 / (state.viewport.scale || 1);
+  document.querySelectorAll(".node-attach-stack").forEach((stack) => {
+    stack.style.transform = `scale(${inverse})`;
+  });
 }
 
 let viewportProjectionFrame = 0;

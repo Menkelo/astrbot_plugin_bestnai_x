@@ -915,16 +915,15 @@ select:focus-visible {
 }
 
 /* 卡片下方挂载区：高级参数卡在上，原图标签图层在下。
-   反向缩放让卡片视觉尺寸不随画布缩放变化（倒数由 JS 计算写入变量） */
+   反向缩放由 JS 写 inline transform（见 applyAttachStackScale） */
 .node-attach-stack {
   position: absolute;
   z-index: 7;
   top: calc(100% + 11px);
   left: 0;
   display: grid;
-  width: calc(100% * var(--canvas-zoom, 1));
+  width: 100%;
   gap: 8px;
-  transform: scale(var(--canvas-inverse, 1));
   transform-origin: top left;
 }
 
