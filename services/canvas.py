@@ -662,6 +662,8 @@ class CanvasStore:
                 "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                 "retagged": bool(raw_meta.get("retagged", False)),
                 "userResized": bool(raw_meta.get("userResized", False)),
+                # 用户手动选过画幅后，首次链接图片的自动对齐不再生效
+                "ratioManual": bool(raw_meta.get("ratioManual", False)),
             }
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:

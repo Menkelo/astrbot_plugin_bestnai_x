@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.4.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.4.2"', constants)
+        self.assertIn("version: 3.4.3", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.4.3"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1010,6 +1010,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('bridge.apiPost("canvas/library/image/recover"', editor)
         self.assertIn("await recoverLibraryImageSeed(item);", editor)
         self.assertIn("readyItems.map((item) => recoverLibraryImageSeed(item))", editor)
+
+    def test_first_image_link_aligns_prompt_ratio_to_source_image(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 首次链接图片时画幅自动向被反推图看齐；用户手动选过画幅则不动
+        self.assertIn("function alignPromptRatioToImage", editor)
+        self.assertIn("const isFirstImageLink", editor)
+        align_body = editor.split("function alignPromptRatioToImage", 1)[1].split(
+            "function renderViewport", 1
+        )[0]
+        self.assertIn("promptNode.meta?.ratioManual", align_body)
+        # 手动改画幅必须打上标记，之后自动对齐不再覆盖用户的选择
+        self.assertIn("ratioManual: true", editor)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

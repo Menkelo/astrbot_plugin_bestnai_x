@@ -1316,6 +1316,8 @@ function renderPromptNode(node) {
   options.className = "prompt-options";
   const ratioField = makeSelectField("画幅", state.config.ratios, node.ratio, (value) => {
     node.ratio = value;
+    // 手动选过画幅后，首次链接图片的自动对齐不再生效
+    node.meta = { ...(node.meta || {}), ratioManual: true };
     clearDebugTrace(node);
     rememberPromptDefaults({ ratio: value });
     scheduleSave();
@@ -2504,6 +2506,15 @@ function attachConnectionPort(port, nodeId, role) {
         );
         if (!exists) {
           pushHistory();
+          const isImageToPrompt =
+            findNode(source)?.type === "image" && findNode(destination)?.type === "prompt";
+          // A prompt can have only one image source; detect whether this link
+          // is its first one before the filter below drops any previous edge.
+          const isFirstImageLink =
+            isImageToPrompt
+            && !state.connections.some(
+              (edge) => edge.target === destination && findNode(edge.source)?.type === "image",
+            );
           if (findNode(destination)?.type === "prompt") {
             const destinationNode = findNode(destination);
             state.connections = state.connections.filter(
@@ -2516,10 +2527,14 @@ function attachConnectionPort(port, nodeId, role) {
             if (destinationNode) destinationNode.statusText = "";
           }
           state.connections.push({ source, target: destination });
+          // 首次链接图片时把画幅向被反推图看齐（用户手动选过画幅则不动）
+          if (isFirstImageLink) {
+            alignPromptRatioToImage(findNode(destination), findNode(source));
+          }
           scheduleSave();
           recordOperation("连接节点", `${findNode(source)?.title || source} → ${findNode(destination)?.title || destination}`);
           renderAll();
-          if (findNode(source)?.type === "image" && findNode(destination)?.type === "prompt") {
+          if (isImageToPrompt) {
             void retagFromNode(destination, false, { automatic: true });
           }
           return;
@@ -2534,6 +2549,40 @@ function attachConnectionPort(port, nodeId, role) {
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", cancel);
   });
+}
+
+function closestRatioPreset(width, height) {
+  // 按对数差找长宽比最接近的预设，避免大尺寸图偏向极端比例
+  const imageWidth = Number(width);
+  const imageHeight = Number(height);
+  if (!(imageWidth > 0) || !(imageHeight > 0)) return "";
+
+  let bestValue = "";
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const preset of Array.isArray(state.config.ratios) ? state.config.ratios : []) {
+    const presetWidth = Number(preset?.width);
+    const presetHeight = Number(preset?.height);
+    if (!(presetWidth > 0) || !(presetHeight > 0)) continue;
+    const diff = Math.abs(Math.log(imageWidth / imageHeight / (presetWidth / presetHeight)));
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestValue = String(preset.value || "");
+    }
+  }
+  return bestValue;
+}
+
+function alignPromptRatioToImage(promptNode, imageNode) {
+  // 首次链接图片时的画幅自动对齐：用户手动选过画幅（ratioManual）则不动
+  if (!promptNode || !imageNode) return;
+  if (promptNode.meta?.ratioManual) return;
+
+  const preset = closestRatioPreset(imageNode.meta?.width, imageNode.meta?.height);
+  if (!preset || preset === promptNode.ratio) return;
+
+  promptNode.ratio = preset;
+  scheduleSave();
+  recordOperation("对齐画幅", `${promptNode.title || "提示词节点"} · ${preset}（跟随被反推图）`);
 }
 
 function renderViewport() {

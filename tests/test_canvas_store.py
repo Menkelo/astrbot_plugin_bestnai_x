@@ -176,6 +176,35 @@ class CanvasStoreTest(unittest.TestCase):
         with self.assertRaises(CanvasValidationError):
             self.store.sanitize_workspace({"nodes": [node, node], "connections": []})
 
+    def test_workspace_keeps_ratio_manual_flag_for_prompt_nodes(self) -> None:
+        # 首次链接图片的画幅自动对齐依赖这个标记记住"用户手动选过画幅"
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_1",
+                        "type": "prompt",
+                        "x": 0,
+                        "y": 0,
+                        "prompt": "1girl",
+                        "meta": {"ratioManual": True},
+                    },
+                    {
+                        "id": "prompt_2",
+                        "type": "prompt",
+                        "x": 10,
+                        "y": 10,
+                        "prompt": "2girl",
+                        "meta": {},
+                    },
+                ],
+                "connections": [],
+            }
+        )
+
+        self.assertTrue(sanitized["nodes"][0]["meta"]["ratioManual"])
+        self.assertFalse(sanitized["nodes"][1]["meta"]["ratioManual"])
+
     def test_workspace_drops_malformed_seed_values_instead_of_clamping_them(self) -> None:
         workspace = self.store.sanitize_workspace(
             {
