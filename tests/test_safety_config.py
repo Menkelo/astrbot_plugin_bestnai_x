@@ -163,8 +163,11 @@ class SafetyPromptWordsTest(unittest.TestCase):
         api_config = schema["api_config"]
 
         self.assertEqual(api_config["description"], "生图接口配置")
-        # 主提供商（4.5/默认）+ V5 专用槽位
-        self.assertEqual(list(api_config["items"]), ["provider_id", "provider_id_v5"])
+        # 主提供商（4.5/默认）+ V5 专用槽位 + /nai0 模型选择
+        self.assertEqual(
+            list(api_config["items"]),
+            ["provider_id", "provider_id_v5", "nai0_model"],
+        )
 
     def test_legacy_manual_generation_fields_are_ignored(self) -> None:
         config = PluginConfig.from_dict(

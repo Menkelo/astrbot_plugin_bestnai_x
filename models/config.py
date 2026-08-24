@@ -60,7 +60,6 @@ class GenerationConfig:
     use_order: bool = True
     # 结构化角色参数透传：仅当生图网关真正支持 characters 分区生成时开启；
     # 默认关闭，走文本合并（兼容所有网关）
-    char_structured: bool = False
 
     @classmethod
     def from_plugin_config(cls, config: dict) -> "GenerationConfig":
@@ -79,7 +78,6 @@ class GenerationConfig:
                 DEFAULT_NEGATIVE_PROMPT,
             ),
             quality=True,
-            char_structured=bool(gen_conf.get("char_structured", False)),
         )
 
     @classmethod
@@ -189,9 +187,8 @@ class PluginConfig:
     image_provider_id_v5: str = ""
     api_url_v5: str = ""
     api_key_v5: str = ""
-    # /nai0 与画布新节点的默认模型选择
+    # /nai0 的模型选择（面板·生图接口配置）；画布模型由节点各自选择
     nai0_model: str = FIXED_MODEL
-    canvas_model: str = FIXED_MODEL
     max_concurrency: int = 1
 
     user_cooldown: int = 0
@@ -291,8 +288,7 @@ class PluginConfig:
             image_provider_id_v5=image_provider_id_v5,
             api_url_v5="",
             api_key_v5="",
-            nai0_model=resolve_model_choice(gen_conf.get("nai0_model")),
-            canvas_model=resolve_model_choice(gen_conf.get("canvas_model")),
+            nai0_model=resolve_model_choice(api_conf.get("nai0_model")),
             max_concurrency=max_concurrency,
             generation=GenerationConfig.from_plugin_config(config),
             translator=TranslatorConfig(

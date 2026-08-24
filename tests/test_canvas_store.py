@@ -211,6 +211,10 @@ class CanvasStoreTest(unittest.TestCase):
         second = sanitized["nodes"][1]
         self.assertEqual(second["meta"]["count"], 1)
         self.assertFalse(second["meta"]["varietyBoost"])
+        # 未设置的采样参数不得物化成 0，否则重载后滑条会显示"手写值 0"
+        self.assertNotIn("steps", second["meta"])
+        self.assertNotIn("scale", second["meta"])
+        self.assertNotIn("cfgRescale", second["meta"])
 
     def test_workspace_keeps_ratio_manual_flag_for_prompt_nodes(self) -> None:
         # 首次链接图片的画幅自动对齐依赖这个标记记住"用户手动选过画幅"

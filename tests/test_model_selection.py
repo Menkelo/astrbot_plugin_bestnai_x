@@ -37,21 +37,15 @@ class ModelSelectionTest(unittest.TestCase):
         self.assertEqual(config.generation.model, MODEL_V45_FULL)
         self.assertEqual(FIXED_MODEL, MODEL_V45_FULL)
 
-    def test_nai0_and_canvas_model_choices_are_parsed(self) -> None:
+    def test_nai0_model_choice_parsed_from_api_config(self) -> None:
         config = PluginConfig.from_dict(
-            {
-                "generation_config": {
-                    "nai0_model": MODEL_V5_FULL,
-                    "canvas_model": MODEL_V5_FULL,
-                }
-            }
+            {"api_config": {"nai0_model": MODEL_V5_FULL}}
         )
-
         self.assertEqual(config.nai0_model, MODEL_V5_FULL)
-        self.assertEqual(config.canvas_model, MODEL_V5_FULL)
 
+        # 旧位置（generation_config）不再读取
         fallback = PluginConfig.from_dict(
-            {"generation_config": {"nai0_model": "nai-diffusion-999"}}
+            {"generation_config": {"nai0_model": MODEL_V5_FULL}}
         )
         self.assertEqual(fallback.nai0_model, MODEL_V45_FULL)
 

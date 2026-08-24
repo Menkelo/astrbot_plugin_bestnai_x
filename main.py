@@ -258,7 +258,7 @@ class BestNAIPlugin(Star):
                 {"value": MODEL_V45_FULL, "label": "V4.5 Full"},
                 {"value": MODEL_V5_FULL, "label": "V5 Full"},
             ],
-            "defaultModel": self.plugin_config.canvas_model,
+            "defaultModel": MODEL_V45_FULL,
             "defaultRatio": self._normalize_ratio_label(self.default_ratio),
             "defaultArtist": self._get_default_artist_display_name(),
             "ratios": ratios,
@@ -638,7 +638,7 @@ class BestNAIPlugin(Star):
         prompt = str(payload.get("prompt") or "").strip()
         # 节点级模型选择：原始提示词等所有模式都跟随节点上的选择
         current_model = resolve_model_choice(
-            payload.get("model") or self.plugin_config.canvas_model
+            payload.get("model") or MODEL_V45_FULL
         )
         retag_prompt = str(payload.get("retagPrompt") or "").strip()
         retag_character = str(payload.get("retagCharacter") or "").strip()
@@ -887,9 +887,9 @@ class BestNAIPlugin(Star):
             gen_config = replace(gen_config, variety_boost=True)
             trace.note("高级参数", "Variety+ 已开启")
 
-        # 反推命中的多角色参数：仅在网关支持分区生成时结构化透传
+        # 反推命中的多角色参数：结构化透传（固定开启，网关 400 时自动回退）
         char_prompts = normalize_char_entries(payload.get("retagCharPrompts"))
-        if char_prompts and self.plugin_config.generation.char_structured:
+        if char_prompts:
             gen_config = replace(
                 gen_config,
                 characters=char_prompts,

@@ -114,7 +114,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("min-height: 450px;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn("resize: none;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn('if (node.type === "prompt")', editor)
-        self.assertIn("height: 360", editor)
+        self.assertIn("height: 430", editor)
         self.assertIn("node.height = clamp", editor)
         self.assertIn("data.nodes.map(normalizeLoadedNodeDimensions)", editor)
         self.assertIn("function fittedImageNodeWidth", editor)
@@ -844,8 +844,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.7.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.7.2"', constants)
+        self.assertIn("version: 3.8.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.8.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1038,10 +1038,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('"charPrompts": char_prompts', main_source)
         self.assertIn('"charUseCoords": char_use_coords', main_source)
         self.assertIn("原图角色提示词（char_captions）", main_source)
+        # 结构化透传固定开启，不再依赖配置开关
         self.assertIn(
-            "char_prompts and self.plugin_config.generation.char_structured",
+            "char_prompts = normalize_char_entries(payload.get(\"retagCharPrompts\"))",
             main_source,
         )
+        self.assertNotIn("generation.char_structured", main_source)
         # 反推合并后必须折叠重复的人数标签，否则模型会多画人
         self.assertIn("normalize_count_tokens(working_prompt)", main_source)
         # 网关拒绝角色参数（400）时自动去除 characters 重试一次
@@ -1119,11 +1121,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("model=MODEL_V45_FULL", main_source)
         self.assertIn("self.plugin_config.nai0_model", main_source)
         self.assertIn("def _provider_credentials_for_model", main_source)
-        # 画布配置暴露模型列表与默认模型，节点选择随载荷提交
-        self.assertIn('"defaultModel": self.plugin_config.canvas_model', main_source)
+        # 画布配置暴露模型列表；默认模型固定 4.5，节点各自选择
+        self.assertIn('"defaultModel": MODEL_V45_FULL', main_source)
         self.assertIn("resolve_model_choice(", main_source)
         self.assertIn("const modelField = makeSelectField(", editor)
         self.assertIn("model: node.model || state.config.defaultModel", editor)
+        # 结构化角色参数固定开启（无开关），网关 400 自动回退
+        self.assertIn("结构化透传（固定开启", main_source)
 
     def test_prompt_card_advanced_params_and_count(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1144,6 +1148,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("advParamsExpanded: open", editor)
         self.assertIn("advParamsExpanded: false", editor)
         self.assertNotIn('input.type = "number"', editor)
+        # 不再放正文说明，解释只保留悬停 title
+        adv_body = editor.split("function makeAdvancedParamsCard", 1)[1].split(
+            "function makeRetagLayerCard", 1
+        )[0]
+        self.assertNotIn("retag-layer-help", adv_body)
+        self.assertIn("toggle.title =", adv_body)
+        # 折叠点击不被卡片 pointerdown 的 DOM 移动吞掉
+        self.assertIn(
+            'toggle.addEventListener("pointerdown", (event) => event.stopPropagation());',
+            adv_body,
+        )
+        # 挂载卡片反向缩放：视觉尺寸不随画布缩放变化
+        self.assertIn('--canvas-zoom', editor)
+        stack_block = styles.split(".node-attach-stack {", 1)[1].split("}", 1)[0]
+        self.assertIn("transform: scale(calc(1 / var(--canvas-zoom, 1)))", stack_block)
+        self.assertIn("width: calc(100% * var(--canvas-zoom, 1))", stack_block)
+        # 提示词卡片默认尺寸放大
+        self.assertIn("width: 380,", editor)
+        self.assertIn("height: 430,", editor)
         # 生成张数：1-4，>1 时两列网格（4 张 = 2×2 四方格）
         self.assertIn('"张数"', editor)
         self.assertIn(

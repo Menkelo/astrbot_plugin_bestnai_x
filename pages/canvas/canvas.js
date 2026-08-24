@@ -941,14 +941,14 @@ function suggestedNodeCenter(width) {
 }
 
 function createPromptNode(point = null) {
-  const center = point || suggestedNodeCenter(320);
+  const center = point || suggestedNodeCenter(380);
   return {
     id: uid("prompt"),
     type: "prompt",
-    x: center.x - 160,
-    y: center.y - 170,
-    width: 320,
-    height: 360,
+    x: center.x - 190,
+    y: center.y - 200,
+    width: 380,
+    height: 430,
     title: "提示词节点",
     prompt: "",
     ratio: state.promptDefaults.ratio || state.config.defaultRatio || "2:3",
@@ -1277,7 +1277,7 @@ function bringNodeToFront(id, element = null) {
 
 function renderPromptNode(node) {
   const element = makeNodeShell(node, node.title || "提示词节点");
-  element.style.height = `${node.height || 360}px`;
+  element.style.height = `${node.height || 430}px`;
   const sourceImage = sourceImageForPrompt(node.id);
   const body = document.createElement("div");
   body.className = "node-body";
@@ -1609,6 +1609,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   toggle.type = "button";
   toggle.className = "retag-layer-toggle";
   toggle.setAttribute("aria-expanded", "false");
+  toggle.title = "步数/引导/Rescale 留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 抑制色彩过曝；Variety+ 提升构图多样性。";
   const title = document.createElement("span");
   title.className = "retag-layer-title";
   title.append(icon("sliders-horizontal"), document.createTextNode("高级参数"));
@@ -1616,17 +1617,16 @@ function makeAdvancedParamsCard(node, nodeElement) {
   summary.className = "retag-layer-summary";
   const chevron = icon("chevron-down", "retag-layer-chevron");
   toggle.append(title, summary, chevron);
+  // 阻断冒泡：卡片 pointerdown 会 bringNodeToFront 移动 DOM，
+  // 移动会让随后到来的 click 落空，折叠就"点了没反应"
+  toggle.addEventListener("pointerdown", (event) => event.stopPropagation());
 
   const body = document.createElement("div");
   body.className = "retag-layer-body";
   body.hidden = true;
-  const help = document.createElement("p");
-  help.className = "retag-layer-help";
-  help.textContent = "留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 用于抑制色彩过曝；Variety+ 提升构图多样性。";
-  body.appendChild(help);
 
   const effectiveValue = (key, retagKey, fallback) =>
-    node.meta?.[key] ?? node.meta?.[retagKey] ?? fallback;
+    node.meta?.[key] || node.meta?.[retagKey] || fallback;
 
   const refreshSummary = () => {
     const parts = [
@@ -1666,7 +1666,9 @@ function makeAdvancedParamsCard(node, nodeElement) {
 
     const paint = () => {
       const effective = effectiveValue(key, retagKey, fallback);
-      const manual = node.meta?.[key] !== undefined;
+      // 0 对这三个参数都不是有效手写值（步数/引导最小 1，Rescale 0 等同默认），
+      // 旧存档里被物化的 0 不能当成"手写值"显示
+      const manual = !!node.meta?.[key];
       slider.value = String(effective);
       value.textContent = `${format(effective)}${manual ? " •" : ""}`;
       value.classList.toggle("manual", manual);
@@ -2824,6 +2826,8 @@ function renderViewport() {
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  // 挂载卡片（高级参数/标签图层）反向缩放，保持视觉尺寸不随画布缩放变化
+  els.world.style.setProperty("--canvas-zoom", String(scale));
 }
 
 let viewportProjectionFrame = 0;
@@ -2985,7 +2989,7 @@ function attachNodeResize(handle, element, node) {
     const start = {
       x: event.clientX,
       y: event.clientY,
-      width: node.width || element.offsetWidth || (node.type === "prompt" ? 320 : 260),
+      width: node.width || element.offsetWidth || (node.type === "prompt" ? 380 : 260),
       height: node.height || element.offsetHeight || (node.type === "prompt" ? 360 : 232),
     };
     let moved = false;

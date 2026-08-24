@@ -689,8 +689,6 @@ class CanvasStore:
                 "retagFromCanvasCache": bool(raw_meta.get("retagFromCanvasCache", False)),
                 "retagLayerExpanded": bool(raw_meta.get("retagLayerExpanded", False)),
                 "seed": normalize_nai_seed(raw_meta.get("seed")) or 0,
-                "steps": int(_bounded_number(raw_meta.get("steps"), 0, 0, 100)),
-                "scale": _bounded_number(raw_meta.get("scale"), 0, 0, 100),
                 "retagged": bool(raw_meta.get("retagged", False)),
                 "userResized": bool(raw_meta.get("userResized", False)),
                 # 用户手动选过画幅后，首次链接图片的自动对齐不再生效
@@ -702,13 +700,21 @@ class CanvasStore:
                     raw_meta.get("retagCfgRescale"), 0, 0, 100
                 ),
                 "retagNoiseSchedule": _short_text(raw_meta.get("retagNoiseSchedule"), 32),
-                # 节点高级参数卡：CFG Rescale（0-1）与 Variety+ 开关
-                "cfgRescale": _bounded_number(raw_meta.get("cfgRescale"), 0, 0, 1),
+                # 节点高级参数：steps/scale/cfgRescale 仅在设置过时落盘
+                # （见下方循环），缺省物化成 0 会被前端当成"手写值 0"
                 "varietyBoost": bool(raw_meta.get("varietyBoost", False)),
                 "advParamsExpanded": bool(raw_meta.get("advParamsExpanded", False)),
                 # 单次生成张数（1-4），>1 时前端按两列网格排布
                 "count": int(_bounded_number(raw_meta.get("count"), 1, 1, 4)),
             }
+            for _key, _bound in (
+                ("steps", (0, 0, 200)),
+                ("scale", (0, 0, 100)),
+                ("cfgRescale", (0, 0, 1)),
+            ):
+                _raw_value = raw_meta.get(_key)
+                if _raw_value not in (None, ""):
+                    meta[_key] = _bounded_number(_raw_value, *_bound)
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:
                 meta["debug"] = debug
