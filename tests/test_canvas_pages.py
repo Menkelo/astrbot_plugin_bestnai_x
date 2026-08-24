@@ -844,8 +844,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.8.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.8.2"', constants)
+        self.assertIn("version: 3.8.3", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.8.3"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1159,18 +1159,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'toggle.addEventListener("pointerdown", (event) => event.stopPropagation());',
             adv_body,
         )
-        # 挂载卡片反向缩放：视觉尺寸不随画布缩放变化（JS 写 inline transform）
-        self.assertIn("function applyAttachStackScale", editor)
-        self.assertIn("applyAttachStackScale();", editor)
-        self.assertIn(
-            "stack.style.transform = `scale(${1 / (state.viewport.scale || 1)})`",
-            editor,
+        # 挂载卡片随节点自然缩放（与 3.3.8 行为一致，保持同比例观感）
+        self.assertIn("node-attach-stack", editor)
+        self.assertLess(
+            editor.index("stack.appendChild(advCard)"),
+            editor.index("stack.appendChild(retagLayerCard)"),
         )
-        stack_block = styles.split(".node-attach-stack {", 1)[1].split("}", 1)[0]
-        self.assertIn("transform-origin: top left;", stack_block)
-        self.assertIn("width: 100%;", stack_block)
-        self.assertNotIn("--canvas-zoom", styles)
-        self.assertNotIn("--canvas-inverse", styles)
+        self.assertNotIn("applyAttachStackScale", editor)
+        self.assertNotIn("stack.style.transform", editor)
         # adv 卡的 grid 布局不得覆盖 [hidden] 的 display:none（否则无法折叠）
         self.assertIn(
             ".adv-card .retag-layer-body:not([hidden])",
