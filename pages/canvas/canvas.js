@@ -5015,6 +5015,13 @@ function nodeEditorOwnsWheel(target) {
 
 els.viewport.addEventListener("wheel", (event) => {
   if (nodeEditorOwnsWheel(event.target)) return;
+  // 平移进行中忽略滚轮：中键平移按拖拽起点的快照绝对覆写偏移，
+  // 滚轮缩放刚写入的偏移会被下一次 pointermove 冲掉（scale 却保留新值），
+  // 画面就会整体错位。捏合缩放同理依赖连续手势，期间也不接受滚轮。
+  if (els.viewport.classList.contains("panning")) {
+    event.preventDefault();
+    return;
+  }
   event.preventDefault();
   const factor = Math.exp(-event.deltaY * 0.0015);
   setZoom(state.viewport.scale * factor, event.clientX, event.clientY);

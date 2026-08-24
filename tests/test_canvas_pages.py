@@ -987,6 +987,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         logo_styles = styles.split(".canvas-mark {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 999px;", logo_styles)
 
+    def test_wheel_zoom_is_ignored_while_canvas_is_panning(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        wheel_body = editor.split('els.viewport.addEventListener("wheel"', 1)[1].split(
+            'els.assetPanel.addEventListener("wheel"', 1
+        )[0]
+        # 中键/触屏平移按起点快照绝对覆写视口偏移；若平移期间响应滚轮缩放，
+        # 缩放写入的偏移会被下一次 pointermove 冲掉，画面整体错位。
+        self.assertIn('classList.contains("panning")', wheel_body)
+        self.assertIn("event.preventDefault();", wheel_body)
+        self.assertLess(
+            wheel_body.index('classList.contains("panning")'),
+            wheel_body.index("setZoom("),
+        )
+
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
