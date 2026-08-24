@@ -1499,6 +1499,7 @@ select:focus-visible {
 }
 
 .image-viewer-image-frame {
+  --image-viewer-radius: 16px;
   position: relative;
   grid-area: viewer-image;
   display: flex;
@@ -1509,7 +1510,8 @@ select:focus-visible {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--image-viewer-radius);
+  clip-path: inset(0 round var(--image-viewer-radius));
 }
 
 .image-viewer-stage img {
