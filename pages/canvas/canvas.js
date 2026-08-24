@@ -841,6 +841,7 @@ function serializableWorkspace() {
       note: node.note || "",
       ratio: node.ratio || "",
       artist: node.artist || "",
+      model: node.model || "",
       raw: !!node.raw,
       assetId: node.assetId || "",
       createdAt: node.createdAt || "",

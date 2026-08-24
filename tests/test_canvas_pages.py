@@ -119,6 +119,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("data.nodes.map(normalizeLoadedNodeDimensions)", editor)
         self.assertIn("function fittedImageNodeWidth", editor)
 
+        # 节点模型必须随工作区保存，否则重载后回退默认 4.5
+        serializable = editor.split("function serializableWorkspace()", 1)[1].split(
+            "function snapshot()", 1
+        )[0]
+        self.assertIn("model: node.model || \"\"", serializable)
+
     def test_editor_caches_images_across_undo_and_redo(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
@@ -844,8 +850,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.8.4", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.8.4"', constants)
+        self.assertIn("version: 3.8.5", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.8.5"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
