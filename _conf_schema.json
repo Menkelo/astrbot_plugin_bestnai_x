@@ -4,8 +4,15 @@
     "type": "object",
     "items": {
       "provider_id": {
-        "description": "生图接口提供商",
-        "hint": "选择 AstrBot 系统提供商，插件会读取该提供商的 API 地址与 Key。",
+        "description": "生图接口提供商（4.5 / 默认）",
+        "hint": "选择 AstrBot 系统提供商，/nai 与 /nai0（4.5 档）使用；插件会读取该提供商的 API 地址与 Key。",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider"
+      },
+      "provider_id_v5": {
+        "description": "V5 生图接口提供商（可选）",
+        "hint": "/nai5 与 V5 档专用；留空则复用上方提供商（同一网关支持两个模型时无需重复填写）。",
         "type": "string",
         "default": "",
         "_special": "select_provider"
@@ -32,6 +39,26 @@
         "type": "bool",
         "hint": "反推多角色原图时把 char_captions 作为 characters 参数发给网关做分区生成。仅当网关真正支持该参数时开启；默认关闭，走文本合并（角色描述并入提示词并自动折叠重复的人数标签），兼容所有网关。",
         "default": false
+      },
+      "nai0_model": {
+        "description": "/nai0 使用的模型",
+        "type": "string",
+        "hint": "原始提示词模式（/nai0）走 4.5 还是 V5；提供商跟随所选模型（V5 档优先用上方 V5 提供商）。",
+        "default": "nai-diffusion-4-5-full",
+        "options": [
+          "nai-diffusion-4-5-full",
+          "nai-diffusion-5-full"
+        ]
+      },
+      "canvas_model": {
+        "description": "画布默认模型",
+        "type": "string",
+        "hint": "画布新建提示词节点的默认模型，可在每个节点的「模型」下拉里单独切换。",
+        "default": "nai-diffusion-4-5-full",
+        "options": [
+          "nai-diffusion-4-5-full",
+          "nai-diffusion-5-full"
+        ]
       },
       "default_ratio": {
         "description": "默认比例",

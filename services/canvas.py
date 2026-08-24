@@ -702,6 +702,11 @@ class CanvasStore:
                     raw_meta.get("retagCfgRescale"), 0, 0, 100
                 ),
                 "retagNoiseSchedule": _short_text(raw_meta.get("retagNoiseSchedule"), 32),
+                # 节点高级参数卡：CFG Rescale（0-1）与 Variety+ 开关
+                "cfgRescale": _bounded_number(raw_meta.get("cfgRescale"), 0, 0, 1),
+                "varietyBoost": bool(raw_meta.get("varietyBoost", False)),
+                # 单次生成张数（1-4），>1 时前端按两列网格排布
+                "count": int(_bounded_number(raw_meta.get("count"), 1, 1, 4)),
             }
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:
@@ -738,6 +743,8 @@ class CanvasStore:
                 "note": _short_text(raw_node.get("note"), 6000),
                 "ratio": _short_text(raw_node.get("ratio"), 32),
                 "artist": _short_text(raw_node.get("artist"), 120),
+                # 节点级生图模型（4.5/V5），生成时再校验合法性
+                "model": _short_text(raw_node.get("model"), 64),
                 "raw": bool(raw_node.get("raw", False)),
                 "assetId": asset_id,
                 "createdAt": _short_text(raw_node.get("createdAt"), 64),

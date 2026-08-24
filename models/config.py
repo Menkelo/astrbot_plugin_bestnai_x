@@ -7,6 +7,7 @@ MODEL_V45_FULL = "nai-diffusion-4-5-full"
 # （832x1216 起步、Euler Ancestral、Karras）。生图模型跟随接口提供商
 # 配置的模型名，未配置时回退 MODEL_V45_FULL。
 MODEL_V5_FULL = "nai-diffusion-5-full"
+SUPPORTED_MODELS = (MODEL_V45_FULL, MODEL_V5_FULL)
 
 FIXED_MODEL = MODEL_V45_FULL
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
@@ -19,6 +20,12 @@ def model_supports_cjk(model: str) -> bool:
     非 ASCII 清理。
     """
     return "diffusion-5" in str(model or "").lower()
+
+
+def resolve_model_choice(raw) -> str:
+    """把下拉/节点里的模型选择解析成受支持的模型 ID，非法值回退默认。"""
+    value = str(raw or "").strip()
+    return value if value in SUPPORTED_MODELS else FIXED_MODEL
 
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 DEFAULT_NEGATIVE_PROMPT = "lowres, bad anatomy, bad hands, text, error, missing fingers"
@@ -178,6 +185,13 @@ class PluginConfig:
     image_provider_id: str = ""
     api_url: str = ""
     api_key: str = ""
+    # V5 专用提供商槽位：留空时 /nai5 与 V5 画布节点回落主提供商
+    image_provider_id_v5: str = ""
+    api_url_v5: str = ""
+    api_key_v5: str = ""
+    # /nai0 与画布新节点的默认模型选择
+    nai0_model: str = FIXED_MODEL
+    canvas_model: str = FIXED_MODEL
     max_concurrency: int = 1
 
     user_cooldown: int = 0
@@ -236,6 +250,8 @@ class PluginConfig:
             or _extract_provider_id(config.get("provider_id"))
         )
 
+        image_provider_id_v5 = _extract_provider_id(api_conf.get("provider_id_v5"))
+
         translator_provider_id = (
             _extract_provider_id(tr_conf.get("provider_id"))
             or _extract_provider_id(config.get("translator_provider_id"))
@@ -272,6 +288,11 @@ class PluginConfig:
             # 不再读取旧版插件配置中的手填字段。
             api_url="",
             api_key="",
+            image_provider_id_v5=image_provider_id_v5,
+            api_url_v5="",
+            api_key_v5="",
+            nai0_model=resolve_model_choice(gen_conf.get("nai0_model")),
+            canvas_model=resolve_model_choice(gen_conf.get("canvas_model")),
             max_concurrency=max_concurrency,
             generation=GenerationConfig.from_plugin_config(config),
             translator=TranslatorConfig(

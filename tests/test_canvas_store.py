@@ -176,6 +176,42 @@ class CanvasStoreTest(unittest.TestCase):
         with self.assertRaises(CanvasValidationError):
             self.store.sanitize_workspace({"nodes": [node, node], "connections": []})
 
+    def test_workspace_keeps_node_model_and_count_bounds(self) -> None:
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_1",
+                        "type": "prompt",
+                        "x": 0,
+                        "y": 0,
+                        "prompt": "1girl",
+                        "model": "nai-diffusion-5-full",
+                        "meta": {"count": 9, "cfgRescale": 0.4, "varietyBoost": True},
+                    },
+                    {
+                        "id": "prompt_2",
+                        "type": "prompt",
+                        "x": 10,
+                        "y": 10,
+                        "prompt": "2girl",
+                        "meta": {"count": 0},
+                    },
+                ],
+                "connections": [],
+            }
+        )
+
+        first = sanitized["nodes"][0]
+        self.assertEqual(first["model"], "nai-diffusion-5-full")
+        self.assertEqual(first["meta"]["count"], 4)
+        self.assertEqual(first["meta"]["cfgRescale"], 0.4)
+        self.assertTrue(first["meta"]["varietyBoost"])
+
+        second = sanitized["nodes"][1]
+        self.assertEqual(second["meta"]["count"], 1)
+        self.assertFalse(second["meta"]["varietyBoost"])
+
     def test_workspace_keeps_ratio_manual_flag_for_prompt_nodes(self) -> None:
         # 首次链接图片的画幅自动对齐依赖这个标记记住"用户手动选过画幅"
         sanitized = self.store.sanitize_workspace(

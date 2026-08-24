@@ -909,9 +909,59 @@ select:focus-visible {
 .prompt-options {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 9px;
+}
+
+/* 高级参数折叠卡 */
+.adv-params {
+  flex: 0 0 auto;
+  margin-top: 8px;
+}
+
+.adv-toggle {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  outline: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.adv-toggle:hover {
+  color: var(--text);
+}
+
+.adv-toggle.open {
+  border-style: solid;
+  color: var(--text);
+}
+
+.adv-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.adv-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adv-number {
+  height: 30px;
+}
+
+.node-footer .field-label select {
+  width: 72px;
 }
 
 .field-label {
@@ -3186,7 +3236,11 @@ select:focus-visible {
   }
 
   .prompt-options {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .adv-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .node-footer {

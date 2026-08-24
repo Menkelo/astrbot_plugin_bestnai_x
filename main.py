@@ -34,7 +34,6 @@ from .core.generator import (
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
 from .core.prompt_tokens import expand_prompt_tokens, normalize_count_tokens
-from .core.provider_utils import provider_model_of
 from .core.safety import SafetyModerator
 from .core.translator import (
     apply_character_candidate,
@@ -48,7 +47,14 @@ from .core.translator import (
     tag_lookup_key,
 )
 from .image_store import send_image_best_effort
-from .models.config import GenerationConfig, PluginConfig, model_supports_cjk
+from .models.config import (
+    MODEL_V45_FULL,
+    MODEL_V5_FULL,
+    GenerationConfig,
+    PluginConfig,
+    model_supports_cjk,
+    resolve_model_choice,
+)
 from .services.artist_gallery import ArtistGalleryService
 from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
@@ -248,6 +254,11 @@ class BestNAIPlugin(Star):
             },
             "configured": self.plugin_config.is_configured(),
             "model": self.plugin_config.generation.model,
+            "models": [
+                {"value": MODEL_V45_FULL, "label": "V4.5 Full"},
+                {"value": MODEL_V5_FULL, "label": "V5 Full"},
+            ],
+            "defaultModel": self.plugin_config.canvas_model,
             "defaultRatio": self._normalize_ratio_label(self.default_ratio),
             "defaultArtist": self._get_default_artist_display_name(),
             "ratios": ratios,
@@ -625,6 +636,10 @@ class BestNAIPlugin(Star):
         payload: Dict[str, object],
     ) -> Tuple[List[Tuple[str, bytes]], Dict[str, object]]:
         prompt = str(payload.get("prompt") or "").strip()
+        # 节点级模型选择：原始提示词等所有模式都跟随节点上的选择
+        current_model = resolve_model_choice(
+            payload.get("model") or self.plugin_config.canvas_model
+        )
         retag_prompt = str(payload.get("retagPrompt") or "").strip()
         retag_character = str(payload.get("retagCharacter") or "").strip()
         retag_series = str(payload.get("retagSeries") or "").strip()
@@ -695,7 +710,7 @@ class BestNAIPlugin(Star):
         # 原始提示词模式与 V5 中文直通都不进翻译；4.x 中文仍需翻译成英文 tags
         if has_chinese(clean_prompt) and (
             raw_mode
-            or model_supports_cjk(self.plugin_config.generation.model)
+            or model_supports_cjk(current_model)
         ):
             skip_reason = (
                 "原始提示词模式，中文原样直通"
@@ -841,16 +856,18 @@ class BestNAIPlugin(Star):
 
         gen_config = replace(
             gen_config,
+            model=current_model,
             steps=self._clamp_steps(payload.get("steps"), gen_config.steps),
             scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
         )
 
-        # 反推命中内嵌参数时前端会回传原图采样参数，缺省保持插件配置
+        # 反推命中内嵌参数时前端会回传原图采样参数，缺省保持插件配置；
+        # 节点高级参数卡里的 cfg_rescale / Variety+ 优先级更高（见下方覆盖）
         try:
             cfg_rescale = float(payload.get("cfg_rescale"))
         except (TypeError, ValueError):
             cfg_rescale = gen_config.cfg_rescale
-        cfg_rescale = min(max(cfg_rescale, 0.0), 10.0)
+        cfg_rescale = min(max(cfg_rescale, 0.0), 1.0)
         noise_schedule = str(payload.get("noise_schedule") or "").strip()
         applied_source_params = {
             key: payload[key]
@@ -864,6 +881,11 @@ class BestNAIPlugin(Star):
         )
         if applied_source_params:
             trace.note("沿用原图采样参数", applied_source_params)
+
+        # 节点高级参数卡：Variety+ 开关（提升构图/姿态多样性）
+        if bool(payload.get("varietyPlus")):
+            gen_config = replace(gen_config, variety_boost=True)
+            trace.note("高级参数", "Variety+ 已开启")
 
         # 反推命中的多角色参数：仅在网关支持分区生成时结构化透传
         char_prompts = normalize_char_entries(payload.get("retagCharPrompts"))
@@ -930,11 +952,14 @@ class BestNAIPlugin(Star):
         # 信号量占用也算进耗时：并发满了在这儿排队，用户看到的就是"生图很慢"
         with trace.stage("生图"):
             async with self._generation_semaphore:
+                api_url, api_key = self._provider_credentials_for_model(current_model)
                 try:
                     result = await self.generator.generate(
                         final_prompt,
                         gen_config,
                         seed=payload.get("seed"),
+                        api_url=api_url,
+                        api_key=api_key,
                     )
                 except GenerationError as exc:
                     # 网关若不认识 characters 参数会以 400 拒绝；
@@ -950,6 +975,8 @@ class BestNAIPlugin(Star):
                         final_prompt,
                         gen_config,
                         seed=payload.get("seed"),
+                        api_url=api_url,
+                        api_key=api_key,
                     )
 
         trace.note("返回种子", result.seed)
@@ -1087,26 +1114,20 @@ class BestNAIPlugin(Star):
 
         return text
 
-    def _resolve_image_provider(self) -> None:
-        provider_id = getattr(self.plugin_config, "image_provider_id", "") or ""
-        self.plugin_config.api_url = ""
-        self.plugin_config.api_key = ""
-        # 只有真正拿到接口配置才算就绪；否则每次生图前都会再试一次
-        self._image_provider_resolved = False
-
+    def _extract_provider_credentials(self, provider_id: str) -> Tuple[str, str]:
+        """从 AstrBot 提供商里读出 API Base 与 Key，读不到返回空串。"""
         if not provider_id:
-            logger.warning("[BestNAI] 未选择生图接口提供商")
-            return
+            return "", ""
 
         try:
             provider = self.context.get_provider_by_id(provider_id)
         except Exception as e:
             logger.warning(f"[BestNAI] 获取生图接口提供商失败 provider_id={provider_id}: {e}")
-            return
+            return "", ""
 
         if not provider:
             logger.warning(f"[BestNAI] 找不到生图接口提供商 ID: {provider_id}")
-            return
+            return "", ""
 
         p_conf = getattr(provider, "provider_config", {}) or {}
 
@@ -1138,31 +1159,67 @@ class BestNAIPlugin(Star):
 
         if not base_url:
             logger.warning(f"[BestNAI] 生图接口提供商 {provider_id} 缺少 API Base")
-            return
+            return "", ""
 
         if not api_key:
             logger.warning(f"[BestNAI] 生图接口提供商 {provider_id} 缺少 API Key")
-            return
+            return "", ""
 
-        self.plugin_config.api_url = str(base_url).rstrip("/")
-        self.plugin_config.api_key = str(api_key)
-        self._image_provider_resolved = True
+        return str(base_url).rstrip("/"), str(api_key)
 
-        # 生图模型跟随接口提供商配置；提供商没填模型时沿用当前值（默认 4.5）
-        provider_model = provider_model_of(provider)
-        if provider_model:
-            self.plugin_config.generation.model = provider_model
+    def _resolve_image_provider(self) -> None:
+        """解析主（4.5/默认）与 V5 两个提供商槽位。
+
+        生图模型不再跟随提供商配置，改由指令/画布节点显式决定；
+        提供商槽位只负责端点与密钥。
+        """
+        provider_id = getattr(self.plugin_config, "image_provider_id", "") or ""
+        self.plugin_config.api_url = ""
+        self.plugin_config.api_key = ""
+        # 只有真正拿到接口配置才算就绪；否则每次生图前都会再试一次
+        self._image_provider_resolved = False
+
+        if not provider_id:
+            logger.warning("[BestNAI] 未选择生图接口提供商")
         else:
-            logger.warning(
-                f"[BestNAI] 生图接口提供商 {provider_id} 未配置模型，"
-                f"回退默认 {self.plugin_config.generation.model}"
-            )
+            base_url, api_key = self._extract_provider_credentials(provider_id)
+            if base_url and api_key:
+                self.plugin_config.api_url = base_url
+                self.plugin_config.api_key = api_key
+                self._image_provider_resolved = True
+                logger.info(
+                    f"[BestNAI] 已使用生图接口提供商：{provider_id}，"
+                    f"api_base={self.plugin_config.api_url}"
+                )
 
-        logger.info(
-            f"[BestNAI] 已使用生图接口提供商：{provider_id}，"
-            f"api_base={self.plugin_config.api_url}，"
-            f"model={self.plugin_config.generation.model}"
-        )
+        # V5 槽位：留空则复用主提供商，不算失败
+        v5_provider_id = getattr(self.plugin_config, "image_provider_id_v5", "") or ""
+        self.plugin_config.api_url_v5 = ""
+        self.plugin_config.api_key_v5 = ""
+        self._image_provider_v5_resolved = not v5_provider_id
+
+        if v5_provider_id:
+            v5_url, v5_key = self._extract_provider_credentials(v5_provider_id)
+            if v5_url and v5_key:
+                self.plugin_config.api_url_v5 = v5_url
+                self.plugin_config.api_key_v5 = v5_key
+                self._image_provider_v5_resolved = True
+                logger.info(
+                    f"[BestNAI] 已使用 V5 生图接口提供商：{v5_provider_id}，"
+                    f"api_base={self.plugin_config.api_url_v5}"
+                )
+
+    def _provider_credentials_for_model(self, model: str) -> Tuple[str, str]:
+        """按本次请求的模型挑提供商：V5 优先专用槽位，缺省回落主槽位。"""
+        if model_supports_cjk(model):
+            cfg = self.plugin_config
+            if cfg.api_url_v5 and cfg.api_key_v5:
+                return cfg.api_url_v5, cfg.api_key_v5
+            if getattr(self, "_image_provider_v5_resolved", False) is False:
+                logger.warning(
+                    "[BestNAI] V5 生图接口提供商未就绪/未配置，回落主提供商"
+                )
+        return self.plugin_config.api_url, self.plugin_config.api_key
 
     def _ensure_image_provider_ready(self) -> None:
         """
@@ -1170,11 +1227,13 @@ class BestNAIPlugin(Star):
         只要提供商还没真正解析成功，就在每次生图前再试一次，
         避免必须手动重载插件。
         """
-        if getattr(self, "_image_provider_resolved", False):
+        if not getattr(self, "_image_provider_resolved", False):
+            logger.info("[BestNAI] 生图接口尚未就绪，尝试重新解析生图提供商")
+            self._resolve_image_provider()
             return
 
-        logger.info("[BestNAI] 生图接口尚未就绪，尝试重新解析生图提供商")
-        self._resolve_image_provider()
+        if not getattr(self, "_image_provider_v5_resolved", False):
+            self._resolve_image_provider()
 
     def _load_ratio_presets(self) -> Dict[str, Tuple[int, int]]:
         base_presets = CANVAS_RATIO_PRESETS
@@ -1914,7 +1973,11 @@ class BestNAIPlugin(Star):
         fallback_ratio: str = "",
         user_ratio_prompt: Optional[str] = None,
         seed: Optional[int] = None,
+        model: str = "",
     ) -> AsyncGenerator:
+        # 模型由指令显式决定（/nai=4.5、/nai5=V5、/nai0=面板选择），
+        # 缺省沿用主配置
+        current_model = resolve_model_choice(model) if model else self.plugin_config.generation.model
         if raw_mode:
             prompt = self._strip_named_command_prefix(prompt, "nai0")
         else:
@@ -2048,6 +2111,9 @@ class BestNAIPlugin(Star):
                     quality=False,
                 )
 
+            # 模型由指令决定（/nai=4.5、/nai5=V5、/nai0=面板选择）
+            gen_config = replace(gen_config, model=current_model)
+
         except Exception as e:
             yield event.plain_result(
                 f"❌ 无效比例/尺寸：{ratio_name}\n"
@@ -2074,7 +2140,6 @@ class BestNAIPlugin(Star):
 
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
-        current_model = self.plugin_config.generation.model
 
         # nai0 原始提示词模式与 V5 中文直通都不翻译（非 ASCII 清理见下方）
         if not raw_mode and not model_supports_cjk(current_model) and has_chinese(clean_prompt):
@@ -2154,10 +2219,13 @@ class BestNAIPlugin(Star):
                 )
 
             async with self._generation_semaphore:
+                api_url, api_key = self._provider_credentials_for_model(current_model)
                 result = await self.generator.generate(
                     final_prompt,
                     gen_config,
                     seed=seed,
+                    api_url=api_url,
+                    api_key=api_key,
                 )
 
             images = result.images
@@ -2205,8 +2273,15 @@ class BestNAIPlugin(Star):
         self,
         event: AstrMessageEvent,
         raw_mode: bool = False,
+        model: str = "",
     ) -> AsyncGenerator:
         command_name = "nai0" if raw_mode else "nai"
+        if not model:
+            model = (
+                self.plugin_config.nai0_model
+                if raw_mode
+                else self.plugin_config.generation.model
+            )
 
         prompt = self._strip_named_command_prefix(event.message_str, command_name)
         _, prompt = extract_retag_mode(prompt)
@@ -2436,6 +2511,7 @@ class BestNAIPlugin(Star):
                 fallback_ratio=inferred_ratio,
                 user_ratio_prompt=prompt,
                 seed=source_seed if metadata_retag else None,
+                model=model,
             ):
                 yield result
 
@@ -2458,18 +2534,29 @@ class BestNAIPlugin(Star):
             event=event,
             prompt=prompt,
             raw_mode=raw_mode,
+            model=model,
         ):
             yield result
 
     @filter.command("nai")
     async def cmd_nai(self, event: AstrMessageEvent) -> AsyncGenerator:
-        """NAI 生图。用法：/nai 提示词；/nai + 图片 反推图片提示词后生图；/nai @某人 使用头像反推生图。"""
-        async for result in self._handle_nai_command(event, raw_mode=False):
+        """NAI 生图（4.5 模型）。用法：/nai 提示词；/nai + 图片 反推图片提示词后生图；/nai @某人 使用头像反推生图。"""
+        async for result in self._handle_nai_command(
+            event, raw_mode=False, model=MODEL_V45_FULL
+        ):
+            yield result
+
+    @filter.command("nai5")
+    async def cmd_nai5(self, event: AstrMessageEvent) -> AsyncGenerator:
+        """NAI 生图（V5 模型）。用法：/nai5 提示词；支持中文自然语言提示。"""
+        async for result in self._handle_nai_command(
+            event, raw_mode=False, model=MODEL_V5_FULL
+        ):
             yield result
 
     @filter.command("nai0")
     async def cmd_nai0(self, event: AstrMessageEvent) -> AsyncGenerator:
-        """NAI 原始提示词生图。不会追加画师串和质量提示词，但仍沿用负面提示词。"""
+        """NAI 原始提示词生图。不会追加画师串和质量提示词，模型在插件面板选择。"""
         async for result in self._handle_nai_command(event, raw_mode=True):
             yield result
 

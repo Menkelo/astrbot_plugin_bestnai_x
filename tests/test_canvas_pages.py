@@ -195,11 +195,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("clearTranslationCache(node)", prompt_input)
         # 英文 tags 只读框已删除，但翻译结果仍要留在 meta 里供复用
         self.assertNotIn("translated-prompt-text", editor)
-        self.assertIn("translatedPrompt: result.meta?.translatedPrompt", editor)
+        self.assertIn("translatedPrompt: lastMeta?.translatedPrompt", editor)
         self.assertIn("cachedTranslationSource: node.meta?.translationSource", editor)
         self.assertIn("cachedTranslation: node.meta?.translationResult", editor)
-        self.assertIn("translationSource: result.meta?.translationSource", editor)
-        self.assertIn("translationResult: result.meta?.translationResult", editor)
+        self.assertIn("translationSource: lastMeta?.translationSource", editor)
+        self.assertIn("translationResult: lastMeta?.translationResult", editor)
         self.assertNotIn("node.ratio = result.ratio", retag_body)
         self.assertIn('"正在复用英文 tags 并生成图片…"', editor)
         self.assertNotIn('label: "不使用画师预设"', editor)
@@ -802,9 +802,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const latestEdge = [...state.connections].reverse().find", editor)
         self.assertIn("x: latestImage.x + 56", editor)
         self.assertIn("y: latestImage.y - 36", editor)
-        self.assertIn("const position = findNextGeneratedPosition(", editor)
+        self.assertIn("position = findNextGeneratedPosition(", editor)
         self.assertIn("function rectanglesOverlap", editor)
-        self.assertIn("estimatedImageNodeHeight(imageNodeWidth, sourceWidth, sourceHeight)", editor)
+        self.assertIn(
+            "estimatedImageNodeHeight(\n          imageNodeWidth,\n          sourceWidth,\n          sourceHeight,\n        )",
+            editor,
+        )
         self.assertIn("x: position.x", editor)
         self.assertIn("y: position.y", editor)
         self.assertIn("const editing = !!target?.closest", editor)
@@ -838,8 +841,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.6.3", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.6.3"', constants)
+        self.assertIn("version: 3.7.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.7.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1059,8 +1062,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 命中内嵌参数时缓存原图采样参数，生成时随载荷回传
         for key in ("retagSteps", "retagScale", "retagCfgRescale", "retagNoiseSchedule"):
             self.assertIn(f"{key}: result.fromMetadata", editor)
-        self.assertIn("cfgRescale: node.meta?.retagCfgRescale || undefined", editor)
-        self.assertIn("noiseSchedule: node.meta?.retagNoiseSchedule || undefined", editor)
+        self.assertIn(
+            "cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined",
+            editor,
+        )
+        self.assertIn("noise_schedule: node.meta?.retagNoiseSchedule || undefined", editor)
         # 断开重连时这些缓存必须一并清除
         for key in (
             "retagSteps",
@@ -1100,6 +1106,38 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("placeholder.replaceWith(image)", stack_body)
         self.assertIn(".asset-stack-thumb.is-loading", styles)
 
+    def test_dual_model_commands_and_canvas_model_select(self) -> None:
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # /nai=4.5、/nai5=V5、/nai0=面板选择；V5 专用提供商槽位回落主提供商
+        self.assertIn('@filter.command("nai5")', main_source)
+        self.assertIn("model=MODEL_V5_FULL", main_source)
+        self.assertIn("model=MODEL_V45_FULL", main_source)
+        self.assertIn("self.plugin_config.nai0_model", main_source)
+        self.assertIn("def _provider_credentials_for_model", main_source)
+        # 画布配置暴露模型列表与默认模型，节点选择随载荷提交
+        self.assertIn('"defaultModel": self.plugin_config.canvas_model', main_source)
+        self.assertIn("resolve_model_choice(", main_source)
+        self.assertIn("const modelField = makeSelectField(", editor)
+        self.assertIn("model: node.model || state.config.defaultModel", editor)
+
+    def test_prompt_card_advanced_params_and_count(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 高级参数折叠卡：步数 / 引导 / Rescale / Variety+
+        self.assertIn('advToggle.textContent = "高级参数"', editor)
+        self.assertIn("varietyPlus: !!node.meta?.varietyBoost", editor)
+        # 生成张数：1-4，>1 时两列网格（4 张 = 2×2 四方格）
+        self.assertIn('"张数"', editor)
+        self.assertIn(
+            "const totalCount = clamp(Math.round(Number(node.meta?.count)) || 1, 1, 4)",
+            editor,
+        )
+        self.assertIn("(slot % 2) * (imageNodeWidth + 48)", editor)
+        # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖
+        self.assertEqual(editor.count("node.meta?.retagSteps || undefined"), 1)
+
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
@@ -1131,7 +1169,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("retagBasePrompt", cache_body)
         self.assertIn("clearTranslationCache(node);", input_body)
         self.assertNotIn("clearRetagCache(node);", input_body)
-        self.assertIn("seed: retagged ? reusableRetagSeed(node) : undefined", editor)
+        self.assertIn(
+            "const callSeed = index === 0 && retagged ? reusableRetagSeed(node) : undefined",
+            editor,
+        )
         self.assertIn("The seed belongs to the source image", editor)
 
     def test_debug_bar_is_a_persistent_aligned_recorder(self) -> None:

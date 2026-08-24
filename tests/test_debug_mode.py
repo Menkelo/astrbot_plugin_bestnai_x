@@ -212,7 +212,7 @@ class DebugModeWiringTest(unittest.TestCase):
     def test_frontend_keeps_the_recorder_visible_and_gates_only_details(self) -> None:
         self.assertIn("function makeDebugPanel(node)", self.editor)
         self.assertIn("if (!debugModeEnabled() || !runs.length) return null;", self.editor)
-        self.assertIn('recordRunDebug(node, "generate", result.meta?.debug)', self.editor)
+        self.assertIn('recordRunDebug(node, "generate", lastDebug)', self.editor)
         self.assertIn('recordRunDebug(node, "retag", result.debug)', self.editor)
         self.assertIn(".debug-bar {", self.styles)
         self.assertIn("els.debugBar.hidden = false;", self.editor)

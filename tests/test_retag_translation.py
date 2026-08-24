@@ -107,9 +107,13 @@ class FreeTierStepsCapTest(unittest.TestCase):
         self.assertIn("MAX_STEPS = 28", self.main)
         self.assertNotIn("MAX_STEPS = 50", self.main)
 
-    def test_frontend_does_not_override_steps(self) -> None:
+    def test_frontend_steps_follow_priority_chain(self) -> None:
         self.assertNotIn("steps: { default: 28, min: 1, max: 28 }", self.editor)
-        self.assertNotIn("steps: node.meta?.steps", self.editor)
+        # 节点高级参数卡 > 反推命中的原图参数 > 插件默认（后端仍封顶 28）
+        self.assertIn(
+            "steps: node.meta?.steps || node.meta?.retagSteps || undefined",
+            self.editor,
+        )
 
     def test_frontend_has_no_generation_parameter_slider(self) -> None:
         self.assertNotIn("function makeAdvancedPanel", self.editor)

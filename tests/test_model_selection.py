@@ -25,6 +25,7 @@ from astrbot_plugin_bestnai_x.models.config import (  # noqa: E402
     MODEL_V5_FULL,
     GenerationConfig,
     PluginConfig,
+    resolve_model_choice,
 )
 from astrbot_plugin_bestnai_x.services.prompt_builder import PromptBuilder  # noqa: E402
 
@@ -35,6 +36,36 @@ class ModelSelectionTest(unittest.TestCase):
 
         self.assertEqual(config.generation.model, MODEL_V45_FULL)
         self.assertEqual(FIXED_MODEL, MODEL_V45_FULL)
+
+    def test_nai0_and_canvas_model_choices_are_parsed(self) -> None:
+        config = PluginConfig.from_dict(
+            {
+                "generation_config": {
+                    "nai0_model": MODEL_V5_FULL,
+                    "canvas_model": MODEL_V5_FULL,
+                }
+            }
+        )
+
+        self.assertEqual(config.nai0_model, MODEL_V5_FULL)
+        self.assertEqual(config.canvas_model, MODEL_V5_FULL)
+
+        fallback = PluginConfig.from_dict(
+            {"generation_config": {"nai0_model": "nai-diffusion-999"}}
+        )
+        self.assertEqual(fallback.nai0_model, MODEL_V45_FULL)
+
+    def test_resolve_model_choice_validates(self) -> None:
+        self.assertEqual(resolve_model_choice(MODEL_V5_FULL), MODEL_V5_FULL)
+        self.assertEqual(resolve_model_choice("junk"), FIXED_MODEL)
+        self.assertEqual(resolve_model_choice(None), FIXED_MODEL)
+
+    def test_v5_slot_defaults_to_empty(self) -> None:
+        config = PluginConfig.from_dict({})
+
+        self.assertEqual(config.image_provider_id_v5, "")
+        self.assertEqual(config.api_url_v5, "")
+        self.assertEqual(config.api_key_v5, "")
 
     def test_provider_model_flows_into_api_params(self) -> None:
         # 生图模型跟随接口提供商，运行时写入 generation.model

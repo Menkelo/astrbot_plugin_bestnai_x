@@ -1331,7 +1331,125 @@ function renderPromptNode(node) {
     scheduleSave();
     recordOperation("修改画师", `${node.title || "提示词节点"} · ${value || "无预设"}`);
   });
-  options.append(ratioField, artistField);
+  const modelOptions = (state.config.models || []).slice();
+  if (!modelOptions.length) {
+    modelOptions.push(
+      { value: "nai-diffusion-4-5-full", label: "V4.5 Full" },
+      { value: "nai-diffusion-5-full", label: "V5 Full" },
+    );
+  }
+  const modelField = makeSelectField(
+    "模型",
+    modelOptions,
+    node.model || state.config.defaultModel,
+    (value) => {
+      node.model = value;
+      clearDebugTrace(node);
+      scheduleSave();
+      recordOperation("切换模型", `${node.title || "提示词节点"} · ${value}`);
+    },
+  );
+  options.append(ratioField, artistField, modelField);
+
+  // 高级参数折叠卡：步数 / 引导强度 / CFG Rescale / Variety+。
+  // 留空时依次回落：反推命中的原图参数 → 插件默认值。
+  const advWrap = document.createElement("div");
+  advWrap.className = "adv-params";
+  const advToggle = document.createElement("button");
+  advToggle.type = "button";
+  advToggle.className = "adv-toggle";
+  advToggle.textContent = "高级参数";
+  const advPanel = document.createElement("div");
+  advPanel.className = "adv-panel";
+  advPanel.hidden = true;
+  advToggle.addEventListener("click", () => {
+    advPanel.hidden = !advPanel.hidden;
+    advToggle.classList.toggle("open", !advPanel.hidden);
+  });
+  const advNumber = (label, key, retagKey, min, max, step, tooltip, fallback) => {
+    const field = document.createElement("label");
+    field.className = "field-label adv-field";
+    field.title = tooltip;
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "node-select adv-number";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.placeholder = String(
+      node.meta?.[key] ?? node.meta?.[retagKey] ?? fallback ?? "",
+    );
+    input.value = node.meta?.[key] ?? "";
+    input.addEventListener("change", () => {
+      const raw = input.value.trim();
+      node.meta = { ...(node.meta || {}) };
+      if (raw === "") {
+        delete node.meta[key];
+        input.placeholder = String(node.meta?.[retagKey] ?? fallback ?? "");
+      } else {
+        const num = Number(raw);
+        if (Number.isFinite(num)) {
+          node.meta[key] = Math.min(max, Math.max(min, num));
+          input.value = String(node.meta[key]);
+        }
+      }
+      clearDebugTrace(node);
+      scheduleSave();
+    });
+    field.append(caption, input);
+    return field;
+  };
+  const advRow = document.createElement("div");
+  advRow.className = "adv-row";
+  advRow.append(
+    advNumber(
+      "步数",
+      "steps",
+      "retagSteps",
+      1,
+      28,
+      1,
+      "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费",
+      28,
+    ),
+    advNumber(
+      "引导",
+      "scale",
+      "retagScale",
+      1,
+      10,
+      0.1,
+      "提示词引导强度（Prompt Guidance / CFG）：越高越贴合提示词、细节更锐，过高会过饱和；V4.5/V5 建议 5-7",
+      7,
+    ),
+    advNumber(
+      "Rescale",
+      "cfgRescale",
+      "retagCfgRescale",
+      0,
+      1,
+      0.05,
+      "CFG Rescale：抑制高引导下的色彩过曝（deepfried 观感），常用 0-0.3",
+      0,
+    ),
+  );
+  const varietyLabel = document.createElement("label");
+  varietyLabel.className = "raw-toggle adv-variety";
+  varietyLabel.dataset.tooltip = "Variety+：提升构图与姿态多样性，缓解高引导下出图雷同；默认关闭";
+  const variety = document.createElement("input");
+  variety.type = "checkbox";
+  variety.checked = !!node.meta?.varietyBoost;
+  variety.addEventListener("change", () => {
+    node.meta = { ...(node.meta || {}), varietyBoost: variety.checked };
+    clearDebugTrace(node);
+    scheduleSave();
+  });
+  varietyLabel.append(variety, document.createTextNode("Variety+"));
+  advPanel.append(advRow, varietyLabel);
+  advWrap.append(advToggle, advPanel);
+
   const footer = document.createElement("div");
   footer.className = "node-footer";
   const rawLabel = document.createElement("label");
@@ -1368,7 +1486,16 @@ function renderPromptNode(node) {
     runPromptNode(node.id);
   });
   commands.append(generate);
-  footer.append(rawLabel, commands);
+  const countField = makeSelectField(
+    "张数",
+    [1, 2, 3, 4].map((n) => ({ value: String(n), label: `${n} 张` })),
+    String(clamp(Math.round(Number(node.meta?.count)) || 1, 1, 4)),
+    (value) => {
+      node.meta = { ...(node.meta || {}), count: clamp(parseInt(value, 10) || 1, 1, 4) };
+      scheduleSave();
+    },
+  );
+  footer.append(countField, rawLabel, commands);
 
   const status = document.createElement("div");
   status.className = `node-status${node.error ? " error" : ""}`;
@@ -1383,7 +1510,7 @@ function renderPromptNode(node) {
   outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
-  body.append(prompt, options, footer, status);
+  body.append(prompt, options, advWrap, footer, status);
   const retagLayerCard = makeRetagLayerCard(node, sourceImage, element);
   if (retagLayerCard) element.appendChild(retagLayerCard);
   const resizeHandle = document.createElement("span");
@@ -3119,8 +3246,16 @@ async function generateFromNode(id, {
     const retagLayerCategories = retagged
       ? retagLayerCategoryLists(node)
       : { preserve: [], drop: [] };
-    const result = await bridge.apiPost("canvas/generate", {
+    const totalCount = clamp(Math.round(Number(node.meta?.count)) || 1, 1, 4);
+    const buildPayload = (callSeed) => ({
       prompt: workingPrompt,
+      model: node.model || state.config.defaultModel || "",
+      // 优先级：节点高级参数卡 > 反推命中的原图参数 > 插件默认
+      steps: node.meta?.steps || node.meta?.retagSteps || undefined,
+      scale: node.meta?.scale || node.meta?.retagScale || undefined,
+      cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined,
+      noise_schedule: node.meta?.retagNoiseSchedule || undefined,
+      varietyPlus: !!node.meta?.varietyBoost,
       retagPrompt: requestRetagPrompt,
       retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
       retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
@@ -3137,74 +3272,125 @@ async function generateFromNode(id, {
       debug: debugModeEnabled(),
       retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : [],
       retagUseCoords: retagged ? !!node.meta?.retagUseCoords : false,
-      // 命中过内嵌参数时沿用原图采样参数；缺省时后端用插件配置默认值
-      steps: node.meta?.retagSteps || undefined,
-      scale: node.meta?.retagScale || undefined,
-      cfgRescale: node.meta?.retagCfgRescale || undefined,
-      noiseSchedule: node.meta?.retagNoiseSchedule || undefined,
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       // A seed collected from an image belongs to the retag flow.  If the
       // source connection was removed, a plain prompt generation must not
       // silently inherit that old seed.
-      seed: retagged ? reusableRetagSeed(node) : undefined,
+      seed: callSeed,
     });
-    const assets = Array.isArray(result?.assets) ? result.assets : [];
-    if (!assets.length) throw new Error("服务未返回图片");
-    pushHistory();
+    const baseStatus = !willTranslate
+      ? node.raw
+        ? "正在生成图片（原始提示词）"
+        : "正在生成图片"
+      : canReuseTranslation
+        ? "正在复用英文 tags 并生成图片"
+        : "正在翻译并生成图片";
+    const createdIds = [];
+    let gridBase = null;
+    let lastDebug = null;
+    let lastMeta = null;
+    let failures = 0;
+    let historyPushed = false;
+
+    for (let index = 0; index < totalCount; index += 1) {
+      // 多张时首张沿用反推种子保证可复现，其余随机避免重复
+      const callSeed = index === 0 && retagged ? reusableRetagSeed(node) : undefined;
+      if (totalCount > 1) {
+        node.statusText = `${baseStatus}… (${index + 1}/${totalCount})`;
+        renderAll();
+      }
+
+      let result;
+      try {
+        result = await bridge.apiPost("canvas/generate", buildPayload(callSeed));
+      } catch (error) {
+        failures += 1;
+        if (!createdIds.length) throw error;
+        recordOperation("部分生成失败", error.message || "生成失败", "warning");
+        break;
+      }
+      const assets = Array.isArray(result?.assets) ? result.assets : [];
+      if (!assets.length) {
+        failures += 1;
+        if (!createdIds.length) throw new Error("服务未返回图片");
+        break;
+      }
+      lastDebug = result.meta?.debug;
+      lastMeta = result.meta;
+      assets.forEach((asset) => {
+        const sourceWidth = asset.width || result.meta?.width;
+        const sourceHeight = asset.height || result.meta?.height;
+        const imageNodeWidth = fittedImageNodeWidth(sourceWidth, sourceHeight);
+        const imageNodeHeight = estimatedImageNodeHeight(
+          imageNodeWidth,
+          sourceWidth,
+          sourceHeight,
+        );
+        let position;
+        if (totalCount > 1) {
+          // 两列网格排布：4 张正好凑成 2×2 四方格
+          if (!gridBase) {
+            gridBase = findNextGeneratedPosition(node, imageNodeWidth, imageNodeHeight);
+          }
+          const slot = createdIds.length;
+          position = {
+            x: gridBase.x + (slot % 2) * (imageNodeWidth + 48),
+            y: gridBase.y + Math.floor(slot / 2) * (imageNodeHeight + 48),
+          };
+        } else {
+          position = findNextGeneratedPosition(node, imageNodeWidth, imageNodeHeight);
+        }
+        if (!historyPushed) {
+          pushHistory();
+          historyPushed = true;
+        }
+        const imageNode = {
+          id: uid("image"),
+          type: "image",
+          x: position.x,
+          y: position.y,
+          width: imageNodeWidth,
+          title: `${retagged ? "反推图片" : "生成结果"} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+          assetId: asset.id,
+          dataUrl: asset.dataUrl,
+          createdAt: new Date().toISOString(),
+          meta: {
+            prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
+            tags: result.meta?.translatedPrompt || workingPrompt,
+            tagTranslations: normalizeRetagTagTranslations(node.meta?.retagTagTranslations),
+            artist: result.meta?.artist || "",
+            ratio: result.meta?.ratio || node.ratio,
+            retagged,
+            width: sourceWidth,
+            height: sourceHeight,
+            finalPrompt: result.meta?.finalPrompt || "",
+            seed: normalizeNaiSeed(result.meta?.seed),
+            steps: result.meta?.steps || 0,
+            scale: result.meta?.scale || 0,
+          },
+        };
+        state.nodes.push(imageNode);
+        state.connections.push({ source: node.id, target: imageNode.id });
+        createdIds.push(imageNode.id);
+      });
+    }
+
+    if (!createdIds.length) throw new Error("服务未返回图片");
     node.meta = {
       ...(node.meta || {}),
-      translatedPrompt: result.meta?.translatedPrompt || requestRetagPrompt || "",
-      translationSource: result.meta?.translationSource || "",
-      translationResult: result.meta?.translationResult || "",
-      translationCharacter: result.meta?.translationCharacter || "",
-      translationSeries: result.meta?.translationSeries || "",
+      translatedPrompt: lastMeta?.translatedPrompt || requestRetagPrompt || "",
+      translationSource: lastMeta?.translationSource || "",
+      translationResult: lastMeta?.translationResult || "",
+      translationCharacter: lastMeta?.translationCharacter || "",
+      translationSeries: lastMeta?.translationSeries || "",
     };
-    recordRunDebug(node, "generate", result.meta?.debug);
-    const createdIds = [];
-    assets.forEach((asset) => {
-      const sourceWidth = asset.width || result.meta?.width;
-      const sourceHeight = asset.height || result.meta?.height;
-      const imageNodeWidth = fittedImageNodeWidth(sourceWidth, sourceHeight);
-      const position = findNextGeneratedPosition(
-        node,
-        imageNodeWidth,
-        estimatedImageNodeHeight(imageNodeWidth, sourceWidth, sourceHeight),
-      );
-      const imageNode = {
-        id: uid("image"),
-        type: "image",
-        x: position.x,
-        y: position.y,
-        width: imageNodeWidth,
-        title: `${retagged ? "反推图片" : "生成结果"} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-        assetId: asset.id,
-        dataUrl: asset.dataUrl,
-        createdAt: new Date().toISOString(),
-        meta: {
-          prompt: node.prompt?.trim() || node.title || (retagged ? "反推图片" : "生成结果"),
-          tags: result.meta?.translatedPrompt || workingPrompt,
-          tagTranslations: normalizeRetagTagTranslations(node.meta?.retagTagTranslations),
-          artist: result.meta?.artist || "",
-          ratio: result.meta?.ratio || node.ratio,
-          retagged,
-          width: sourceWidth,
-          height: sourceHeight,
-          finalPrompt: result.meta?.finalPrompt || "",
-          seed: normalizeNaiSeed(result.meta?.seed),
-          steps: result.meta?.steps || 0,
-          scale: result.meta?.scale || 0,
-        },
-      };
-      state.nodes.push(imageNode);
-      state.connections.push({ source: node.id, target: imageNode.id });
-      createdIds.push(imageNode.id);
-    });
+    recordRunDebug(node, "generate", lastDebug);
     setSelection(createdIds, createdIds[createdIds.length - 1]);
     node.statusText = retagged
-      ? `反推完成 · 已合并提示词并生成 ${assets.length} 张图片`
-      : `已生成 ${assets.length} 张图片`;
-    toast("生成完成");
-    recordOperation("生成完成", `已生成 ${assets.length} 张图片`, "success");
+      ? `反推完成 · 已合并提示词并生成 ${createdIds.length} 张图片`
+      : `已生成 ${createdIds.length} 张图片`;
+    toast(failures ? `已生成 ${createdIds.length} 张，${failures} 张失败` : "生成完成");
+    recordOperation("生成完成", `已生成 ${createdIds.length} 张图片`, "success");
     renderAll();
     scheduleSave();
   } catch (error) {

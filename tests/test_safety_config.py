@@ -158,12 +158,13 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertEqual(prompt_words["type"], "list")
         self.assertEqual(prompt_words["default"], HARD_BLOCK_WORDS)
 
-    def test_schema_only_exposes_the_generation_provider(self) -> None:
+    def test_schema_exposes_generation_providers(self) -> None:
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
         api_config = schema["api_config"]
 
         self.assertEqual(api_config["description"], "生图接口配置")
-        self.assertEqual(list(api_config["items"]), ["provider_id"])
+        # 主提供商（4.5/默认）+ V5 专用槽位
+        self.assertEqual(list(api_config["items"]), ["provider_id", "provider_id_v5"])
 
     def test_legacy_manual_generation_fields_are_ignored(self) -> None:
         config = PluginConfig.from_dict(

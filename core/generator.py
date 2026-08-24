@@ -70,12 +70,18 @@ class ImageGenerator:
         prompt: str,
         gen_config: GenerationConfig,
         seed: Optional[int] = None,
+        api_url: str = "",
+        api_key: str = "",
     ) -> "GenerationResult":
-        if not self.config.api_url or not self.config.api_key:
+        # 模型分档后允许按次指定端点（如 /nai5 走 V5 提供商）；
+        # 缺省回落插件主提供商
+        base_url = (api_url or self.config.api_url).rstrip("/")
+        access_key = (api_key or self.config.api_key).strip()
+
+        if not base_url or not access_key:
             raise APIKeyError("生图接口提供商未就绪，请检查提供商的 API 地址与 Key")
 
-        api_base = self.config.api_url.rstrip("/")
-        api_key = self.config.api_key.strip()
+        api_base = base_url
 
         # 种子在这里定一次，两条端点路径和 fallback 共用同一个值。
         # 以前两个方法各自随机，fallback 后拿到的图和日志里的种子对不上。
@@ -84,7 +90,7 @@ class ImageGenerator:
         try:
             images = await self._generate_by_images_endpoint(
                 api_base=api_base,
-                api_key=api_key,
+                api_key=access_key,
                 prompt=prompt,
                 gen_config=gen_config,
                 seed=resolved_seed,
@@ -99,7 +105,7 @@ class ImageGenerator:
 
                 images = await self._generate_by_chat_endpoint(
                     api_base=api_base,
-                    api_key=api_key,
+                    api_key=access_key,
                     prompt=prompt,
                     gen_config=gen_config,
                     seed=resolved_seed,
@@ -151,7 +157,7 @@ class ImageGenerator:
             payload=payload,
         )
 
-        images = await self._extract_images_from_response(data, api_key=api_key)
+        images = await self._extract_images_from_response(data, api_key=api_key, api_base=api_base)
 
         if not images:
             raise GenerationError("API 未返回图片")
@@ -233,7 +239,7 @@ class ImageGenerator:
             payload=payload,
         )
 
-        images = await self._extract_images_from_response(data, api_key=api_key)
+        images = await self._extract_images_from_response(data, api_key=api_key, api_base=api_base)
 
         if not images:
             content = self._extract_chat_content(data)
@@ -395,6 +401,7 @@ class ImageGenerator:
         self,
         data: Any,
         api_key: str,
+        api_base: str = "",
     ) -> List[Tuple[str, bytes]]:
         images: List[Tuple[str, bytes]] = []
 
@@ -408,7 +415,7 @@ class ImageGenerator:
 
         for url in urls:
             try:
-                img_bytes, img_format = await self._download_image(url, api_key=api_key)
+                img_bytes, img_format = await self._download_image(url, api_key=api_key, api_base=api_base)
                 if img_bytes:
                     images.append((img_format, img_bytes))
             except Exception as e:
@@ -420,7 +427,7 @@ class ImageGenerator:
         content = self._extract_chat_content(data)
 
         if content:
-            content_images = await self._extract_images_from_text(content, api_key=api_key)
+            content_images = await self._extract_images_from_text(content, api_key=api_key, api_base=api_base)
             images.extend(content_images)
 
         return images
@@ -549,6 +556,7 @@ class ImageGenerator:
         self,
         text: str,
         api_key: str,
+        api_base: str = "",
     ) -> List[Tuple[str, bytes]]:
         images: List[Tuple[str, bytes]] = []
 
@@ -579,7 +587,7 @@ class ImageGenerator:
         # markdown / 普通 URL
         for url in self._find_image_urls(text):
             try:
-                img_bytes, img_format = await self._download_image(url, api_key=api_key)
+                img_bytes, img_format = await self._download_image(url, api_key=api_key, api_base=api_base)
                 if img_bytes:
                     images.append((img_format, img_bytes))
             except Exception as e:
@@ -710,16 +718,17 @@ class ImageGenerator:
 
         return "png"
 
-    def _is_api_host(self, url: str) -> bool:
-        """判断 url 是否指向已配置的生图 API 主机。
+    def _is_api_host(self, url: str, api_base: str = "") -> bool:
+        """判断 url 是否指向本次请求的生图 API 主机。
 
         模型输出里的链接是不可信的：`_find_image_urls` 会抓出任意 http(s) 地址，
         只有回到 API 自己的主机时才允许带上 Authorization 头，
         否则 API Key 会被送给模型指定的任意第三方。
+        分模型提供商后以当次请求的端点为准，缺省回落主提供商。
         """
         try:
             target = urlparse(url)
-            configured = urlparse(self.config.api_url or "")
+            configured = urlparse(api_base or self.config.api_url or "")
         except Exception:
             return False
 
@@ -741,12 +750,13 @@ class ImageGenerator:
         self,
         url: str,
         api_key: str = "",
+        api_base: str = "",
     ) -> Tuple[bytes, str]:
         headers = {
             "Accept": "image/*,*/*",
         }
 
-        if api_key and self._is_api_host(url):
+        if api_key and self._is_api_host(url, api_base):
             headers["Authorization"] = f"Bearer {api_key}"
         elif api_key:
             logger.info(
