@@ -86,7 +86,6 @@ from .services.nai_metadata import (
 from .services.runtime_state import RuntimeStateService
 
 
-FIXED_MODEL = "nai-diffusion-4-5-full"
 SAFETY_BLOCK_REPLY = "⚠️ 未能通过安全检测，已拦截"
 
 # 画布可手动调节的生图参数范围
@@ -97,8 +96,8 @@ MIN_SCALE = 1.0
 MAX_SCALE = 10.0
 
 
-# NovelAI 4.5-compatible canvas presets. Every dimension is a 64 multiple and
-# stays below the plugin's ~1.1 MP safety limit.
+# NovelAI 4.5 / V5 compatible canvas presets. Every dimension is a 64 multiple
+# and stays below the plugin's ~1.1 MP safety limit.
 CANVAS_RATIO_PRESETS: Dict[str, Tuple[int, int]] = {
     "16:9": (1216, 704),
     "9:16": (704, 1216),
@@ -206,7 +205,7 @@ class BestNAIPlugin(Star):
             f"图片反推={'开启' if self.plugin_config.image_retag.enabled else '关闭'}，"
             f"反推提供商={self.plugin_config.image_retag.provider_id or '(未选择)'}，"
             f"配置默认画师预设={artist_source}，"
-            f"模型={FIXED_MODEL}，"
+            f"模型={self.plugin_config.generation.model}，"
             f"默认比例={self.default_ratio}，"
             f"插件数据目录={self.artist_gallery.plugin_data_dir}"
         )
@@ -246,7 +245,7 @@ class BestNAIPlugin(Star):
                 "repo": PLUGIN_REPO,
             },
             "configured": self.plugin_config.is_configured(),
-            "model": FIXED_MODEL,
+            "model": self.plugin_config.generation.model,
             "defaultRatio": self._normalize_ratio_label(self.default_ratio),
             "defaultArtist": self._get_default_artist_display_name(),
             "ratios": ratios,
@@ -817,7 +816,7 @@ class BestNAIPlugin(Star):
         trace.note(
             "生图请求参数",
             {
-                "model": FIXED_MODEL,
+                "model": gen_config.model,
                 "width": gen_config.width,
                 "height": gen_config.height,
                 "steps": gen_config.steps,
@@ -862,7 +861,7 @@ class BestNAIPlugin(Star):
                 "retagPreserveCategories": ordered_retag_preserve_categories,
                 "retagDropCategories": ordered_retag_drop_categories,
                 "raw": raw_mode,
-                "model": FIXED_MODEL,
+                "model": gen_config.model,
                 "seed": result.seed,
                 "steps": gen_config.steps,
                 "scale": gen_config.scale,

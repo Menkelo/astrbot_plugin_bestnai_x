@@ -2,7 +2,14 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
-FIXED_MODEL = "nai-diffusion-4-5-full"
+MODEL_V45_FULL = "nai-diffusion-4-5-full"
+# NovelAI 官方 2026-08 发布的 V5 Full，生成参数与 V4.5 Full 一致
+# （832x1216 起步、Euler Ancestral、Karras），仅模型 ID 不同。
+MODEL_V5_FULL = "nai-diffusion-5-full"
+SUPPORTED_MODELS = (MODEL_V45_FULL, MODEL_V5_FULL)
+
+# 兼容旧引用：默认模型仍是 V4.5 Full
+FIXED_MODEL = MODEL_V45_FULL
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 DEFAULT_NEGATIVE_PROMPT = "lowres, bad anatomy, bad hands, text, error, missing fingers"
 DEFAULT_DANBOORU_API_URL = "https://sakizuki-danboorusearch.hf.space"
@@ -41,7 +48,7 @@ class GenerationConfig:
         prompt_conf = config.get("prompt_config", {}) or {}
 
         return cls(
-            model=FIXED_MODEL,
+            model=resolve_configured_model(gen_conf.get("model")),
             width=832,
             height=1216,
             steps=28,
@@ -66,9 +73,9 @@ class GenerationConfig:
         gen_conf = config.get("generation_config", {}) or {}
         prompt_conf = config.get("prompt_config", {}) or {}
 
+        # 模型跟随 base（即配置面板的选择），不在这里强制回 4.5。
         return replace(
             base,
-            model=FIXED_MODEL,
             steps=28,
             scale=7.0,
             sampler=gen_conf.get("sampler", base.sampler),
@@ -376,6 +383,12 @@ class PluginConfig:
 
     def is_configured(self) -> bool:
         return bool(self.api_url and self.api_key)
+
+
+def resolve_configured_model(raw) -> str:
+    """把配置里的模型字段解析成受支持的模型 ID，非法值回退默认 4.5。"""
+    value = str(raw or "").strip()
+    return value if value in SUPPORTED_MODELS else FIXED_MODEL
 
 
 def _extract_provider_id(raw) -> str:

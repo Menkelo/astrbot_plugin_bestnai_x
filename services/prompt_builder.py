@@ -13,8 +13,6 @@ from ..core.prompt_tokens import rebuild_weighted_token, split_prompt_tokens, we
 from ..models.config import GenerationConfig, PluginConfig
 
 
-FIXED_MODEL = "nai-diffusion-4-5-full"
-
 # 反推时给用户手写提示词加的正向权重。
 # NovelAI 数值语法：`1.3::tag, tag::`，比花括号叠加更好控制强度。
 RETAG_USER_PROMPT_WEIGHT = 1.3
@@ -25,7 +23,7 @@ def apply_prompt_weight(text: str, weight: float = RETAG_USER_PROMPT_WEIGHT) -> 
 
     官方格式：权重数字紧贴 `::` 开头，用不带数字的 `::` 收尾，例如
     `1girl, 1.5::rain, night ::, 0.5::coat ::, black shoes`。
-    仅 V4 及以上模型支持，本插件固定 nai-diffusion-4-5-full，可用。
+    仅 V4 及以上模型支持，本插件可选的 V4.5 Full / V5 Full 均可用。
 
     收尾的 `::` 前必须留一个空格：内容若以数字结尾（例如 `year 2025`），
     写成 `year 2025::` 会被解析成"权重 2025 的新段落"。
@@ -192,11 +190,11 @@ class PromptBuilder:
                 f"[BestNAI] 已自动清理负面提示词中的非 ASCII 字符：{' '.join(removed_chars)}"
             )
 
+        # gen_config 已带配置面板选定的模型，replace 会原样保留
         gen_config = replace(
             gen_config,
             width=width,
             height=height,
-            model=FIXED_MODEL,
             negative_prompt=cleaned_negative_prompt,
         )
 

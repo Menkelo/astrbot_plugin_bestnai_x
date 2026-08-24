@@ -1,6 +1,6 @@
 # astrbot_plugin_bestnai_x
 
-在 AstrBot 中通过 OpenAI 兼容接口生成 NovelAI 风格图片，固定使用 `nai-diffusion-4-5-full`。
+在 AstrBot 中通过 OpenAI 兼容接口生成 NovelAI 风格图片，默认使用 `nai-diffusion-4-5-full`，可在配置中切换 `nai-diffusion-5-full`。
 
 原版仓库：[cunzaijiang/astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai)
 
@@ -80,6 +80,7 @@ pip install aiohttp pillow
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
+| `model` | string | `nai-diffusion-4-5-full` | 生图模型。可选：`nai-diffusion-4-5-full`（默认，兼容性最好）、`nai-diffusion-5-full`（NovelAI 官方 V5 Full，尺寸、采样器等参数与 4.5 一致，需生图接口提供商支持该模型） |
 | `sampler` | string | `k_euler_ancestral` | 采样器。可选：`k_euler_ancestral`（推荐默认，随机性较强，二次元效果稳定）、`k_euler`（更稳定干净，随机性较低）、`k_dpmpp_2s_ancestral`（细节和质感较好，随机性较强，但部分代理可能不支持） |
 | `default_ratio` | string | `2:3 (832×1216)` | 默认比例，当提示词未指定比例时使用。可选：`16:9 (1216×704)`、`9:16 (704×1216)`、`4:3 (1024×768)`、`3:4 (768×1024)`、`3:2 (1216×832)`、`2:3 (832×1216)`、`1:1 (1024×1024)`、`5:4 (960×768)`、`4:5 (768×960)`、`7:4 (1344×768)`、`4:7 (768×1344)`、`12:5 (1536×640)`、`5:12 (640×1536)`、`21:9 (1344×576)`、`9:21 (576×1344)` |
 | `max_concurrency` | int | `1` | 生图并发限制。同一时刻最多同时进行的生图任务数，超出时新的生图请求会排队等待。默认 1（串行） |
