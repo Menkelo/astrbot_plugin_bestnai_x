@@ -1512,6 +1512,7 @@ select:focus-visible {
   overflow: hidden;
   border-radius: var(--image-viewer-radius);
   clip-path: inset(0 round var(--image-viewer-radius));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .12), 0 26px 80px rgba(0, 0, 0, .5);
 }
 
 .image-viewer-stage img {
@@ -1524,7 +1525,6 @@ select:focus-visible {
   max-height: 100%;
   object-fit: contain;
   border-radius: 12px;
-  box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
 }
 
 .image-viewer-details {
