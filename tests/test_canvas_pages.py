@@ -230,7 +230,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "const DEBUG_SECTIONS", 1
         )[0]
         self.assertIn("makeRetagLayerCard(node, sourceImage, element)", render)
-        self.assertIn("element.appendChild(retagLayerCard)", render)
+        self.assertIn("stack.appendChild(retagLayerCard)", render)
         self.assertNotIn("body.appendChild(retagLayerCard)", render)
         self.assertIn('document.createTextNode("原图标签图层")', editor)
         self.assertNotIn('document.createTextNode("原图标签图层 / Source tags")', editor)
@@ -267,10 +267,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertIn('recordOperation("自动反推跳过", message, "warning")', editor)
 
-        card = styles.split(".retag-layer-card {", 1)[1].split("}", 1)[0]
+        # 定位移到挂载堆叠容器上（高级参数卡在上、标签图层在下），卡片本身随文档流排列
+        card = styles.split(".node-attach-stack {", 1)[1].split("}", 1)[0]
         self.assertIn("position: absolute;", card)
         self.assertIn("top: calc(100% + 11px);", card)
-        body = styles.split(".retag-layer-body {", 1)[1].split("}", 1)[0]
+        body = styles[
+            styles.index(".retag-layer-body {\n  max-height"):
+        ].split("}", 1)[0]
         self.assertIn("overflow-y: auto;", body)
         self.assertIn("overscroll-behavior: contain;", body)
 
@@ -1124,10 +1127,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_prompt_card_advanced_params_and_count(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
-        # 高级参数折叠卡：步数 / 引导 / Rescale / Variety+
-        self.assertIn('advToggle.textContent = "高级参数"', editor)
+        # 高级参数折叠卡：与标签图层同款卡壳，挂在标签图层上方
+        self.assertIn('document.createTextNode("高级参数")', editor)
         self.assertIn("varietyPlus: !!node.meta?.varietyBoost", editor)
+        self.assertIn("node-attach-stack", editor)
+        self.assertLess(
+            editor.index("stack.appendChild(advCard)"),
+            editor.index("stack.appendChild(retagLayerCard)"),
+        )
         # 生成张数：1-4，>1 时两列网格（4 张 = 2×2 四方格）
         self.assertIn('"张数"', editor)
         self.assertIn(
@@ -1137,6 +1146,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("(slot % 2) * (imageNodeWidth + 48)", editor)
         # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖
         self.assertEqual(editor.count("node.meta?.retagSteps || undefined"), 1)
+        # 选项行两行布局：画幅+画师 / 模型+张数
+        self.assertIn('makeSelectField("画幅"', editor)
+        self.assertIn("options.append(ratioField, artistField, modelField, countField)", editor)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", styles)
+        # 素材堆缩略图显式定高，横竖图圆角一致
+        thumb_block = styles.split(".asset-stack-thumb {", 1)[1].split("}", 1)[0]
+        self.assertIn("height: 72%", thumb_block)
+        self.assertNotIn("aspect-ratio", thumb_block)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

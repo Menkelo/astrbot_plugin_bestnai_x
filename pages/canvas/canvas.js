@@ -1349,106 +1349,17 @@ function renderPromptNode(node) {
       recordOperation("切换模型", `${node.title || "提示词节点"} · ${value}`);
     },
   );
-  options.append(ratioField, artistField, modelField);
-
-  // 高级参数折叠卡：步数 / 引导强度 / CFG Rescale / Variety+。
-  // 留空时依次回落：反推命中的原图参数 → 插件默认值。
-  const advWrap = document.createElement("div");
-  advWrap.className = "adv-params";
-  const advToggle = document.createElement("button");
-  advToggle.type = "button";
-  advToggle.className = "adv-toggle";
-  advToggle.textContent = "高级参数";
-  const advPanel = document.createElement("div");
-  advPanel.className = "adv-panel";
-  advPanel.hidden = true;
-  advToggle.addEventListener("click", () => {
-    advPanel.hidden = !advPanel.hidden;
-    advToggle.classList.toggle("open", !advPanel.hidden);
-  });
-  const advNumber = (label, key, retagKey, min, max, step, tooltip, fallback) => {
-    const field = document.createElement("label");
-    field.className = "field-label adv-field";
-    field.title = tooltip;
-    const caption = document.createElement("span");
-    caption.textContent = label;
-    const input = document.createElement("input");
-    input.type = "number";
-    input.className = "node-select adv-number";
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.placeholder = String(
-      node.meta?.[key] ?? node.meta?.[retagKey] ?? fallback ?? "",
-    );
-    input.value = node.meta?.[key] ?? "";
-    input.addEventListener("change", () => {
-      const raw = input.value.trim();
-      node.meta = { ...(node.meta || {}) };
-      if (raw === "") {
-        delete node.meta[key];
-        input.placeholder = String(node.meta?.[retagKey] ?? fallback ?? "");
-      } else {
-        const num = Number(raw);
-        if (Number.isFinite(num)) {
-          node.meta[key] = Math.min(max, Math.max(min, num));
-          input.value = String(node.meta[key]);
-        }
-      }
-      clearDebugTrace(node);
+  const countField = makeSelectField(
+    "张数",
+    [1, 2, 3, 4].map((n) => ({ value: String(n), label: `${n} 张` })),
+    String(clamp(Math.round(Number(node.meta?.count)) || 1, 1, 4)),
+    (value) => {
+      node.meta = { ...(node.meta || {}), count: clamp(parseInt(value, 10) || 1, 1, 4) };
       scheduleSave();
-    });
-    field.append(caption, input);
-    return field;
-  };
-  const advRow = document.createElement("div");
-  advRow.className = "adv-row";
-  advRow.append(
-    advNumber(
-      "步数",
-      "steps",
-      "retagSteps",
-      1,
-      28,
-      1,
-      "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费",
-      28,
-    ),
-    advNumber(
-      "引导",
-      "scale",
-      "retagScale",
-      1,
-      10,
-      0.1,
-      "提示词引导强度（Prompt Guidance / CFG）：越高越贴合提示词、细节更锐，过高会过饱和；V4.5/V5 建议 5-7",
-      7,
-    ),
-    advNumber(
-      "Rescale",
-      "cfgRescale",
-      "retagCfgRescale",
-      0,
-      1,
-      0.05,
-      "CFG Rescale：抑制高引导下的色彩过曝（deepfried 观感），常用 0-0.3",
-      0,
-    ),
+    },
   );
-  const varietyLabel = document.createElement("label");
-  varietyLabel.className = "raw-toggle adv-variety";
-  varietyLabel.dataset.tooltip = "Variety+：提升构图与姿态多样性，缓解高引导下出图雷同；默认关闭";
-  const variety = document.createElement("input");
-  variety.type = "checkbox";
-  variety.checked = !!node.meta?.varietyBoost;
-  variety.addEventListener("change", () => {
-    node.meta = { ...(node.meta || {}), varietyBoost: variety.checked };
-    clearDebugTrace(node);
-    scheduleSave();
-  });
-  varietyLabel.append(variety, document.createTextNode("Variety+"));
-  advPanel.append(advRow, varietyLabel);
-  advWrap.append(advToggle, advPanel);
+  // 第一行画幅/画师，第二行模型/张数
+  options.append(ratioField, artistField, modelField, countField);
 
   const footer = document.createElement("div");
   footer.className = "node-footer";
@@ -1495,7 +1406,7 @@ function renderPromptNode(node) {
       scheduleSave();
     },
   );
-  footer.append(countField, rawLabel, commands);
+  footer.append(rawLabel, commands);
 
   const status = document.createElement("div");
   status.className = `node-status${node.error ? " error" : ""}`;
@@ -1510,9 +1421,17 @@ function renderPromptNode(node) {
   outputPort.className = "port out";
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
-  body.append(prompt, options, advWrap, footer, status);
+  body.append(prompt, options, footer, status);
+  // 卡片下方挂载区：高级参数卡在上，原图标签图层在下
+  const advCard = makeAdvancedParamsCard(node, element);
   const retagLayerCard = makeRetagLayerCard(node, sourceImage, element);
-  if (retagLayerCard) element.appendChild(retagLayerCard);
+  if (advCard || retagLayerCard) {
+    const stack = document.createElement("div");
+    stack.className = "node-attach-stack";
+    if (advCard) stack.appendChild(advCard);
+    if (retagLayerCard) stack.appendChild(retagLayerCard);
+    element.appendChild(stack);
+  }
   const resizeHandle = document.createElement("span");
   resizeHandle.className = "node-resize-handle";
   resizeHandle.setAttribute("aria-hidden", "true");
@@ -1676,6 +1595,144 @@ function collapseRetagLayers() {
   });
   if (changed) scheduleSave();
   return changed;
+}
+
+function makeAdvancedParamsCard(node, nodeElement) {
+  const card = document.createElement("aside");
+  card.className = "retag-layer-card adv-card";
+  card.dataset.nodeId = node.id;
+  card.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    bringNodeToFront(node.id, nodeElement);
+    if (!isNodeSelected(node.id)) selectNode(node.id);
+  });
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "retag-layer-toggle";
+  toggle.setAttribute("aria-expanded", "false");
+  const title = document.createElement("span");
+  title.className = "retag-layer-title";
+  title.append(icon("sliders-horizontal"), document.createTextNode("高级参数"));
+  const summary = document.createElement("span");
+  summary.className = "retag-layer-summary";
+  const chevron = icon("chevron-down", "retag-layer-chevron");
+  toggle.append(title, summary, chevron);
+
+  const body = document.createElement("div");
+  body.className = "retag-layer-body";
+  body.hidden = true;
+  const help = document.createElement("p");
+  help.className = "retag-layer-help";
+  help.textContent = "留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 用于抑制色彩过曝；Variety+ 提升构图多样性。";
+  body.appendChild(help);
+
+  const refreshSummary = () => {
+    const steps = node.meta?.steps || node.meta?.retagSteps;
+    const scale = node.meta?.scale || node.meta?.retagScale;
+    const parts = [`步数 ${steps || "默认"}`, `引导 ${scale || "默认"}`];
+    if (node.meta?.varietyBoost) parts.push("Variety+");
+    summary.textContent = parts.join(" · ");
+  };
+
+  const advNumber = (label, key, retagKey, min, max, step, tooltip, fallback) => {
+    const field = document.createElement("label");
+    field.className = "field-label adv-field";
+    field.title = tooltip;
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "node-select adv-number";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.placeholder = String(
+      node.meta?.[key] ?? node.meta?.[retagKey] ?? fallback ?? "",
+    );
+    input.value = node.meta?.[key] ?? "";
+    input.addEventListener("change", () => {
+      const raw = input.value.trim();
+      node.meta = { ...(node.meta || {}) };
+      if (raw === "") {
+        delete node.meta[key];
+        input.placeholder = String(node.meta?.[retagKey] ?? fallback ?? "");
+      } else {
+        const num = Number(raw);
+        if (Number.isFinite(num)) {
+          node.meta[key] = Math.min(max, Math.max(min, num));
+          input.value = String(node.meta[key]);
+        }
+      }
+      refreshSummary();
+      clearDebugTrace(node);
+      scheduleSave();
+    });
+    field.append(caption, input);
+    return field;
+  };
+  const advRow = document.createElement("div");
+  advRow.className = "adv-row";
+  advRow.append(
+    advNumber(
+      "步数",
+      "steps",
+      "retagSteps",
+      1,
+      28,
+      1,
+      "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费",
+      28,
+    ),
+    advNumber(
+      "引导",
+      "scale",
+      "retagScale",
+      1,
+      10,
+      0.1,
+      "提示词引导强度（Prompt Guidance / CFG）：越高越贴合提示词、细节更锐，过高会过饱和；V4.5/V5 建议 5-7",
+      7,
+    ),
+    advNumber(
+      "Rescale",
+      "cfgRescale",
+      "retagCfgRescale",
+      0,
+      1,
+      0.05,
+      "CFG Rescale：抑制高引导下的色彩过曝（deepfried 观感），常用 0-0.3",
+      0,
+    ),
+  );
+  const varietyLabel = document.createElement("label");
+  varietyLabel.className = "raw-toggle adv-variety";
+  varietyLabel.dataset.tooltip = "Variety+：提升构图与姿态多样性，缓解高引导下出图雷同；默认关闭";
+  const variety = document.createElement("input");
+  variety.type = "checkbox";
+  variety.checked = !!node.meta?.varietyBoost;
+  variety.addEventListener("change", () => {
+    node.meta = { ...(node.meta || {}), varietyBoost: variety.checked };
+    refreshSummary();
+    clearDebugTrace(node);
+    scheduleSave();
+  });
+  varietyLabel.append(variety, document.createTextNode("Variety+"));
+
+  toggle.addEventListener("click", () => {
+    const open = body.hidden;
+    body.hidden = !open;
+    card.classList.toggle("open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+  });
+
+  const advRowWrap = document.createElement("div");
+  advRowWrap.className = "adv-row";
+  advRowWrap.append(advRow, varietyLabel);
+  body.append(advRowWrap);
+  refreshSummary();
+  card.append(toggle, body);
+  return card;
 }
 
 function makeRetagLayerCard(node, sourceImage, nodeElement) {

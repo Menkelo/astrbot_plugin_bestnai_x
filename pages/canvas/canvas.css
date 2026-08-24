@@ -909,59 +909,29 @@ select:focus-visible {
 .prompt-options {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 9px;
 }
 
-/* 高级参数折叠卡 */
-.adv-params {
-  flex: 0 0 auto;
-  margin-top: 8px;
-}
-
-.adv-toggle {
+/* 卡片下方挂载区：高级参数卡在上，原图标签图层在下 */
+.node-attach-stack {
+  position: absolute;
+  z-index: 7;
+  top: calc(100% + 11px);
+  left: 0;
+  display: grid;
   width: 100%;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px dashed var(--line);
-  border-radius: 9px;
-  outline: none;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-
-.adv-toggle:hover {
-  color: var(--text);
-}
-
-.adv-toggle.open {
-  border-style: solid;
-  color: var(--text);
-}
-
-.adv-panel {
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.adv-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-.adv-number {
-  height: 30px;
+.node-attach-stack .retag-layer-card {
+  position: static;
+  top: auto;
 }
 
-.node-footer .field-label select {
-  width: 72px;
+.node-attach-stack .retag-layer-card::before {
+  display: none;
 }
 
 .field-label {
@@ -1203,6 +1173,22 @@ select:focus-visible {
 
 .retag-layer-body[hidden] {
   display: none;
+}
+
+/* 高级参数卡复用标签图层卡壳，仅调整内部布局 */
+.adv-card .retag-layer-body {
+  display: grid;
+  gap: 8px;
+}
+
+.adv-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adv-number {
+  height: 30px;
 }
 
 .retag-layer-help {
@@ -2503,8 +2489,9 @@ select:focus-visible {
   top: 50%;
   left: 50%;
   width: 72%;
-  height: auto;
-  aspect-ratio: 1;
+  /* 显式定高：横/竖图与加载态都得到同一尺寸的方形卡位，
+     避免依赖替换元素的固有比例导致盒子过大、圆角被封面裁掉 */
+  height: 72%;
   border: 1px solid rgba(255, 255, 255, .9);
   border-radius: 11px;
   background: var(--soft-2);
@@ -3236,7 +3223,7 @@ select:focus-visible {
   }
 
   .prompt-options {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .adv-row {
