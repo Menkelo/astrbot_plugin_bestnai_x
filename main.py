@@ -33,7 +33,7 @@ from .core.generator import (
     ServerBusyError,
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
-from .core.prompt_tokens import expand_prompt_tokens
+from .core.prompt_tokens import expand_prompt_tokens, normalize_count_tokens
 from .core.provider_utils import provider_model_of
 from .core.safety import SafetyModerator
 from .core.translator import (
@@ -398,8 +398,9 @@ class BestNAIPlugin(Star):
         source_prompt = embedded_prompt or cached_prompt
         from_metadata = bool(embedded_prompt)
         # V4+ 元数据可能带角色提示词（v4_prompt.caption.char_captions）。
-        # 结构化透传给生图网关做真正的分区生成，不再并进 base tags；
-        # 只在命中可信内嵌参数时提取，画布缓存路径不会重复产出。
+        # 默认把角色文本并回还原 tags（兼容所有网关、角色形象最稳），
+        # 并在生图前折叠重复的人数标签；开启 char_structured 的网关
+        # 才改为结构化 characters 透传做分区生成。
         char_prompts = (
             normalize_char_entries(source_info.get("characterPrompts"))
             if from_metadata
@@ -408,6 +409,17 @@ class BestNAIPlugin(Star):
         char_use_coords = bool(
             from_metadata and source_info.get("characterUseCoords") and char_prompts
         )
+        char_tag_texts = [
+            stripped
+            for stripped in (
+                strip_control_tags(
+                    str(entry.get("prompt") or "").strip(),
+                    extra_control_tags=retag_control_prompts,
+                )
+                for entry in char_prompts
+            )
+            if stripped
+        ]
         # A canvas cache can fill either half of the pair (seed or prompt).
         # Keep the provenance separate so the diagnostics never claim that a
         # prompt came from PNG metadata when only the canvas cache had it.
@@ -435,7 +447,9 @@ class BestNAIPlugin(Star):
 
             # Return only image tags. The caller translates and weights the
             # current hand-written hint exactly once during generation.
-            image_tags = source_prompt
+            image_tags = ", ".join(
+                part for part in (source_prompt, *char_tag_texts) if part
+            )
 
             trace.note(
                 "走的分支",
@@ -790,6 +804,11 @@ class BestNAIPlugin(Star):
                 drop_categories=retag_drop_categories,
             )
             working_prompt = str(merge_details.get("prompt") or "")
+            # 多角色还原文本常同时带全局计数和各段落裸计数，叠加会多画人
+            normalized_prompt = normalize_count_tokens(working_prompt)
+            if normalized_prompt != working_prompt:
+                trace.note("人数标签归一", normalized_prompt)
+                working_prompt = normalized_prompt
             trace.note("提示词冲突处理", merge_details)
             trace.note("合并后提示词", working_prompt)
 
@@ -807,9 +826,9 @@ class BestNAIPlugin(Star):
             scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
         )
 
-        # 反推命中的多角色参数：结构化透传给网关做分区生成
+        # 反推命中的多角色参数：仅在网关支持分区生成时结构化透传
         char_prompts = normalize_char_entries(payload.get("retagCharPrompts"))
-        if char_prompts:
+        if char_prompts and self.plugin_config.generation.char_structured:
             gen_config = replace(
                 gen_config,
                 characters=char_prompts,

@@ -27,6 +27,12 @@
           "k_dpmpp_2s_ancestral"
         ]
       },
+      "char_structured": {
+        "description": "结构化角色参数透传",
+        "type": "bool",
+        "hint": "反推多角色原图时把 char_captions 作为 characters 参数发给网关做分区生成。仅当网关真正支持该参数时开启；默认关闭，走文本合并（角色描述并入提示词并自动折叠重复的人数标签），兼容所有网关。",
+        "default": false
+      },
       "default_ratio": {
         "description": "默认比例",
         "type": "string",

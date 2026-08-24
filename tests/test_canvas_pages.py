@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.4.5", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.4.5"', constants)
+        self.assertIn("version: 3.5.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.5.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1025,12 +1025,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("ratioManual: true", editor)
 
     def test_retag_merges_embedded_char_captions_into_image_tags(self) -> None:
-        # 反推命中内嵌参数时，V4+ 角色提示词要结构化透传给网关做分区生成
+        # 反推命中内嵌参数时，角色文本默认并回还原 tags（兼容所有网关）；
+        # 结构化透传仅在配置 char_structured 开启时生效
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn('source_info.get("characterPrompts")', main_source)
         self.assertIn('"charPrompts": char_prompts', main_source)
         self.assertIn('"charUseCoords": char_use_coords', main_source)
         self.assertIn("原图角色提示词（char_captions）", main_source)
+        self.assertIn(
+            "char_prompts and self.plugin_config.generation.char_structured",
+            main_source,
+        )
+        # 反推合并后必须折叠重复的人数标签，否则模型会多画人
+        self.assertIn("normalize_count_tokens(working_prompt)", main_source)
         # 网关拒绝角色参数（400）时自动去除 characters 重试一次
         self.assertIn("已去除 characters 重试", main_source)
 

@@ -135,3 +135,95 @@ def expand_prompt_tokens(prompt: str) -> List[str]:
         else:
             expanded.append(token)
     return expanded
+
+
+_COUNT_TOKEN_RE = re.compile(r"^(\d*)(boys?|girls?)$", re.IGNORECASE)
+
+
+def _count_token_value(token: str) -> Tuple[str, int, bool] | None:
+    """Return ``(family, count, has_explicit_number)`` for a pure count tag."""
+
+    match = _COUNT_TOKEN_RE.match(str(token or "").strip())
+    if not match:
+        return None
+
+    number, word = match.groups()
+    family = "boy" if word.lower().startswith("boy") else "girl"
+    count = int(number) if number else 1
+    return family, max(count, 1), bool(number)
+
+
+def normalize_count_tokens(prompt: str) -> str:
+    """折叠同一性别家族里重复的人数标签，返回逗号拼接的新提示词。
+
+    多角色图的还原文本常同时带全局计数（``1boy, 4girls``）和每个角色
+    段落开头的裸计数（``boy`` / ``girl``）。叠加的计数信号会让模型多画人，
+    因此需要归一：
+
+    - 家族里有显式数字的计数（如 ``1boy``、``4girls``）视为全图总数，
+      原样保留第一个，丢弃该家族其余所有计数；
+    - 只有裸计数时视为各描述一个不同的人，求和后合并成一条
+      （``girl, a, girl, b`` → ``2girls, a, b``）。
+
+    权重组、括号与引号内的内容不参与判定，原样保留。
+    """
+    tokens = split_prompt_tokens(prompt)
+
+    explicit_index: dict[str, int] = {}
+    bare_values: dict[str, List[Tuple[int, int]]] = {}
+    parsed: List[Tuple[str | None, int, bool] | None] = []
+    for index, token in enumerate(tokens):
+        weight, inner, weighted = weighted_token_parts(token)
+        info = (
+            _count_token_value(inner[0])
+            if not weighted and len(inner) == 1
+            else None
+        )
+        parsed.append(info)
+        if info is None:
+            continue
+        family, count, has_number = info
+        if has_number and family not in explicit_index:
+            explicit_index[family] = index
+        elif not has_number:
+            bare_values.setdefault(family, []).append((index, count))
+
+    totals: dict[str, tuple[int, int]] = {}
+    for family, entries in bare_values.items():
+        if family in explicit_index:
+            continue
+        total = sum(count for _, count in entries)
+        if len(entries) > 1:
+            totals[family] = (entries[0][0], total)
+
+    kept: List[str] = []
+    seen_families: set[str] = set()
+    for index, token in enumerate(tokens):
+        info = parsed[index]
+        if info is None:
+            kept.append(token)
+            continue
+
+        family, _count, _has_number = info
+
+        if family in explicit_index:
+            # 显式总数说了算：只保留第一处，其余同族计数全部丢弃
+            if explicit_index[family] != index:
+                continue
+            kept.append(token)
+            continue
+
+        if family in totals:
+            # 裸计数求和后合并进第一条
+            if totals[family][0] != index:
+                continue
+            word = "boys" if family == "boy" else "girls"
+            kept.append(f"{totals[family][1]}{word}")
+            continue
+
+        if family in seen_families:
+            continue
+        seen_families.add(family)
+        kept.append(token)
+
+    return ", ".join(kept)
