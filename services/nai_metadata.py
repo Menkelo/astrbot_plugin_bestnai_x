@@ -14,7 +14,7 @@ import asyncio
 from io import BytesIO
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 from PIL import Image as PILImage
@@ -28,6 +28,35 @@ except ImportError:  # pragma: no cover - compatibility path for standalone test
 # Comment JSON 里我们关心的数值字段
 _INT_FIELDS = ("seed", "steps", "width", "height")
 _FLOAT_FIELDS = ("scale", "cfg_rescale")
+# V4+ 角色提示词数量上限，仅用于防御异常数据；正常图片远少于此
+_MAX_CHAR_CAPTIONS = 16
+
+
+def _parse_char_captions(comment: Dict[str, Any]) -> List[str]:
+    """读取 V4+ 元数据里的角色提示词。
+
+    NovelAI 把多角色提示词放在 ``v4_prompt.caption.char_captions[]``，
+    每项的 ``char_caption`` 是该角色的提示词文本；坐标等其余字段与
+    文本还原无关，这里只取文本。
+    """
+    v4_prompt = comment.get("v4_prompt")
+    if not isinstance(v4_prompt, dict):
+        return []
+
+    caption = v4_prompt.get("caption")
+    if not isinstance(caption, dict):
+        return []
+
+    raw_captions = caption.get("char_captions")
+    if not isinstance(raw_captions, list):
+        return []
+
+    result: List[str] = []
+    for item in raw_captions[:_MAX_CHAR_CAPTIONS]:
+        text = item.get("char_caption") if isinstance(item, dict) else item
+        if isinstance(text, str) and text.strip():
+            result.append(text.strip())
+    return result
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -96,6 +125,10 @@ def parse_nai_info(info: Dict[str, Any]) -> Dict[str, Any]:
                 value = comment.get(key)
                 if isinstance(value, str) and value.strip():
                     result["prompt" if key == "prompt" else "negativePrompt"] = value.strip()
+
+            char_captions = _parse_char_captions(comment)
+            if char_captions:
+                result["characterPrompts"] = char_captions
 
     # Comment 里没有 prompt 时退回 Description，NovelAI 两处都会写
     if "prompt" not in result:

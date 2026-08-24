@@ -147,6 +147,67 @@ class NaiMetadataTest(unittest.TestCase):
             )
         )
 
+    def test_parses_v4_char_captions(self) -> None:
+        comment = {
+            **NAI_COMMENT,
+            "v4_prompt": {
+                "caption": {
+                    "base_caption": NAI_COMMENT["prompt"],
+                    "char_captions": [
+                        {
+                            "char_caption": "hatsune miku, twintails",
+                            "centers": [{"x": 0.3, "y": 0.5}],
+                        },
+                        {"char_caption": "kagamine rin, blonde hair"},
+                    ],
+                },
+                "use_coords": True,
+                "use_order": True,
+            },
+        }
+
+        info = parse_nai_info({"Comment": json.dumps(comment)})
+
+        self.assertEqual(
+            info["characterPrompts"],
+            ["hatsune miku, twintails", "kagamine rin, blonde hair"],
+        )
+
+    def test_char_captions_absent_without_v4_prompt_or_malformed_entries(self) -> None:
+        # V4.5 之前的图没有 v4_prompt 结构
+        self.assertNotIn(
+            "characterPrompts",
+            parse_nai_info({"Comment": json.dumps(NAI_COMMENT)}),
+        )
+        malformed = {
+            **NAI_COMMENT,
+            "v4_prompt": {
+                "caption": {"char_captions": [{"nope": 1}, 42, "", {"char_caption": "   "}]},
+            },
+        }
+        self.assertNotIn(
+            "characterPrompts",
+            parse_nai_info({"Comment": json.dumps(malformed)}),
+        )
+
+    def test_reads_char_captions_from_png(self) -> None:
+        path = _nai_png(
+            self.tmp_path,
+            v4_prompt={
+                "caption": {
+                    "base_caption": NAI_COMMENT["prompt"],
+                    "char_captions": [{"char_caption": "hatsune miku"}],
+                },
+            },
+        )
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["characterPrompts"], ["hatsune miku"])
+        # 带角色提示词不影响可信判定与种子读取
+        self.assertTrue(is_trusted_nai_generation_info(info))
+        self.assertEqual(info["seed"], 3405988762)
+
     def test_invalid_numbers_are_dropped(self) -> None:
         info = parse_nai_info(
             {"Comment": json.dumps({"seed": "abc", "steps": 0, "scale": "x"})}

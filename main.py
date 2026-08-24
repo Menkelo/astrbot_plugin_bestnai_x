@@ -396,6 +396,24 @@ class BestNAIPlugin(Star):
         # metadata, then the source-image cache supplied by the canvas.
         source_prompt = embedded_prompt or cached_prompt
         from_metadata = bool(embedded_prompt)
+        # V4+ 元数据可能带角色提示词（v4_prompt.caption.char_captions）。
+        # 画布生成走单条 prompt，把它们并入还原出的 tags 即可生效；
+        # 只在命中可信内嵌参数时提取，画布缓存里已经合并过、不再重复叠加。
+        embedded_char_prompts = (
+            [
+                stripped
+                for stripped in (
+                    strip_control_tags(
+                        str(text or "").strip(),
+                        extra_control_tags=retag_control_prompts,
+                    )
+                    for text in (source_info.get("characterPrompts") or [])
+                )
+                if stripped
+            ]
+            if from_metadata
+            else []
+        )
         # A canvas cache can fill either half of the pair (seed or prompt).
         # Keep the provenance separate so the diagnostics never claim that a
         # prompt came from PNG metadata when only the canvas cache had it.
@@ -423,7 +441,9 @@ class BestNAIPlugin(Star):
 
             # Return only image tags. The caller translates and weights the
             # current hand-written hint exactly once during generation.
-            image_tags = source_prompt
+            image_tags = ", ".join(
+                part for part in (source_prompt, *embedded_char_prompts) if part
+            )
 
             trace.note(
                 "走的分支",
@@ -433,6 +453,8 @@ class BestNAIPlugin(Star):
             )
             trace.note("手写提示词（不送反推）", user_hint or "(空)")
             trace.note("原图图片 tags", image_tags)
+            if embedded_char_prompts:
+                trace.note("原图角色提示词（char_captions）", embedded_char_prompts)
             if from_canvas_cache:
                 trace.note("画布缓存提示词", cached_prompt)
             trace.note(
@@ -462,6 +484,7 @@ class BestNAIPlugin(Star):
                     "ratio": self._ratio_from_generation_info(source_info, image_path),
                     "seed": source_seed,
                     "sourcePrompt": source_prompt,
+                    "charCaptions": embedded_char_prompts,
                     "fromMetadata": from_metadata,
                     "fromCanvasCache": from_canvas_cache,
                     "steps": source_info.get("steps"),

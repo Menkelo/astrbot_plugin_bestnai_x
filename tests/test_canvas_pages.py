@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.4.3", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.4.3"', constants)
+        self.assertIn("version: 3.4.4", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.4.4"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1023,6 +1023,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("promptNode.meta?.ratioManual", align_body)
         # 手动改画幅必须打上标记，之后自动对齐不再覆盖用户的选择
         self.assertIn("ratioManual: true", editor)
+
+    def test_retag_merges_embedded_char_captions_into_image_tags(self) -> None:
+        # 反推命中内嵌参数时，V4+ 的角色提示词要并入还原 tags 才能在画布生效
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('source_info.get("characterPrompts")', main_source)
+        self.assertIn('"charCaptions": embedded_char_prompts', main_source)
+        self.assertIn("原图角色提示词（char_captions）", main_source)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
