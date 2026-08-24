@@ -1509,6 +1509,7 @@ select:focus-visible {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  border-radius: 12px;
 }
 
 .image-viewer-stage img {
