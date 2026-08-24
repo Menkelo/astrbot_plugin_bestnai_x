@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import time
@@ -11,6 +12,7 @@ from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 
 astrbot_module = types.ModuleType("astrbot")
@@ -423,6 +425,49 @@ class CanvasStoreTest(unittest.TestCase):
         self.store.delete_prompt_asset(prompt["id"])
         self.assertEqual(self.store.list_library(), {"images": [], "prompts": []})
 
+    def _store_png_asset(self, nai_comment: dict | None = None) -> dict:
+        """存一张 PNG；传入 nai_comment 时附带 NovelAI 风格的 tEXt 元数据。"""
+        buffer = BytesIO()
+        image = Image.new("RGB", (48, 32), (90, 120, 200))
+        if nai_comment is None:
+            image.save(buffer, format="PNG")
+        else:
+            info = PngInfo()
+            info.add_text("Software", "NovelAI 4.5")
+            info.add_text("Description", "1girl, blue hair")
+            info.add_text("Comment", json.dumps(nai_comment))
+            image.save(buffer, format="PNG", pnginfo=info)
+        return self.store.store_asset(buffer.getvalue())
+
+    def test_repair_library_image_seed_backfills_from_nai_metadata(self) -> None:
+        # 旧版本收录的条目没有 seed，放入画布时应能从图片元数据补回
+        asset = self._store_png_asset({"seed": 3405988762, "steps": 28, "scale": 7.0})
+        self.store.add_image_to_library(asset, "旧素材", "generated")
+
+        entry = self.store.repair_library_image_seed(asset["id"])
+
+        self.assertEqual(entry["seed"], 3405988762)
+        self.assertEqual(self.store.list_library()["images"][0]["seed"], 3405988762)
+
+    def test_repair_library_image_seed_keeps_existing_seed_and_plain_images(self) -> None:
+        seeded_asset = self._store_png_asset({"seed": 111})
+        self.store.add_image_to_library(seeded_asset, "有种子", "generated", seed=222)
+        self.assertEqual(
+            self.store.repair_library_image_seed(seeded_asset["id"])["seed"], 222
+        )
+
+        plain_asset = self._store_png_asset()
+        self.store.add_image_to_library(plain_asset, "重编码图", "generated")
+        entry = self.store.repair_library_image_seed(plain_asset["id"])
+        self.assertEqual(entry["seed"], 0)
+
+    def test_repair_library_image_seed_rejects_unknown_or_invalid_ids(self) -> None:
+        asset = self._store_png_asset({"seed": 5})
+        with self.assertRaises(CanvasValidationError):
+            self.store.repair_library_image_seed("not-an-id")
+        with self.assertRaises(CanvasValidationError):
+            self.store.repair_library_image_seed(asset["id"])
+
     def _store_aged_asset(self, color: tuple) -> str:
         """存一张图并把 mtime 调老，绕过回收宽限期。"""
         buffer = BytesIO()
@@ -589,6 +634,14 @@ class CanvasStoreTest(unittest.TestCase):
                 "/test_plugin/canvas/preferences",
                 ("POST",),
                 "Infinite Canvas：保存用户偏好",
+            ),
+            routes,
+        )
+        self.assertIn(
+            (
+                "/test_plugin/canvas/library/image/recover",
+                ("POST",),
+                "Infinite Canvas：回填图片种子",
             ),
             routes,
         )

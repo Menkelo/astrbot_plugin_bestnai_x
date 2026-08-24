@@ -4568,6 +4568,8 @@ async function placeSelectedLibraryAssetsOnCanvas() {
     if (!readyItems.length) {
       throw loaded.find((result) => result.status === "rejected")?.reason || new Error("图片素材读取失败");
     }
+    // 缺 seed 的条目先尝试从 PNG 元数据回填，卡片左下角才能显示种子
+    await Promise.allSettled(readyItems.map((item) => recoverLibraryImageSeed(item)));
 
     const layout = readyItems.map((item) => {
       const width = fittedImageNodeWidth(item.width, item.height);
@@ -4621,9 +4623,30 @@ async function placeSelectedLibraryAssetsOnCanvas() {
   }
 }
 
+const recoveringSeedAssetIds = new Set();
+
+async function recoverLibraryImageSeed(item) {
+  // 旧版本收录的素材可能没存 seed；放入画布前让后端读一次 PNG 内嵌元数据补上。
+  // 失败静默：标签继续显示名称，不阻塞放置流程。
+  const assetId = String(item?.id || "");
+  if (!assetId || normalizeNaiSeed(item.seed)) return;
+  if (recoveringSeedAssetIds.has(assetId)) return;
+  recoveringSeedAssetIds.add(assetId);
+  try {
+    const result = await bridge.apiPost("canvas/library/image/recover", { id: assetId });
+    const seed = normalizeNaiSeed(result?.image?.seed);
+    if (seed) item.seed = seed;
+  } catch (_) {
+    // 图片被重新编码后元数据已丢失，读不到种子属正常情况
+  } finally {
+    recoveringSeedAssetIds.delete(assetId);
+  }
+}
+
 async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   try {
     await ensureLibraryImageData(item);
+    await recoverLibraryImageSeed(item);
     markAssetRecent(item, { render: false });
     const nodeWidth = fittedImageNodeWidth(item.width, item.height);
     const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);

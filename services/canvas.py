@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
@@ -22,6 +23,11 @@ try:  # Support both plugin-package imports and the legacy top-level test import
     from ..constants import normalize_nai_seed
 except ImportError:  # pragma: no cover - exercised by standalone ``services`` imports
     from constants import normalize_nai_seed
+
+try:
+    from .nai_metadata import read_image_generation_info
+except ImportError:  # pragma: no cover - legacy flat layout
+    from nai_metadata import read_image_generation_info
 from .runtime_state import get_astrbot_plugin_data_dir
 
 
@@ -1018,6 +1024,37 @@ class CanvasStore:
 
         self.collect_orphan_assets()
 
+    def repair_library_image_seed(self, asset_id: Any) -> Dict[str, Any]:
+        """旧版本收录的素材可能没存 seed；从图片内嵌的 NovelAI 元数据补一次。
+
+        只有 PNG 的 tEXt 块还在时才读得到；图片被重新编码后元数据会丢失，
+        此时保持原样返回，绝不臆造种子。已有合法种子的条目原样返回。
+        """
+        asset_id = str(asset_id or "")
+        if not ASSET_ID_RE.fullmatch(asset_id):
+            raise CanvasValidationError("图片资源 ID 无效")
+
+        with self._lock:
+            library = self._library()
+            entry = next(
+                (item for item in library["images"] if item.get("id") == asset_id),
+                None,
+            )
+            if entry is None:
+                raise CanvasValidationError("素材不在图片库中")
+            if normalize_nai_seed(entry.get("seed")):
+                return dict(entry)
+
+            asset_path, _ = self.get_asset(asset_id)
+            info = read_image_generation_info(str(asset_path))
+            recovered = normalize_nai_seed(info.get("seed"))
+            if not recovered:
+                return dict(entry)
+
+            entry["seed"] = recovered
+            self._write_json(self.library_path, library)
+            return dict(entry)
+
     def save_prompt_asset(self, payload: Any) -> Dict[str, Any]:
         with self._lock:
             if not isinstance(payload, dict):
@@ -1104,6 +1141,7 @@ class CanvasService:
             ("library", self.get_library, ["GET"], "Infinite Canvas：读取素材库"),
             ("library/image/add", self.add_library_image, ["POST"], "Infinite Canvas：收藏图片"),
             ("library/image/delete", self.delete_library_image, ["POST"], "Infinite Canvas：移除图片素材"),
+            ("library/image/recover", self.recover_library_image, ["POST"], "Infinite Canvas：回填图片种子"),
             ("library/prompt/save", self.save_library_prompt, ["POST"], "Infinite Canvas：保存提示词素材"),
             ("library/prompt/delete", self.delete_library_prompt, ["POST"], "Infinite Canvas：删除提示词素材"),
         ]
@@ -1267,6 +1305,21 @@ class CanvasService:
         try:
             self.store.remove_image_from_library(payload.get("id"))
             return json_response({"deleted": True})
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def recover_library_image(self) -> Any:
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            entry = await asyncio.to_thread(
+                self.store.repair_library_image_seed,
+                payload.get("id"),
+            )
+            return json_response({"image": entry})
+        except FileNotFoundError:
+            return error_response("图片资源不存在", status_code=404)
         except CanvasValidationError as exc:
             return error_response(str(exc), status_code=400)
 

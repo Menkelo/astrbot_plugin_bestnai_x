@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.4.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.4.1"', constants)
+        self.assertIn("version: 3.4.2", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.4.2"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1001,6 +1001,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
             wheel_body.index('classList.contains("panning")'),
             wheel_body.index("setZoom("),
         )
+
+    def test_placing_library_images_recovers_missing_seed(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 旧版本收录的素材可能没存 seed；放入画布前必须尝试从 PNG 元数据回填，
+        # 否则图片卡片左下角会一直显示「生成结果 xx:xx」而不是种子。
+        self.assertIn('bridge.apiPost("canvas/library/image/recover"', editor)
+        self.assertIn("await recoverLibraryImageSeed(item);", editor)
+        self.assertIn("readyItems.map((item) => recoverLibraryImageSeed(item))", editor)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
