@@ -16,16 +16,6 @@
     "description": "生图参数",
     "type": "object",
     "items": {
-      "model": {
-        "description": "生图模型",
-        "type": "string",
-        "hint": "nai-diffusion-4-5-full：默认，兼容性最好；nai-diffusion-5-full：NovelAI 官方 V5 Full（2026-08 发布），尺寸、采样器等参数与 4.5 一致，需生图接口提供商支持该模型",
-        "default": "nai-diffusion-4-5-full",
-        "options": [
-          "nai-diffusion-4-5-full",
-          "nai-diffusion-5-full"
-        ]
-      },
       "sampler": {
         "description": "采样器",
         "type": "string",

@@ -33,6 +33,7 @@ from .core.generator import (
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
 from .core.prompt_tokens import expand_prompt_tokens
+from .core.provider_utils import provider_model_of
 from .core.safety import SafetyModerator
 from .core.translator import (
     apply_character_candidate,
@@ -1031,8 +1032,20 @@ class BestNAIPlugin(Star):
         self.plugin_config.api_key = str(api_key)
         self._image_provider_resolved = True
 
+        # 生图模型跟随接口提供商配置；提供商没填模型时沿用当前值（默认 4.5）
+        provider_model = provider_model_of(provider)
+        if provider_model:
+            self.plugin_config.generation.model = provider_model
+        else:
+            logger.warning(
+                f"[BestNAI] 生图接口提供商 {provider_id} 未配置模型，"
+                f"回退默认 {self.plugin_config.generation.model}"
+            )
+
         logger.info(
-            f"[BestNAI] 已使用生图接口提供商：{provider_id}，api_base={self.plugin_config.api_url}"
+            f"[BestNAI] 已使用生图接口提供商：{provider_id}，"
+            f"api_base={self.plugin_config.api_url}，"
+            f"model={self.plugin_config.generation.model}"
         )
 
     def _ensure_image_provider_ready(self) -> None:

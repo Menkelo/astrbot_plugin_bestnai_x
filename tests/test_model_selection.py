@@ -4,6 +4,7 @@ import logging
 import sys
 import types
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -22,6 +23,7 @@ from astrbot_plugin_bestnai_x.models.config import (  # noqa: E402
     FIXED_MODEL,
     MODEL_V45_FULL,
     MODEL_V5_FULL,
+    GenerationConfig,
     PluginConfig,
 )
 from astrbot_plugin_bestnai_x.services.prompt_builder import PromptBuilder  # noqa: E402
@@ -34,12 +36,10 @@ class ModelSelectionTest(unittest.TestCase):
         self.assertEqual(config.generation.model, MODEL_V45_FULL)
         self.assertEqual(FIXED_MODEL, MODEL_V45_FULL)
 
-    def test_v5_model_flows_into_api_params(self) -> None:
-        config = PluginConfig.from_dict(
-            {"generation_config": {"model": MODEL_V5_FULL}}
-        )
-
-        self.assertEqual(config.generation.model, MODEL_V5_FULL)
+    def test_provider_model_flows_into_api_params(self) -> None:
+        # 生图模型跟随接口提供商，运行时写入 generation.model
+        config = PluginConfig.from_dict({})
+        config.generation = replace(config.generation, model=MODEL_V5_FULL)
 
         versioned = config.get_generation_config_for_version("4.5")
         self.assertEqual(versioned.model, MODEL_V5_FULL)
@@ -47,22 +47,21 @@ class ModelSelectionTest(unittest.TestCase):
         params = versioned.to_api_params("1girl")
         self.assertEqual(params["model"], MODEL_V5_FULL)
 
-    def test_unknown_model_falls_back_to_default(self) -> None:
-        config = PluginConfig.from_dict(
-            {"generation_config": {"model": "nai-diffusion-999"}}
-        )
-
-        self.assertEqual(config.generation.model, MODEL_V45_FULL)
-
-    def test_prompt_builder_keeps_configured_model(self) -> None:
-        plugin_config = PluginConfig.from_dict(
-            {"generation_config": {"model": MODEL_V5_FULL}}
+    def test_prompt_builder_keeps_provider_model(self) -> None:
+        plugin_config = PluginConfig.from_dict({})
+        plugin_config.generation = replace(
+            plugin_config.generation, model=MODEL_V5_FULL
         )
         builder = PromptBuilder(plugin_config, lambda _: (832, 1216))
 
         gen_config = builder.build_generation_config("2:3")
 
         self.assertEqual(gen_config.model, MODEL_V5_FULL)
+
+    def test_generation_config_default_uses_fixed_model(self) -> None:
+        gen_config = GenerationConfig()
+
+        self.assertEqual(gen_config.model, FIXED_MODEL)
 
 
 if __name__ == "__main__":
