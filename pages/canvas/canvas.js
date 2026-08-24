@@ -2639,10 +2639,29 @@ function scheduleConnectionRender() {
   });
 }
 
+// 指针手势进行中推迟整体重渲染：renderNodes 会重建节点元素，
+// 拖动/缩放持有的旧引用会变成游离节点，手势看起来就"中断"了。
+let gestureLockCount = 0;
+
+function beginGestureLock() {
+  gestureLockCount += 1;
+}
+
+function endGestureLock() {
+  gestureLockCount = Math.max(0, gestureLockCount - 1);
+  if (gestureLockCount === 0 && state.renderPending && !state.composing) {
+    renderAll();
+  }
+}
+
+function gesturesLocked() {
+  return gestureLockCount > 0;
+}
+
 function renderAll() {
   // 中文/日文输入法组字期间重建 DOM 会直接把未上屏的内容打断，
-  // 光标恢复也救不回来，所以整个渲染推迟到组字结束。
-  if (state.composing) {
+  // 光标恢复也救不回来；指针手势同理。两者都把渲染推迟到结束。
+  if (state.composing || gesturesLocked()) {
     state.renderPending = true;
     return;
   }
@@ -2698,6 +2717,7 @@ function attachNodeDrag(handle, element, node) {
     });
     const start = { x: event.clientX, y: event.clientY };
     let moved = false;
+    beginGestureLock();
 
     const move = (moveEvent) => {
       const dx = (moveEvent.clientX - start.x) / state.viewport.scale;
@@ -2725,6 +2745,7 @@ function attachNodeDrag(handle, element, node) {
       window.removeEventListener("pointercancel", end);
       document.body.classList.remove("dragging-nodes");
       group.forEach((item) => item.element?.classList.remove("dragging"));
+      endGestureLock();
       if (moved) {
         scheduleSave();
         recordOperation(
@@ -2753,6 +2774,7 @@ function attachNodeResize(handle, element, node) {
       height: node.height || element.offsetHeight || (node.type === "prompt" ? 360 : 232),
     };
     let moved = false;
+    beginGestureLock();
     const move = (moveEvent) => {
       const dx = (moveEvent.clientX - start.x) / state.viewport.scale;
       const dy = (moveEvent.clientY - start.y) / state.viewport.scale;
@@ -2776,6 +2798,7 @@ function attachNodeResize(handle, element, node) {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      endGestureLock();
       if (moved) {
         scheduleSave();
         recordOperation(
@@ -2804,6 +2827,7 @@ function attachImageNodeResize(handle, element, node) {
       height: element.offsetHeight || 300,
     };
     let moved = false;
+    beginGestureLock();
     const move = (moveEvent) => {
       const dx = (moveEvent.clientX - start.x) / state.viewport.scale;
       const dy = (moveEvent.clientY - start.y) / state.viewport.scale;
@@ -2824,6 +2848,7 @@ function attachImageNodeResize(handle, element, node) {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      endGestureLock();
       if (moved) {
         scheduleSave();
         recordOperation("调整图片大小", `${node.title || "图片"} · 宽 ${Math.round(node.width)}px`);
@@ -3558,11 +3583,17 @@ async function ensureAssetLoaded(node) {
     node.assetLoading = false;
     const current = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
     if (current) {
-      const replacement = renderImageNode(node);
-      current.replaceWith(replacement);
-      requestAnimationFrame(() => {
-        renderConnections();
-      });
+      // 手势进行中不替换元素：被拖动/缩放的正持有这个节点，
+      // 推迟到松手后的 renderPending 统一刷新
+      if (gesturesLocked()) {
+        state.renderPending = true;
+      } else {
+        const replacement = renderImageNode(node);
+        current.replaceWith(replacement);
+        requestAnimationFrame(() => {
+          renderConnections();
+        });
+      }
     }
     if (dimensionsChanged) scheduleSave(800);
   }
@@ -4331,17 +4362,31 @@ function renderAssetStackCard(group, container = els.assetGrid) {
   const cover = document.createElement("span");
   cover.className = "asset-stack-cover";
   group.items.slice(0, 3).forEach((item, index) => {
-    const image = document.createElement("img");
-    image.alt = item.name || `${group.label}素材`;
-    image.draggable = false;
-    image.className = `asset-stack-thumb asset-stack-thumb-${index + 1}`;
-    if (item.dataUrl) image.src = item.dataUrl;
-    else ensureLibraryImageData(item).then((dataUrl) => {
-      if (image.isConnected) image.src = dataUrl;
+    const className = `asset-stack-thumb asset-stack-thumb-${index + 1}`;
+    if (item.dataUrl) {
+      const image = document.createElement("img");
+      image.alt = item.name || `${group.label}素材`;
+      image.draggable = false;
+      image.className = className;
+      image.src = item.dataUrl;
+      cover.appendChild(image);
+      return;
+    }
+    // 数据还没预载时先放空白卡位：无 src 的 <img> 会渲染成破图图标
+    const placeholder = document.createElement("span");
+    placeholder.className = `${className} is-loading`;
+    ensureLibraryImageData(item).then((dataUrl) => {
+      if (!placeholder.isConnected) return;
+      const image = document.createElement("img");
+      image.alt = item.name || `${group.label}素材`;
+      image.draggable = false;
+      image.className = className;
+      image.src = dataUrl;
+      placeholder.replaceWith(image);
     }).catch(() => {
-      image.classList.add("is-broken");
+      placeholder.classList.add("is-broken");
     });
-    cover.appendChild(image);
+    cover.appendChild(placeholder);
   });
   const count = document.createElement("span");
   count.className = "asset-stack-count";

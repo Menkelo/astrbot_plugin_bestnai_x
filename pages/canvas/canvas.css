@@ -2495,6 +2495,22 @@ select:focus-visible {
   opacity: .28;
 }
 
+/* 数据未预载时的空白卡位：保持堆叠观感，呼吸提示正在加载 */
+.asset-stack-thumb.is-loading {
+  animation: asset-stack-loading 1.6s ease-in-out infinite;
+}
+
+@keyframes asset-stack-loading {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 0.92;
+  }
+}
+
 .asset-stack-count {
   position: absolute;
   z-index: 6;

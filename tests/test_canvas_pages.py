@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.6.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.6.1"', constants)
+        self.assertIn("version: 3.6.3", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.6.3"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1086,6 +1086,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor.index("正在翻译并生成图片"),
         )
         self.assertIn("正在生成图片（原始提示词）", editor)
+
+    def test_asset_stack_covers_never_render_srcless_images(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        stack_body = editor.split("function renderAssetStackCard", 1)[1].split(
+            "function renderAssetBatch", 1
+        )[0]
+        # 数据未预载时必须渲染占位卡位；无 src 的 <img> 会显示破图图标
+        self.assertNotIn("if (item.dataUrl) image.src", stack_body)
+        self.assertIn("is-loading", stack_body)
+        self.assertIn("placeholder.replaceWith(image)", stack_body)
+        self.assertIn(".asset-stack-thumb.is-loading", styles)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1363,12 +1376,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertIn("field.setSelectionRange(snapshot.start, snapshot.end)", editor)
 
-        # 输入法组字期间连重建都不能做，光标恢复救不回未上屏的内容
+        # 输入法组字期间连重建都不能做，光标恢复救不回未上屏的内容；
+        # 指针手势（拖动/缩放）同理，持有元素引用时重建会中断手势
         self.assertIn("setupCompositionGuard();", editor)
         render_all = editor.split("function renderAll() {", 1)[1].split(
             "\nfunction ", 1
         )[0]
-        self.assertIn("if (state.composing) {", render_all)
+        self.assertIn("state.composing || gesturesLocked()", render_all)
         self.assertIn("state.renderPending = true;", render_all)
         guard = editor.split("function setupCompositionGuard() {", 1)[1].split(
             "\nfunction ", 1
