@@ -838,8 +838,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.6.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.6.0"', constants)
+        self.assertIn("version: 3.6.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.6.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1073,6 +1073,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 后端把回传参数写进生图配置并在调试栏注明来源
         self.assertIn('for key in ("steps", "scale", "cfg_rescale", "noise_schedule")', main_source)
         self.assertIn("沿用原图采样参数", main_source)
+
+    def test_generation_status_does_not_claim_translation_in_raw_or_v5(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 状态文案必须与后端翻译条件一致：raw 模式 / V5 直通时不再显示
+        # 「正在翻译并生成图片」这类旧提示
+        self.assertIn("function currentModelSupportsCjk", editor)
+        self.assertIn("const willTranslate = !node.raw", editor)
+        self.assertLess(
+            editor.index("const willTranslate = !node.raw"),
+            editor.index("正在翻译并生成图片"),
+        )
+        self.assertIn("正在生成图片（原始提示词）", editor)
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

@@ -3049,6 +3049,11 @@ function fitView() {
   recordOperation("适配视图", `已显示 ${state.nodes.length} 个节点`);
 }
 
+function currentModelSupportsCjk() {
+  // 与后端 model_supports_cjk 对齐：V5 原生支持中日文提示
+  return String(state.config?.model || "").includes("diffusion-5");
+}
+
 async function generateFromNode(id, {
   retagged = false,
   retagPrompt = "",
@@ -3067,16 +3072,22 @@ async function generateFromNode(id, {
     return;
   }
   const translationSource = retagged ? basePrompt : workingPrompt;
-  const canReuseTranslation = /[\u4e00-\u9fff]/.test(translationSource)
+  // 与后端翻译条件保持一致：原始提示词模式与 V5 中文直通都不翻译
+  const willTranslate = !node.raw
+    && !currentModelSupportsCjk()
+    && /[\u4e00-\u9fff]/.test(translationSource);
+  const canReuseTranslation = willTranslate
     && node.meta?.translationSource === translationSource
     && !!node.meta?.translationResult;
   node.status = "generating";
   node.error = "";
-  node.statusText = canReuseTranslation
-    ? "正在复用英文 tags 并生成图片…"
-    : /[\u4e00-\u9fff]/.test(workingPrompt)
-      ? "正在翻译并生成图片…"
-      : "正在生成图片…";
+  node.statusText = !willTranslate
+    ? node.raw
+      ? "正在生成图片（原始提示词）…"
+      : "正在生成图片…"
+    : canReuseTranslation
+      ? "正在复用英文 tags 并生成图片…"
+      : "正在翻译并生成图片…";
   recordOperation(retagged ? "反推并生成" : "生成图片", node.title || "提示词节点");
   renderAll();
   try {
