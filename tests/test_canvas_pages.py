@@ -850,8 +850,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.9.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.9.1"', constants)
+        self.assertIn("version: 3.9.2", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.9.2"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1236,6 +1236,20 @@ class CanvasPageBridgeTest(unittest.TestCase):
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        # 调试栏滚轮兜底：滚轮落在 body 之外时手动滚动调试内容
+        self.assertIn("body.scrollTop += event.deltaY", editor)
+        # 点击空白/打开素材库时收起调试信息
+        self.assertIn("collapseRetagLayers();\n        setDebugBarOpen(false);", editor)
+        self.assertIn("collapseRetagLayers();\n    setDebugBarOpen(false);", editor)
+        self.assertIn("// 打开素材库时收起调试信息，避免两块大面板互相遮挡", editor)
+        # 点击素材库之外收起素材库
+        self.assertIn('target.closest("#assetLibraryBtn, #mobileAssetLibraryBtn")', editor)
+        # 平铺卡片 img 自带圆角兜底
+        img_block = styles.split(
+            ".asset-image-card .asset-thumb img {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("border-radius: 11px;", img_block)
 
         self.assertIn("overflow: clip;", styles)
         self.assertIn('els.viewport.addEventListener("scroll", resetNativeCanvasScroll', editor)

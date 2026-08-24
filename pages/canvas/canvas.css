@@ -2723,6 +2723,8 @@ select:focus-visible {
   inset: 0;
   object-fit: cover;
   object-position: center;
+  /* 自带圆角兜底：即使外层裁剪失效，横竖图四角也保持圆角 */
+  border-radius: 11px;
 }
 
 .asset-thumb-loading {

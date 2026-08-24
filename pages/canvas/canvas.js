@@ -4483,6 +4483,8 @@ function setAssetPanel(open) {
   if (open) {
     setCanvasContextMenu(false);
     setNodeContextMenu(false);
+    // 打开素材库时收起调试信息，避免两块大面板互相遮挡
+    setDebugBarOpen(false);
   }
   if (open && !els.projectMenu.hidden) setProjectMenu(false);
   els.assetPanel.classList.toggle("open", open);
@@ -5314,6 +5316,7 @@ function handleCanvasTouchStart(event) {
   els.viewport.classList.add("panning");
   if (canvasTouchPointers.size === 1) {
     collapseRetagLayers();
+    setDebugBarOpen(false);
     clearSelection();
     document.querySelectorAll(".node.selected").forEach((node) => node.classList.remove("selected"));
     requestAnimationFrame(renderConnections);
@@ -5469,6 +5472,7 @@ els.viewport.addEventListener("pointerdown", (event) => {
         });
       } else if (!additive && !toggle) {
         collapseRetagLayers();
+        setDebugBarOpen(false);
         clearSelection();
         renderAll();
       }
@@ -5536,13 +5540,28 @@ els.assetPanel.addEventListener("wheel", (event) => {
 
 els.debugBar?.addEventListener("wheel", (event) => {
   event.stopPropagation();
-}, { passive: true });
+  // 滚轮落在 body 之外（如标题栏/操作记录边框）时兜底滚动调试内容，
+  // 避免出现"滚不动"的死区
+  const body = els.debugBarBody;
+  if (!body || body.hidden || body.contains(event.target)) return;
+  event.preventDefault();
+  body.scrollTop += event.deltaY;
+}, { passive: false });
 
 // The diagnostics HUD is an interactive surface of its own. Keep pointer
 // gestures (including text drag-selection) from reaching the canvas' CAD
 // selection/pan handlers.
 els.debugBar?.addEventListener("pointerdown", (event) => event.stopPropagation());
 els.debugBar?.addEventListener("dblclick", (event) => event.stopPropagation());
+
+// 点击素材库面板之外的地方收起素材库
+document.addEventListener("pointerdown", (event) => {
+  if (!els.assetPanel?.classList.contains("open")) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest(".asset-panel")) return;
+  if (target.closest("#assetLibraryBtn, #mobileAssetLibraryBtn")) return;
+  setAssetPanel(false);
+}, true);
 
 els.viewport.addEventListener("dblclick", (event) => {
   if (event.target.closest(
