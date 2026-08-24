@@ -850,8 +850,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.8.6", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.8.6"', constants)
+        self.assertIn("version: 3.9.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.9.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1038,22 +1038,27 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_retag_merges_embedded_char_captions_into_image_tags(self) -> None:
         # 反推命中内嵌参数时，角色文本默认并回还原 tags（兼容所有网关）；
-        # 结构化透传仅在配置 char_structured 开启时生效
+        # 结构化透传固定开启，网关 400 时自动回退
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn('source_info.get("characterPrompts")', main_source)
         self.assertIn('"charPrompts": char_prompts', main_source)
         self.assertIn('"charUseCoords": char_use_coords', main_source)
         self.assertIn("原图角色提示词（char_captions）", main_source)
-        # 结构化透传固定开启，不再依赖配置开关
-        self.assertIn(
-            "char_prompts = normalize_char_entries(payload.get(\"retagCharPrompts\"))",
-            main_source,
-        )
-        self.assertNotIn("generation.char_structured", main_source)
+        self.assertIn("结构化透传（固定开启", main_source)
         # 反推合并后必须折叠重复的人数标签，否则模型会多画人
         self.assertIn("normalize_count_tokens(working_prompt)", main_source)
         # 网关拒绝角色参数（400）时自动去除 characters 重试一次
         self.assertIn("已去除 characters 重试", main_source)
+
+    def test_canvas_translation_follows_model_with_v5_identity_boost(self) -> None:
+        # 翻译策略只看模型：V5 中文直通（含 raw）+ Danbooru 身份增强
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "has_chinese(clean_prompt) and model_supports_cjk(current_model)",
+            main_source,
+        )
+        self.assertIn("V5 角色增强", main_source)
+        self.assertIn("await self._resolve_prompt_identity(", main_source)
 
     def test_canvas_generate_round_trips_char_prompt_entries(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

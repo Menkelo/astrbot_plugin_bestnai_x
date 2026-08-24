@@ -707,22 +707,29 @@ class BestNAIPlugin(Star):
                 },
             )
 
-        # 原始提示词模式与 V5 中文直通都不进翻译；4.x 中文仍需翻译成英文 tags
-        if has_chinese(clean_prompt) and (
-            raw_mode
-            or model_supports_cjk(current_model)
-        ):
-            skip_reason = (
-                "原始提示词模式，中文原样直通"
-                if raw_mode
-                else "V5 原生支持中文，未走翻译"
-            )
-            trace.note("翻译", skip_reason)
+        # 翻译策略由模型决定：4.5（含 /nai0）翻译成英文 tags；
+        # V5 中文直通，但会做 Danbooru 身份检索增强角色识别
+        if has_chinese(clean_prompt) and model_supports_cjk(current_model):
+            trace.note("翻译", "V5 原生支持中文，未走翻译")
             translation_source = ""
             translated_source = ""
             translated_character = ""
             translated_series = ""
             identity_checked = False
+            # 中文角色别名（如"鸣潮爱弥斯"）V5 未必认识，
+            # 检索命中则把英文角色/作品 tag 追加进提示词
+            try:
+                character, series = await self._resolve_prompt_identity(
+                    clean_prompt,
+                    timeout=4.0,
+                )
+            except Exception as exc:
+                logger.warning(f"[BestNAI] V5 角色检索失败（忽略）: {exc}")
+                character = series = ""
+            identity_parts = [part for part in (character, series) if part]
+            if identity_parts:
+                clean_prompt = f"{clean_prompt}, {', '.join(identity_parts)}"
+                trace.note("V5 角色增强", ", ".join(identity_parts))
         elif has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
@@ -740,10 +747,13 @@ class BestNAIPlugin(Star):
             )
             if not translated_source:
                 tr_cfg = self.plugin_config.translator
+                v5_hint = "；或把节点模型切换为 V5 直通中文" if not raw_mode else ""
                 if not tr_cfg.enabled:
-                    raise ValueError("检测到中文提示词，请先在插件配置中启用翻译器")
+                    raise ValueError(
+                        f"检测到中文提示词，请先在插件配置中启用翻译器{v5_hint}"
+                    )
                 if not tr_cfg.is_configured():
-                    raise ValueError("翻译器未配置，请选择翻译提供商")
+                    raise ValueError(f"翻译器未配置，请选择翻译提供商{v5_hint}")
                 with trace.stage("翻译"):
                     translated_source, failure_reason = (
                         await self._translate_prompt_with_reason(
@@ -2145,17 +2155,36 @@ class BestNAIPlugin(Star):
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
 
-        # nai0 原始提示词模式与 V5 中文直通都不翻译（非 ASCII 清理见下方）
-        if not raw_mode and not model_supports_cjk(current_model) and has_chinese(clean_prompt):
+        # 翻译策略由模型决定：4.5（含 /nai0）翻译成英文 tags；
+        # V5 中文直通，但会做 Danbooru 身份检索增强角色识别
+        if has_chinese(clean_prompt) and model_supports_cjk(current_model):
+            try:
+                character, series = await self._resolve_prompt_identity(
+                    clean_prompt,
+                    timeout=4.0,
+                )
+            except Exception as exc:
+                logger.warning(f"[BestNAI] V5 角色检索失败（忽略）: {exc}")
+                character = series = ""
+            identity_parts = [part for part in (character, series) if part]
+            if identity_parts:
+                clean_prompt = f"{clean_prompt}, {', '.join(identity_parts)}"
+                logger.info(f"[BestNAI] V5 角色增强：{', '.join(identity_parts)}")
+        elif not model_supports_cjk(current_model) and has_chinese(clean_prompt):
+            v5_hint = (
+                "\n💡 或把模型切换为 V5（/nai5 或 /nai0 选 V5），中文可直通"
+                if raw_mode
+                else ""
+            )
             if not tr_cfg.enabled:
                 yield event.plain_result(
-                    "❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。"
+                    f"❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。{v5_hint}"
                 )
                 return
 
             if not tr_cfg.is_configured():
                 yield event.plain_result(
-                    "❌ 翻译器未配置。请在 translator_config 中选择翻译提供商。"
+                    f"❌ 翻译器未配置。请在 translator_config 中选择翻译提供商。{v5_hint}"
                 )
                 return
 

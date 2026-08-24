@@ -19,12 +19,17 @@ class Nai0RawModeTranslationTest(unittest.TestCase):
     raw_mode，导致 /nai0 中文输入仍然调用翻译器。
     """
 
-    def test_main_generation_path_skips_translation_in_raw_mode(self) -> None:
-        # raw 模式与 V5 中文直通都不进翻译
+    def test_main_generation_path_translation_follows_model(self) -> None:
+        # 翻译策略只看模型：4.5（含 /nai0）翻译；V5 中文直通
         self.assertIn(
-            "if not raw_mode and not model_supports_cjk(current_model) and has_chinese(clean_prompt):",
+            "elif not model_supports_cjk(current_model) and has_chinese(clean_prompt):",
             MAIN_SOURCE,
         )
+
+    def test_v5_direct_pass_gets_danbooru_identity_enhancement(self) -> None:
+        # V5 中文直通时做 Danbooru 身份检索，命中角色则追加英文 tag
+        self.assertIn("V5 角色增强", MAIN_SOURCE)
+        self.assertIn("await self._resolve_prompt_identity(", MAIN_SOURCE)
 
     def test_retag_merge_path_skips_translation_and_identity_in_raw_mode(self) -> None:
         self.assertIn(
