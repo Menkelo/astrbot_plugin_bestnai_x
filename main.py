@@ -906,12 +906,11 @@ class BestNAIPlugin(Star):
 
         if raw_mode:
             gen_config = replace(gen_config, quality=False)
-            # V5 原生支持中文，raw 模式保留原文；4.x 仍做 ASCII 清理
+            # V5 原生支持中文，raw 模式保留原文；4.x 仍做 ASCII 清理。
+            # 注意看节点模型，不是插件默认模型
             final_prompt = normalize_prompt_ascii(
                 working_prompt,
-                keep_non_ascii=model_supports_cjk(
-                    self.plugin_config.generation.model
-                ),
+                keep_non_ascii=model_supports_cjk(current_model),
             )
         else:
             if artist_name == "__none__":
@@ -932,6 +931,11 @@ class BestNAIPlugin(Star):
             )
 
         if not final_prompt:
+            if raw_mode and has_chinese(clean_prompt) and not model_supports_cjk(current_model):
+                raise ValueError(
+                    "原始提示词模式下 4.5 不支持中文：请把节点模型切换为 V5，"
+                    "或关闭原始提示词以启用中文翻译"
+                )
             raise ValueError("提示词清理后为空")
 
         trace.note("画师预设", resolved_artist_name or ("原始提示词模式" if raw_mode else "(无)"))
@@ -2209,7 +2213,21 @@ class BestNAIPlugin(Star):
             final_prompt = final_prompt_check.filtered_prompt
 
         if not final_prompt:
-            yield event.plain_result("❌ 提示词清理后为空，请输入英文提示词或开启中文翻译")
+            if raw_mode and has_chinese(clean_prompt):
+                used_model = current_model or self.plugin_config.nai0_model
+                if model_supports_cjk(used_model):
+                    yield event.plain_result(
+                        "❌ 提示词清理后为空：当前为 V5 中文直通，不应出现此情况，请反馈"
+                    )
+                else:
+                    yield event.plain_result(
+                        "❌ /nai0 原始提示词模式下 4.5 不支持中文：\n"
+                        "· 把 /nai0 模型切换为 V5（插件面板）后用中文；或\n"
+                        "· 改用英文提示词；或\n"
+                        "· 关闭原始提示词，改用 /nai 走中文翻译"
+                    )
+            else:
+                yield event.plain_result("❌ 提示词清理后为空，请输入英文提示词或开启中文翻译")
             return
 
         try:

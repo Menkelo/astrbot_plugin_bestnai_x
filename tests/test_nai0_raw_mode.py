@@ -34,6 +34,16 @@ class Nai0RawModeTranslationTest(unittest.TestCase):
         # 身份检索也不应在 raw 模式下对中文描述空跑
         self.assertIn("if desc_part and not raw_mode:", MAIN_SOURCE)
 
+    def test_raw_mode_cjk_uses_request_model_not_plugin_default(self) -> None:
+        # 画布 raw 分支必须看本次请求的节点模型；看插件默认模型会让
+        # V5 节点的中文被 ASCII 清理误删
+        self.assertIn("model_supports_cjk(current_model)", MAIN_SOURCE)
+
+    def test_empty_after_cleanup_gives_actionable_hint_for_raw_chinese(self) -> None:
+        # 4.5 + raw + 中文清空后必须告诉用户出路，而不是"清理后为空"
+        self.assertIn("原始提示词模式下 4.5 不支持中文", MAIN_SOURCE)
+        self.assertIn("请把节点模型切换为 V5", MAIN_SOURCE)
+
 
 if __name__ == "__main__":
     unittest.main()
