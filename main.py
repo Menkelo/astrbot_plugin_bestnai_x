@@ -2053,7 +2053,8 @@ class BestNAIPlugin(Star):
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
 
-        if has_chinese(clean_prompt):
+        # nai0 原始提示词模式不翻译：写什么发什么（非 ASCII 由下方清理）
+        if not raw_mode and has_chinese(clean_prompt):
             if not tr_cfg.enabled:
                 yield event.plain_result(
                     "❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。"
@@ -2319,7 +2320,8 @@ class BestNAIPlugin(Star):
                 user_character = ""
                 user_series = ""
 
-                if desc_part and has_chinese(desc_part):
+                # nai0 原始提示词模式同样跳过翻译与身份检索
+                if desc_part and has_chinese(desc_part) and not raw_mode:
                     tr_cfg = self.plugin_config.translator
 
                     if not tr_cfg.enabled:
@@ -2355,7 +2357,7 @@ class BestNAIPlugin(Star):
                     ).strip()
                 else:
                     user_prompt_for_merge = user_prompt_for_merge or ""
-                    if desc_part:
+                    if desc_part and not raw_mode:
                         user_character, user_series = (
                             await self._resolve_prompt_identity(desc_part)
                         )
