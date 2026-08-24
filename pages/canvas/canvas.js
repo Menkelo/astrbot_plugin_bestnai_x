@@ -1580,9 +1580,16 @@ function retagLayerCategoryLists(node) {
 function collapseRetagLayers() {
   let changed = false;
   state.nodes.forEach((node) => {
-    if (node.type !== "prompt" || node.meta?.retagLayerExpanded !== true) return;
-    node.meta = { ...(node.meta || {}), retagLayerExpanded: false };
-    changed = true;
+    if (node.type !== "prompt") return;
+    // 标签图层与高级参数卡都随空白处点击收起
+    if (node.meta?.retagLayerExpanded === true || node.meta?.advParamsExpanded === true) {
+      node.meta = {
+        ...(node.meta || {}),
+        retagLayerExpanded: false,
+        advParamsExpanded: false,
+      };
+      changed = true;
+    }
   });
   if (changed) scheduleSave();
   return changed;
@@ -1618,54 +1625,80 @@ function makeAdvancedParamsCard(node, nodeElement) {
   help.textContent = "留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 用于抑制色彩过曝；Variety+ 提升构图多样性。";
   body.appendChild(help);
 
+  const effectiveValue = (key, retagKey, fallback) =>
+    node.meta?.[key] ?? node.meta?.[retagKey] ?? fallback;
+
   const refreshSummary = () => {
-    const steps = node.meta?.steps || node.meta?.retagSteps;
-    const scale = node.meta?.scale || node.meta?.retagScale;
-    const parts = [`步数 ${steps || "默认"}`, `引导 ${scale || "默认"}`];
+    const parts = [
+      `步数 ${effectiveValue("steps", "retagSteps", 28)}`,
+      `引导 ${effectiveValue("scale", "retagScale", 7)}`,
+      `Rescale ${effectiveValue("cfgRescale", "retagCfgRescale", 0)}`,
+    ];
     if (node.meta?.varietyBoost) parts.push("Variety+");
     summary.textContent = parts.join(" · ");
   };
 
-  const advNumber = (label, key, retagKey, min, max, step, tooltip, fallback) => {
-    const field = document.createElement("label");
-    field.className = "field-label adv-field";
+  // 滑条：实时显示生效值；手写值标 • 并可 ↺ 一键回落
+  const advSlider = (label, key, retagKey, min, max, step, tooltip, fallback, format) => {
+    const field = document.createElement("div");
+    field.className = "adv-field";
     field.title = tooltip;
+
+    const head = document.createElement("div");
+    head.className = "adv-field-head";
     const caption = document.createElement("span");
     caption.textContent = label;
-    const input = document.createElement("input");
-    input.type = "number";
-    input.className = "node-select adv-number";
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.placeholder = String(
-      node.meta?.[key] ?? node.meta?.[retagKey] ?? fallback ?? "",
-    );
-    input.value = node.meta?.[key] ?? "";
-    input.addEventListener("change", () => {
-      const raw = input.value.trim();
-      node.meta = { ...(node.meta || {}) };
-      if (raw === "") {
-        delete node.meta[key];
-        input.placeholder = String(node.meta?.[retagKey] ?? fallback ?? "");
-      } else {
-        const num = Number(raw);
-        if (Number.isFinite(num)) {
-          node.meta[key] = Math.min(max, Math.max(min, num));
-          input.value = String(node.meta[key]);
-        }
+    const value = document.createElement("span");
+    value.className = "adv-value";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "adv-reset";
+    reset.textContent = "↺";
+    reset.title = "清除手动设置，回落原图参数/默认值";
+    head.append(caption, value, reset);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.className = "adv-slider";
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+
+    const paint = () => {
+      const effective = effectiveValue(key, retagKey, fallback);
+      const manual = node.meta?.[key] !== undefined;
+      slider.value = String(effective);
+      value.textContent = `${format(effective)}${manual ? " •" : ""}`;
+      value.classList.toggle("manual", manual);
+    };
+    slider.addEventListener("input", () => {
+      node.meta = { ...(node.meta || {}), [key]: Number(slider.value) };
+      paint();
+      refreshSummary();
+      clearDebugTrace(node);
+    });
+    slider.addEventListener("change", () => {
+      scheduleSave();
+    });
+    reset.addEventListener("click", () => {
+      if (node.meta && node.meta[key] !== undefined) {
+        const { [key]: _dropped, ...meta } = node.meta;
+        node.meta = meta;
       }
+      paint();
       refreshSummary();
       clearDebugTrace(node);
       scheduleSave();
     });
-    field.append(caption, input);
+
+    paint();
+    field.append(head, slider);
     return field;
   };
   const advRow = document.createElement("div");
   advRow.className = "adv-row";
   advRow.append(
-    advNumber(
+    advSlider(
       "步数",
       "steps",
       "retagSteps",
@@ -1674,8 +1707,9 @@ function makeAdvancedParamsCard(node, nodeElement) {
       1,
       "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费",
       28,
+      (v) => String(Math.round(v)),
     ),
-    advNumber(
+    advSlider(
       "引导",
       "scale",
       "retagScale",
@@ -1684,8 +1718,9 @@ function makeAdvancedParamsCard(node, nodeElement) {
       0.1,
       "提示词引导强度（Prompt Guidance / CFG）：越高越贴合提示词、细节更锐，过高会过饱和；V4.5/V5 建议 5-7",
       7,
+      (v) => v.toFixed(1),
     ),
-    advNumber(
+    advSlider(
       "Rescale",
       "cfgRescale",
       "retagCfgRescale",
@@ -1694,6 +1729,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
       0.05,
       "CFG Rescale：抑制高引导下的色彩过曝（deepfried 观感），常用 0-0.3",
       0,
+      (v) => v.toFixed(2),
     ),
   );
   const varietyLabel = document.createElement("label");
@@ -1710,18 +1746,22 @@ function makeAdvancedParamsCard(node, nodeElement) {
   });
   varietyLabel.append(variety, document.createTextNode("Variety+"));
 
-  toggle.addEventListener("click", () => {
-    const open = body.hidden;
-    body.hidden = !open;
+  const setOpen = (open) => {
     card.classList.toggle("open", open);
+    body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
+  };
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !card.classList.contains("open");
+    node.meta = { ...(node.meta || {}), advParamsExpanded: open };
+    setOpen(open);
+    scheduleSave();
   });
 
-  const advRowWrap = document.createElement("div");
-  advRowWrap.className = "adv-row";
-  advRowWrap.append(advRow, varietyLabel);
-  body.append(advRowWrap);
+  body.append(advRow, varietyLabel);
   refreshSummary();
+  setOpen(node.meta?.advParamsExpanded === true);
   card.append(toggle, body);
   return card;
 }
@@ -3499,6 +3539,7 @@ function clearRetagCache(node) {
     retagTagTranslations: _retagTagTranslations,
     retagLayerModes: _retagLayerModes,
     retagLayerExpanded: _retagLayerExpanded,
+    advParamsExpanded: _advParamsExpanded,
     retagCharPrompts: _retagCharPrompts,
     retagUseCoords: _retagUseCoords,
     retagSteps: _retagSteps,

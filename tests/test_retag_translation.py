@@ -115,9 +115,12 @@ class FreeTierStepsCapTest(unittest.TestCase):
             self.editor,
         )
 
-    def test_frontend_has_no_generation_parameter_slider(self) -> None:
+    def test_frontend_advanced_params_use_sliders(self) -> None:
+        # 高级参数卡（高级参数/滑条）已取代旧的"画布不提供参数调节"约定
         self.assertNotIn("function makeAdvancedPanel", self.editor)
-        self.assertNotIn('slider.type = "range"', self.editor)
+        self.assertIn('slider.type = "range"', self.editor)
+        # 步数滑条仍受后端 28 步上限约束
+        self.assertIn('slider.max = String(max)', self.editor)
 
 
 if __name__ == "__main__":

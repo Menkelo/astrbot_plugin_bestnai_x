@@ -705,6 +705,7 @@ class CanvasStore:
                 # 节点高级参数卡：CFG Rescale（0-1）与 Variety+ 开关
                 "cfgRescale": _bounded_number(raw_meta.get("cfgRescale"), 0, 0, 1),
                 "varietyBoost": bool(raw_meta.get("varietyBoost", False)),
+                "advParamsExpanded": bool(raw_meta.get("advParamsExpanded", False)),
                 # 单次生成张数（1-4），>1 时前端按两列网格排布
                 "count": int(_bounded_number(raw_meta.get("count"), 1, 1, 4)),
             }

@@ -844,8 +844,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.7.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.7.1"', constants)
+        self.assertIn("version: 3.7.2", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.7.2"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1137,6 +1137,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor.index("stack.appendChild(advCard)"),
             editor.index("stack.appendChild(retagLayerCard)"),
         )
+        # 三个参数用滑条 + 生效值显示 + ↺ 回退；折叠状态持久化并随空白点击收起
+        self.assertIn('slider.type = "range"', editor)
+        self.assertIn("const effective = effectiveValue(key, retagKey, fallback)", editor)
+        self.assertIn('reset.textContent = "↺"', editor)
+        self.assertIn("advParamsExpanded: open", editor)
+        self.assertIn("advParamsExpanded: false", editor)
+        self.assertNotIn('input.type = "number"', editor)
         # 生成张数：1-4，>1 时两列网格（4 张 = 2×2 四方格）
         self.assertIn('"张数"', editor)
         self.assertIn(

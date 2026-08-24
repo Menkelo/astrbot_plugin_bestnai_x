@@ -1178,17 +1178,66 @@ select:focus-visible {
 /* 高级参数卡复用标签图层卡壳，仅调整内部布局 */
 .adv-card .retag-layer-body {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .adv-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 12px;
 }
 
-.adv-number {
-  height: 30px;
+.adv-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.adv-field-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.adv-value {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-value.manual {
+  color: #2563eb;
+}
+
+.adv-reset {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.adv-reset:hover {
+  background: var(--soft-2);
+  color: var(--text);
+}
+
+.adv-slider {
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
 }
 
 .retag-layer-help {
@@ -3224,10 +3273,6 @@ select:focus-visible {
 
   .prompt-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .adv-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .node-footer {
