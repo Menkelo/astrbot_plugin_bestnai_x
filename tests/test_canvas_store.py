@@ -492,7 +492,16 @@ class CanvasStoreTest(unittest.TestCase):
     def test_canvas_preferences_persist_last_canvas_ratio_and_artist(self) -> None:
         first = self.store.create_canvas({"title": "first"})
         saved = self.store.save_preferences(
-            {"lastCanvasId": first["id"], "ratio": "3:2", "artist": "watercolor"}
+            {
+                "lastCanvasId": first["id"],
+                "ratio": "3:2",
+                "artist": "watercolor",
+                "model": "nai-diffusion-5-full",
+                "advSteps": 24,
+                "advScale": 5.5,
+                "advCfgRescale": 0.2,
+                "advVariety": True,
+            }
         )
 
         reopened = CanvasStore("test_plugin", Path(self.temp_dir.name))
@@ -500,11 +509,18 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(saved["lastCanvasId"], first["id"])
         self.assertEqual(saved["ratio"], "3:2")
         self.assertEqual(saved["artist"], "watercolor")
+        # 模型与高级参数跟随默认值同样持久化
+        self.assertEqual(saved["model"], "nai-diffusion-5-full")
+        self.assertEqual(saved["advSteps"], 24)
+        self.assertEqual(saved["advScale"], 5.5)
+        self.assertEqual(saved["advCfgRescale"], 0.2)
+        self.assertTrue(saved["advVariety"])
 
         reopened.trash_canvas(first["id"])
         self.assertEqual(reopened.load_preferences()["lastCanvasId"], "")
         self.assertEqual(reopened.load_preferences()["ratio"], "3:2")
         self.assertEqual(reopened.load_preferences()["artist"], "watercolor")
+        self.assertEqual(reopened.load_preferences()["model"], "nai-diffusion-5-full")
 
     def test_canvas_trash_restore_and_purge(self) -> None:
         canvas = self.store.create_canvas({"title": "可恢复画布"})

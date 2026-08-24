@@ -844,8 +844,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.8.3", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.8.3"', constants)
+        self.assertIn("version: 3.8.4", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.8.4"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1184,6 +1184,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("(slot % 2) * (imageNodeWidth + 48)", editor)
         # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖
         self.assertEqual(editor.count("node.meta?.retagSteps || undefined"), 1)
+        # 模型与高级参数跟随上一张卡片（rememberPromptDefaults）；张数不跟随
+        self.assertIn("rememberPromptDefaults({ model: value })", editor)
+        self.assertIn("rememberPromptDefaults({ [advDefaultKey]: Number(slider.value) })", editor)
+        self.assertIn("rememberPromptDefaults({ advVariety: variety.checked })", editor)
+        self.assertIn("model: adv.model || state.config.defaultModel", editor)
+        self.assertNotIn("count: adv.count", editor)
         # 选项行两行布局：画幅+画师 / 模型+张数
         self.assertIn('makeSelectField("画幅"', editor)
         self.assertIn("options.append(ratioField, artistField, modelField, countField)", editor)

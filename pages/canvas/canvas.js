@@ -199,7 +199,7 @@ const state = {
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
   assetCache: new Map(),
-  promptDefaults: { ratio: "", artist: "" },
+  promptDefaults: { ratio: "", artist: "", model: "", advSteps: 0, advScale: 0, advCfgRescale: 0, advVariety: false },
   debugEnabled: (() => {
     try { return localStorage.getItem("bestnaiCanvasDebug") === "1"; } catch (_) { return false; }
   })(),
@@ -942,6 +942,7 @@ function suggestedNodeCenter(width) {
 
 function createPromptNode(point = null) {
   const center = point || suggestedNodeCenter(380);
+  const adv = state.promptDefaults;
   return {
     id: uid("prompt"),
     type: "prompt",
@@ -951,10 +952,18 @@ function createPromptNode(point = null) {
     height: 430,
     title: "提示词节点",
     prompt: "",
-    ratio: state.promptDefaults.ratio || state.config.defaultRatio || "2:3",
-    artist: state.promptDefaults.artist,
+    ratio: adv.ratio || state.config.defaultRatio || "2:3",
+    artist: adv.artist,
+    // 模型与高级参数跟随上一张卡片；张数不跟随（始终 1 张）
+    model: adv.model || state.config.defaultModel || "nai-diffusion-4-5-full",
     raw: false,
     createdAt: new Date().toISOString(),
+    meta: {
+      ...(Number(adv.advSteps) > 0 ? { steps: Number(adv.advSteps) } : {}),
+      ...(Number(adv.advScale) > 0 ? { scale: Number(adv.advScale) } : {}),
+      ...(Number(adv.advCfgRescale) > 0 ? { cfgRescale: Number(adv.advCfgRescale) } : {}),
+      ...(adv.advVariety === true ? { varietyBoost: true } : {}),
+    },
   };
 }
 
@@ -1002,13 +1011,24 @@ function loadPromptDefaults(preferences = {}) {
   const persisted = {
     ratio: String(preferences.ratio || stored.ratio || ""),
     artist: String(preferences.artist || stored.artist || ""),
+    model: String(preferences.model || stored.model || ""),
+    advSteps: Number(preferences.advSteps ?? stored.advSteps ?? 0) || 0,
+    advScale: Number(preferences.advScale ?? stored.advScale ?? 0) || 0,
+    advCfgRescale: Number(preferences.advCfgRescale ?? stored.advCfgRescale ?? 0) || 0,
+    advVariety: preferences.advVariety ?? stored.advVariety === true,
   };
   const fallbackRatio = state.config.defaultRatio
     || optionValue(state.config.ratios?.[0])
     || "2:3";
+  const fallbackModel = state.config.defaultModel || "nai-diffusion-4-5-full";
   state.promptDefaults = {
     ratio: hasOptionValue(state.config.ratios, persisted.ratio) ? persisted.ratio : fallbackRatio,
     artist: normalizedArtistSelection(persisted.artist),
+    model: hasOptionValue(state.config.models, persisted.model) ? persisted.model : fallbackModel,
+    advSteps: Math.min(28, Math.max(0, persisted.advSteps)),
+    advScale: Math.min(10, Math.max(0, persisted.advScale)),
+    advCfgRescale: Math.min(1, Math.max(0, persisted.advCfgRescale)),
+    advVariety: persisted.advVariety === true,
   };
 }
 
@@ -1018,6 +1038,11 @@ function persistCanvasPreferences() {
     lastCanvasId: canvasId,
     ratio: state.promptDefaults.ratio || "",
     artist: state.promptDefaults.artist || "",
+    model: state.promptDefaults.model || "",
+    advSteps: state.promptDefaults.advSteps || 0,
+    advScale: state.promptDefaults.advScale || 0,
+    advCfgRescale: state.promptDefaults.advCfgRescale || 0,
+    advVariety: state.promptDefaults.advVariety === true,
   };
   state.preferencesSaveChain = state.preferencesSaveChain
     .catch(() => undefined)
@@ -1344,6 +1369,7 @@ function renderPromptNode(node) {
     node.model || state.config.defaultModel,
     (value) => {
       node.model = value;
+      rememberPromptDefaults({ model: value });
       clearDebugTrace(node);
       scheduleSave();
       recordOperation("切换模型", `${node.title || "提示词节点"} · ${value}`);
@@ -1639,7 +1665,13 @@ function makeAdvancedParamsCard(node, nodeElement) {
   };
 
   // 滑条：实时显示生效值；手写值标 • 并可 ↺ 一键回落
+  const advDefaultKeys = {
+    steps: "advSteps",
+    scale: "advScale",
+    cfgRescale: "advCfgRescale",
+  };
   const advSlider = (label, key, retagKey, min, max, step, tooltip, fallback, format) => {
+    const advDefaultKey = advDefaultKeys[key] || key;
     const field = document.createElement("div");
     field.className = "adv-field";
     field.title = tooltip;
@@ -1680,6 +1712,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
       clearDebugTrace(node);
     });
     slider.addEventListener("change", () => {
+      // 手动设置过的参数作为新卡片的跟随默认值
+      rememberPromptDefaults({ [advDefaultKey]: Number(slider.value) });
       scheduleSave();
     });
     reset.addEventListener("click", () => {
@@ -1687,6 +1721,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
         const { [key]: _dropped, ...meta } = node.meta;
         node.meta = meta;
       }
+      // 重置同时清除跟随默认（0 = 不跟随）
+      rememberPromptDefaults({ [advDefaultKey]: 0 });
       paint();
       refreshSummary();
       clearDebugTrace(node);
@@ -1742,6 +1778,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   variety.checked = !!node.meta?.varietyBoost;
   variety.addEventListener("change", () => {
     node.meta = { ...(node.meta || {}), varietyBoost: variety.checked };
+    rememberPromptDefaults({ advVariety: variety.checked });
     refreshSummary();
     clearDebugTrace(node);
     scheduleSave();
