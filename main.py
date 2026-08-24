@@ -707,33 +707,9 @@ class BestNAIPlugin(Star):
                 },
             )
 
-        # 翻译策略由模型决定：4.5（含 /nai0）翻译成英文 tags；
-        # V5 中文直通，但会做 Danbooru 身份检索增强角色识别
-        if has_chinese(clean_prompt) and model_supports_cjk(current_model):
-            trace.note("翻译", "V5 原生支持中文，未走翻译")
-            translation_source = ""
-            translated_source = ""
-            translated_character = ""
-            translated_series = ""
-            identity_checked = False
-            # 中文角色别名（如"鸣潮爱弥斯"）V5 未必认识，
-            # 检索命中则把英文角色/作品 tag 追加进提示词。
-            # HF Space 有冷启动，超时给足 10 秒
-            try:
-                character, series = await self._resolve_prompt_identity(
-                    clean_prompt,
-                    timeout=10.0,
-                )
-            except Exception as exc:
-                logger.warning(f"[BestNAI] V5 角色检索失败（忽略）: {exc}")
-                character = series = ""
-            identity_parts = [part for part in (character, series) if part]
-            if identity_parts:
-                clean_prompt = f"{clean_prompt}, {', '.join(identity_parts)}"
-                trace.note("V5 角色增强", ", ".join(identity_parts))
-            else:
-                trace.note("V5 角色增强", "未命中角色（服务超时或无中文别名）")
-        elif has_chinese(clean_prompt):
+        # 中文一律翻译成英文 tags（V5 对中文自然语言/角色别名理解不稳，
+        # 与 4.5 同策略）；raw 模式只影响画师串与质量词，不影响翻译
+        if has_chinese(clean_prompt):
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
                     clean_prompt,
@@ -750,13 +726,10 @@ class BestNAIPlugin(Star):
             )
             if not translated_source:
                 tr_cfg = self.plugin_config.translator
-                v5_hint = "；或把节点模型切换为 V5 直通中文" if not raw_mode else ""
                 if not tr_cfg.enabled:
-                    raise ValueError(
-                        f"检测到中文提示词，请先在插件配置中启用翻译器{v5_hint}"
-                    )
+                    raise ValueError("检测到中文提示词，请先在插件配置中启用翻译器")
                 if not tr_cfg.is_configured():
-                    raise ValueError(f"翻译器未配置，请选择翻译提供商{v5_hint}")
+                    raise ValueError("翻译器未配置，请选择翻译提供商")
                 with trace.stage("翻译"):
                     translated_source, failure_reason = (
                         await self._translate_prompt_with_reason(
@@ -919,12 +892,7 @@ class BestNAIPlugin(Star):
 
         if raw_mode:
             gen_config = replace(gen_config, quality=False)
-            # V5 原生支持中文，raw 模式保留原文；4.x 仍做 ASCII 清理。
-            # 注意看节点模型，不是插件默认模型
-            final_prompt = normalize_prompt_ascii(
-                working_prompt,
-                keep_non_ascii=model_supports_cjk(current_model),
-            )
+            final_prompt = normalize_prompt_ascii(working_prompt)
         else:
             if artist_name == "__none__":
                 artist_prompt = ""
@@ -944,11 +912,6 @@ class BestNAIPlugin(Star):
             )
 
         if not final_prompt:
-            if raw_mode and has_chinese(clean_prompt) and not model_supports_cjk(current_model):
-                raise ValueError(
-                    "原始提示词模式下 4.5 不支持中文：请把节点模型切换为 V5，"
-                    "或关闭原始提示词以启用中文翻译"
-                )
             raise ValueError("提示词清理后为空")
 
         trace.note("画师预设", resolved_artist_name or ("原始提示词模式" if raw_mode else "(无)"))
@@ -2158,39 +2121,18 @@ class BestNAIPlugin(Star):
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
 
-        # 翻译策略由模型决定：4.5（含 /nai0）翻译成英文 tags；
-        # V5 中文直通，但会做 Danbooru 身份检索增强角色识别
-        if has_chinese(clean_prompt) and model_supports_cjk(current_model):
-            # HF Space 有冷启动，超时给足 10 秒
-            try:
-                character, series = await self._resolve_prompt_identity(
-                    clean_prompt,
-                    timeout=10.0,
-                )
-            except Exception as exc:
-                logger.warning(f"[BestNAI] V5 角色检索失败（忽略）: {exc}")
-                character = series = ""
-            identity_parts = [part for part in (character, series) if part]
-            if identity_parts:
-                clean_prompt = f"{clean_prompt}, {', '.join(identity_parts)}"
-                logger.info(f"[BestNAI] V5 角色增强：{', '.join(identity_parts)}")
-            else:
-                logger.info("[BestNAI] V5 角色增强未命中（服务超时或无中文别名）")
-        elif not model_supports_cjk(current_model) and has_chinese(clean_prompt):
-            v5_hint = (
-                "\n💡 或把模型切换为 V5（/nai5 或 /nai0 选 V5），中文可直通"
-                if raw_mode
-                else ""
-            )
+        # 中文一律翻译成英文 tags（V5 对中文自然语言/角色别名的理解不稳，
+        # 与 4.5 同策略）；raw 模式只影响画师串与质量词，不影响翻译
+        if has_chinese(clean_prompt):
             if not tr_cfg.enabled:
                 yield event.plain_result(
-                    f"❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。{v5_hint}"
+                    "❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。"
                 )
                 return
 
             if not tr_cfg.is_configured():
                 yield event.plain_result(
-                    f"❌ 翻译器未配置。请在 translator_config 中选择翻译提供商。{v5_hint}"
+                    "❌ 翻译器未配置。请在 translator_config 中选择翻译提供商。"
                 )
                 return
 
@@ -2207,16 +2149,9 @@ class BestNAIPlugin(Star):
 
         if raw_mode:
             raw_before_clean = final_prompt
-            # V5 原生支持中文，nai0 保留原文直通；4.x 维持 ASCII 清理
-            keep_non_ascii = model_supports_cjk(current_model)
-            final_prompt = normalize_prompt_ascii(
-                final_prompt,
-                keep_non_ascii=keep_non_ascii,
-            )
+            final_prompt = normalize_prompt_ascii(final_prompt)
 
-            removed_chars = (
-                [] if keep_non_ascii else find_non_ascii_chars(raw_before_clean)
-            )
+            removed_chars = find_non_ascii_chars(raw_before_clean)
 
             if removed_chars:
                 logger.info(
@@ -2249,18 +2184,10 @@ class BestNAIPlugin(Star):
 
         if not final_prompt:
             if raw_mode and has_chinese(clean_prompt):
-                used_model = current_model or self.plugin_config.nai0_model
-                if model_supports_cjk(used_model):
-                    yield event.plain_result(
-                        "❌ 提示词清理后为空：当前为 V5 中文直通，不应出现此情况，请反馈"
-                    )
-                else:
-                    yield event.plain_result(
-                        "❌ /nai0 原始提示词模式下 4.5 不支持中文：\n"
-                        "· 把 /nai0 模型切换为 V5（插件面板）后用中文；或\n"
-                        "· 改用英文提示词；或\n"
-                        "· 关闭原始提示词，改用 /nai 走中文翻译"
-                    )
+                yield event.plain_result(
+                    "❌ 提示词清理后为空：中文提示词翻译结果为空，请检查翻译提供商，"
+                    "或改用英文提示词"
+                )
             else:
                 yield event.plain_result("❌ 提示词清理后为空，请输入英文提示词或开启中文翻译")
             return
@@ -2478,8 +2405,7 @@ class BestNAIPlugin(Star):
                 user_character = ""
                 user_series = ""
 
-                # nai0 原始提示词模式同样跳过翻译与身份检索
-                if desc_part and has_chinese(desc_part) and not raw_mode:
+                if desc_part and has_chinese(desc_part):
                     tr_cfg = self.plugin_config.translator
 
                     if not tr_cfg.enabled:
@@ -2515,7 +2441,7 @@ class BestNAIPlugin(Star):
                     ).strip()
                 else:
                     user_prompt_for_merge = user_prompt_for_merge or ""
-                    if desc_part and not raw_mode:
+                    if desc_part:
                         user_character, user_series = (
                             await self._resolve_prompt_identity(desc_part)
                         )

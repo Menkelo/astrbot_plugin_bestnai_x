@@ -850,8 +850,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.9.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.9.2"', constants)
+        self.assertIn("version: 3.9.3", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.9.3"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1050,16 +1050,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 网关拒绝角色参数（400）时自动去除 characters 重试一次
         self.assertIn("已去除 characters 重试", main_source)
 
-    def test_canvas_translation_follows_model_with_v5_identity_boost(self) -> None:
-        # 翻译策略只看模型：V5 中文直通（含 raw）+ Danbooru 身份增强
+    def test_canvas_translation_translates_chinese_for_all_models(self) -> None:
+        # V5 对中文自然语言理解不稳：画布中文一律翻译，与 4.5 同策略
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn(
-            "has_chinese(clean_prompt) and model_supports_cjk(current_model)",
-            main_source,
-        )
-        self.assertIn("V5 角色增强", main_source)
-        self.assertIn("timeout=10.0", main_source)
-        self.assertIn("await self._resolve_prompt_identity(", main_source)
+        self.assertIn("if has_chinese(clean_prompt):", main_source)
+        self.assertNotIn("V5 角色增强", main_source)
+        self.assertNotIn("model_supports_cjk(current_model)", main_source)
 
     def test_canvas_generate_round_trips_char_prompt_entries(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1097,18 +1093,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('for key in ("steps", "scale", "cfg_rescale", "noise_schedule")', main_source)
         self.assertIn("沿用原图采样参数", main_source)
 
-    def test_generation_status_does_not_claim_translation_in_raw_or_v5(self) -> None:
+    def test_generation_status_matches_translation_state(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
 
-        # 状态文案必须与后端翻译条件一致：raw 模式 / V5 直通时不再显示
-        # 「正在翻译并生成图片」这类旧提示
-        self.assertIn("function currentModelSupportsCjk", editor)
-        self.assertIn("const willTranslate = !node.raw", editor)
+        # 状态文案与后端一致：含中文即翻译（所有模型同策略），
+        # 不再有 raw/V5 的免翻译特例
+        self.assertNotIn("function currentModelSupportsCjk", editor)
+        self.assertIn(
+            "const willTranslate = /[\\u4e00-\\u9fff]/.test(translationSource)",
+            editor,
+        )
         self.assertLess(
-            editor.index("const willTranslate = !node.raw"),
+            editor.index("const willTranslate"),
             editor.index("正在翻译并生成图片"),
         )
-        self.assertIn("正在生成图片（原始提示词）", editor)
+        self.assertNotIn("正在生成图片（原始提示词）", editor)
 
     def test_asset_stack_covers_never_render_srcless_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

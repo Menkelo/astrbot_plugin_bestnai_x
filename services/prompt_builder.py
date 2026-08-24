@@ -10,7 +10,7 @@ from astrbot.api import logger
 
 from ..core.safety import append_safe_negative
 from ..core.prompt_tokens import rebuild_weighted_token, split_prompt_tokens, weighted_token_parts
-from ..models.config import GenerationConfig, PluginConfig, model_supports_cjk
+from ..models.config import GenerationConfig, PluginConfig
 
 
 # 反推时给用户手写提示词加的正向权重。
@@ -84,13 +84,8 @@ def cleanup_file(file_path: str) -> None:
         logger.debug(f"[BestNAI] 清理临时文件失败: {file_path}, {e}")
 
 
-def normalize_prompt_ascii(text: str, keep_non_ascii: bool = False) -> str:
-    """规整提示词标点与空白。
-
-    V4.x 只认 ASCII 标签，默认剥离非 ASCII 字符（中文、全角符号等）；
-    V5 原生支持中日文提示，调用方传 ``keep_non_ascii=True`` 保留原文，
-    仅做标点/空白归一。
-    """
+def normalize_prompt_ascii(text: str) -> str:
+    """规整提示词标点与空白，并剥离非 ASCII 字符（中文等）。"""
     text = str(text or "")
 
     replacements = {
@@ -122,8 +117,7 @@ def normalize_prompt_ascii(text: str, keep_non_ascii: bool = False) -> str:
     for k, v in replacements.items():
         text = text.replace(k, v)
 
-    if not keep_non_ascii:
-        text = re.sub(r"[^\x00-\x7F]+", "", text)
+    text = re.sub(r"[^\x00-\x7F]+", "", text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\s*,\s*", ", ", text)
     text = re.sub(r"(,\s*){2,}", ", ", text)
@@ -188,13 +182,9 @@ class PromptBuilder:
         raw_negative_prompt = gen_config.negative_prompt
         if apply_safe_negative:
             raw_negative_prompt = append_safe_negative(raw_negative_prompt)
-        keep_non_ascii = model_supports_cjk(gen_config.model)
-        cleaned_negative_prompt = normalize_prompt_ascii(
-            raw_negative_prompt,
-            keep_non_ascii=keep_non_ascii,
-        )
+        cleaned_negative_prompt = normalize_prompt_ascii(raw_negative_prompt)
 
-        removed_chars = [] if keep_non_ascii else find_non_ascii_chars(raw_negative_prompt)
+        removed_chars = find_non_ascii_chars(raw_negative_prompt)
 
         if removed_chars:
             logger.info(
@@ -224,17 +214,9 @@ class PromptBuilder:
         ]
 
         raw_final_prompt = ", ".join(p for p in raw_parts if p)
-        # V5 原生支持中文，保留原文；4.x 维持 ASCII 清理
-        generation = getattr(self.plugin_config, "generation", None)
-        keep_non_ascii = model_supports_cjk(getattr(generation, "model", ""))
-        cleaned_final_prompt = normalize_prompt_ascii(
-            raw_final_prompt,
-            keep_non_ascii=keep_non_ascii,
-        )
+        cleaned_final_prompt = normalize_prompt_ascii(raw_final_prompt)
 
-        removed_chars = (
-            [] if keep_non_ascii else find_non_ascii_chars(raw_final_prompt)
-        )
+        removed_chars = find_non_ascii_chars(raw_final_prompt)
 
         if removed_chars:
             logger.info(

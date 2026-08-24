@@ -54,43 +54,28 @@ class PromptBuilderTest(unittest.TestCase):
         self.assertIn("nsfw", config.negative_prompt)
 
 
-class CjkPromptSupportTest(unittest.TestCase):
-    def test_v5_models_support_cjk_but_45_does_not(self) -> None:
+class ModelCapabilityTest(unittest.TestCase):
+    def test_v5_detected_for_provider_routing(self) -> None:
+        # model_supports_cjk 现在只服务于 V5 提供商槽位路由，
+        # 语言处理（翻译/清理）不再按模型区分
         self.assertTrue(model_supports_cjk("nai-diffusion-5-full"))
         self.assertTrue(model_supports_cjk("nai-diffusion-5-curated"))
         self.assertFalse(model_supports_cjk("nai-diffusion-4-5-full"))
         self.assertFalse(model_supports_cjk(""))
 
-    def test_normalize_keeps_non_ascii_only_when_asked(self) -> None:
+    def test_normalize_strips_non_ascii_for_all_models(self) -> None:
         text = "1girl, 蓝发少女，"
 
         self.assertEqual(normalize_prompt_ascii(text), "1girl")
-        self.assertEqual(
-            normalize_prompt_ascii(text, keep_non_ascii=True),
-            "1girl, 蓝发少女",
-        )
 
-    def test_final_prompt_keeps_chinese_on_v5_and_strips_on_45(self) -> None:
+    def test_final_prompt_strips_chinese_regardless_of_model(self) -> None:
         plugin_config = PluginConfig.from_dict({})
-
         plugin_config.generation = replace(
             plugin_config.generation, model="nai-diffusion-5-full"
         )
-        v5_builder = PromptBuilder(plugin_config, lambda _: (832, 1216))
-        self.assertIn(
-            "蓝发少女",
-            v5_builder.build_final_prompt("蓝发少女", "", ""),
-        )
-        self.assertNotIn(
-            "，",
-            v5_builder.build_final_prompt("蓝发少女，", "", ""),
-        )
+        builder = PromptBuilder(plugin_config, lambda _: (832, 1216))
 
-        plugin_config.generation = replace(
-            plugin_config.generation, model="nai-diffusion-4-5-full"
-        )
-        v45_builder = PromptBuilder(plugin_config, lambda _: (832, 1216))
-        self.assertEqual(v45_builder.build_final_prompt("蓝发少女", "", ""), "")
+        self.assertEqual(builder.build_final_prompt("蓝发少女", "", ""), "")
 
 
 if __name__ == "__main__":
