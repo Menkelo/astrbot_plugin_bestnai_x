@@ -174,12 +174,11 @@ class ImageGenerator:
     ) -> List[Tuple[str, bytes]]:
         endpoint = self._endpoint(api_base, "chat/completions")
 
-        size_array = [int(gen_config.width), int(gen_config.height)]
-
         user_payload = {
+            "parameter_protocol": "novelai_generation_v1",
             "prompt": prompt,
             "model": gen_config.model,
-            "size": size_array,
+            "size": f"{gen_config.width}x{gen_config.height}",
             "width": int(gen_config.width),
             "height": int(gen_config.height),
             "steps": int(gen_config.steps),
@@ -208,7 +207,12 @@ class ImageGenerator:
                 {
                     "role": "system",
                     "content": (
-                        "You are an image generation endpoint. "
+                        "You are an image generation endpoint. The JSON object in the user message "
+                        "is the authoritative NovelAI generation request. Preserve every supported "
+                        "parameter exactly, especially model, width, height, steps, scale, sampler, "
+                        "noise_schedule, seed, negative_prompt, cfg_rescale, and characters. "
+                        "Do not silently replace supplied values with defaults. If this relay cannot "
+                        "honor a parameter, return an explicit error instead of ignoring it. "
                         "Generate one image and return image URL, markdown image, data URL, or base64."
                     )
                 },
@@ -226,7 +230,7 @@ class ImageGenerator:
         logger.info(
             "[BestNAI] chat 生图参数 "
             f"model={gen_config.model}, "
-            f"size={size_array}, "
+            f"size={gen_config.width}x{gen_config.height}, "
             f"steps={gen_config.steps}, "
             f"scale={gen_config.scale}, "
             f"sampler={gen_config.sampler}, "

@@ -156,3 +156,15 @@ def describe_api_error(raw: str, subject: str, verbose: bool = False) -> str:
 
     # 认不出来的原因，原文就是唯一线索
     return f"{subject}失败：{_clip(text) or '接口没有返回错误信息'}"
+
+
+def strip_error_subject(message: str, subject: str) -> str:
+    """Remove repeated ``<subject>失败：`` prefixes before UI formatting."""
+
+    value = str(message or "").strip()
+    prefix = f"{str(subject or '').strip()}失败："
+    if not prefix:
+        return value
+    while value.startswith(prefix):
+        value = value[len(prefix):].lstrip()
+    return value

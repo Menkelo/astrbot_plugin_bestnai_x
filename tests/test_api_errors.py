@@ -12,7 +12,10 @@ if str(workspace_dir) not in sys.path:
 
 sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
 
-from astrbot_plugin_bestnai_x.core.api_errors import describe_api_error
+from astrbot_plugin_bestnai_x.core.api_errors import (
+    describe_api_error,
+    strip_error_subject,
+)
 
 
 class DescribeApiErrorTest(unittest.TestCase):
@@ -66,6 +69,15 @@ class DescribeApiErrorTest(unittest.TestCase):
 
         self.assertIn("图片反推失败", message)
         self.assertIn("没有返回错误信息", message)
+
+    def test_repeated_subject_prefix_is_removed(self) -> None:
+        self.assertEqual(
+            strip_error_subject(
+                "图片反推失败：图片反推失败：服务商额度不足",
+                "图片反推",
+            ),
+            "服务商额度不足",
+        )
 
     def test_debug_mode_appends_the_raw_report(self) -> None:
         raw = 'moderation_blocked: {"code": "data_inspection_failed"}'

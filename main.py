@@ -21,7 +21,7 @@ from .constants import (
     PLUGIN_VERSION,
     normalize_nai_seed,
 )
-from .core.api_errors import describe_api_error
+from .core.api_errors import describe_api_error, strip_error_subject
 from .core.char_prompts import normalize_char_entries
 from .core.debug_trace import DebugTrace
 from .core.generator import (
@@ -541,7 +541,8 @@ class BestNAIPlugin(Star):
                 self.image_retagger.retag_details(image_path, debug=debug),
             )
         except ImageRetagError as exc:
-            raise ValueError(str(exc)) from exc
+            message = strip_error_subject(str(exc), "图片反推")
+            raise ValueError(message or "图片反推失败") from exc
 
         prompt = str(retag_result.get("prompt") or "").strip()
 
@@ -2388,7 +2389,8 @@ class BestNAIPlugin(Star):
                 retag_prompt = str(retag_result.get("prompt") or "").strip()
 
             except ImageRetagError as e:
-                yield event.plain_result(f"❌ 图片反推失败：{e}")
+                message = strip_error_subject(str(e), "图片反推")
+                yield event.plain_result(f"❌ 图片反推失败：{message or '接口没有返回错误信息'}")
                 return
 
             if not retag_prompt:

@@ -19,7 +19,7 @@
 - **比例智能解析**：提示词中可直接写比例/尺寸（`16:9`、`横屏`、`1024x1024`、`--ratio` 等），并自动校验与锚定合法分辨率。
 - **安全审核**：QQ 指令会在用户输入阶段和最终 Prompt 完成拼接后分别过滤，图片发送前再调用视觉模型审核，从源头与出口双向降低封号风险。
 - **Danbooru Tag 检索**：翻译中文提示词时自动注入 Danbooru 在线检索的候选 tag（服务已内嵌，默认启用），提升翻译质量。
-- **生图接口容错**：主接口 `/images/generations` 不可用时自动回退到 `/chat/completions`；对返回的 base64、URL、Markdown、data URL 等多种图片格式均可解析。
+- **生图接口容错**：生图会从 AstrBot 已选提供商读取 API Base/Key，直接请求 `/images/generations`；仅当该路由明确不存在时才回退到 `/chat/completions`。后者是文本协议兼容层，不能保证中转站真正执行所有 NovelAI 参数。
 - **Infinite Canvas 工作台**：以项目管理多个相互独立的持久化画布，并提供提示词、图片与备注节点以及图片/提示词素材库。
 
 ---
@@ -197,7 +197,7 @@ pip install aiohttp pillow
         ├─ 中文？──► 翻译为英文 Danbooru tag（自动注入内嵌 Danbooru 检索结果）
         ├─ 拼接最终 prompt：画师串 + 提示词 + 质量提示词
         ▼
-   调用生图 API（/images/generations，失败自动回退 /chat/completions）
+   直接调用提供商 API Base 的 `/images/generations`（仅路由不存在时回退 `/chat/completions`）
         ▼
    图片安全审核（视觉模型，可选）
         ▼
@@ -277,8 +277,8 @@ pip install aiohttp pillow
 | 频率限制（429） | 请求过于频繁 | 等待后重试 |
 | 服务器繁忙（5xx） | 服务端负载过高 | 稍后重试 |
 | 生图请求超时 | 网络或服务器响应慢（180s 超时） | 检查网络连接，稍后重试 |
-| 接口不支持（400/404/405/501 等） | `/images/generations` 不可用 | 插件会自动回退到 `/chat/completions`；若仍失败请检查 API Base 是否支持文生图 |
-| 提示词翻译 / 图片反推失败 | 上游接口拒绝，常见于内容审核、Key 失效、额度不足 | 报错已换成可操作的中文结论；要看接口返回的原文请在画布顶栏打开调试模式 |
+| 接口不支持（400/404/405/501 等） | `/images/generations` 不可用 | 插件会自动回退到 `/chat/completions`；该 fallback 只能传递文本 JSON 协议，若中转站忽略 `scale/sampler/seed/negative_prompt` 等字段，应改用支持 `/images/generations` 的 API Base |
+| 提示词翻译 / 图片反推失败 | 上游接口拒绝，常见于内容审核、Key 失效、额度不足 | 报错已换成可操作的中文结论；要看接口返回的原文请在画布顶栏打开调试模式。AstrBot OpenAI provider 当前版本最多重试 10 次、429 间隔 1 秒；插件无法从 `llm_generate` 参数关闭，生图主路径不经过该重试器 |
 
 ---
 
