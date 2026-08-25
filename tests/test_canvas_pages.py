@@ -410,8 +410,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("min-width: 0;", viewer_image)
         self.assertIn("min-height: 0;", viewer_image)
         self.assertIn("object-fit: contain;", viewer_image)
-        self.assertIn("border-radius: var(--image-viewer-radius) !important;", viewer_image)
-        self.assertIn("clip-path: inset(0 round var(--image-viewer-radius));", viewer_image)
+        self.assertIn("border-radius: 0;", viewer_image)
+        image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
+        self.assertIn("clip-path: inset(0 round var(--image-viewer-radius));", image_frame)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
         self.assertIn("align-content: start;", viewer_details)

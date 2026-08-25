@@ -1511,6 +1511,8 @@ select:focus-visible {
   justify-content: center;
   overflow: hidden;
   border-radius: var(--image-viewer-radius);
+  clip-path: inset(0 round var(--image-viewer-radius));
+  -webkit-clip-path: inset(0 round var(--image-viewer-radius));
   isolation: isolate;
   box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
 }
@@ -1524,10 +1526,7 @@ select:focus-visible {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  overflow: hidden;
-  border-radius: var(--image-viewer-radius) !important;
-  clip-path: inset(0 round var(--image-viewer-radius));
-  -webkit-clip-path: inset(0 round var(--image-viewer-radius));
+  border-radius: 0;
 }
 
 .image-viewer-details {
