@@ -1470,6 +1470,7 @@ select:focus-visible {
   position: fixed;
   z-index: 1000;
   inset: 0;
+  --image-viewer-radius: clamp(12px, 2vmin, 28px);
   display: grid;
   place-items: center;
   padding: clamp(16px, 5vh, 64px) clamp(16px, 4vw, 64px);
@@ -1499,7 +1500,6 @@ select:focus-visible {
 }
 
 .image-viewer-image-frame {
-  --image-viewer-radius: 16px;
   position: relative;
   grid-area: viewer-image;
   display: flex;
@@ -1537,6 +1537,7 @@ select:focus-visible {
   padding: 13px 15px;
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 12px;
+  border-radius: var(--image-viewer-radius);
   background: rgba(15, 23, 42, .78);
   color: #e5e7eb;
   box-shadow: 0 18px 48px rgba(0, 0, 0, .26);
