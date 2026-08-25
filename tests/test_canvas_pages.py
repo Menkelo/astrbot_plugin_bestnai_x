@@ -410,7 +410,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("min-width: 0;", viewer_image)
         self.assertIn("min-height: 0;", viewer_image)
         self.assertIn("object-fit: contain;", viewer_image)
-        self.assertIn("border-radius: 12px;", viewer_image)
+        self.assertIn("border-radius: inherit;", viewer_image)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
         self.assertIn("align-content: start;", viewer_details)

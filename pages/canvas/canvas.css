@@ -1512,6 +1512,7 @@ select:focus-visible {
   overflow: hidden;
   border-radius: var(--image-viewer-radius);
   clip-path: inset(0 round var(--image-viewer-radius));
+  isolation: isolate;
   box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
 }
 
@@ -1524,7 +1525,7 @@ select:focus-visible {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 12px;
+  border-radius: inherit;
 }
 
 .image-viewer-details {
