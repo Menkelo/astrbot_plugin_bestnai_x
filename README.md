@@ -19,7 +19,7 @@
 - **比例智能解析**：提示词中可直接写比例/尺寸（`16:9`、`横屏`、`1024x1024`、`--ratio` 等），并自动校验与锚定合法分辨率。
 - **安全审核**：QQ 指令会在用户输入阶段和最终 Prompt 完成拼接后分别过滤，图片发送前再调用视觉模型审核，从源头与出口双向降低封号风险。
 - **Danbooru Tag 检索**：翻译中文提示词时自动注入 Danbooru 在线检索的候选 tag（服务已内嵌，默认启用），提升翻译质量。
-- **生图接口容错**：生图会从 AstrBot 已选提供商读取 API Base/Key，直接请求 `/images/generations`；仅当该路由明确不存在时才回退到 `/chat/completions`。后者是文本协议兼容层，不能保证中转站真正执行所有 NovelAI 参数。
+- **生图接口容错**：生图会从 AstrBot 已选提供商读取 API Base/Key，直接请求 `/images/generations`；同时附带 `guidance_scale/cfg_scale/random_seed` 兼容别名，适配部分 SD/NAI 中转站。仅当该路由明确不存在时才回退到 `/chat/completions`；后者是文本协议兼容层，不能保证中转站真正执行所有 NovelAI 参数。
 - **Infinite Canvas 工作台**：以项目管理多个相互独立的持久化画布，并提供提示词、图片与备注节点以及图片/提示词素材库。
 
 ---

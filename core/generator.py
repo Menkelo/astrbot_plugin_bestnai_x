@@ -135,6 +135,13 @@ class ImageGenerator:
 
         payload = gen_config.to_api_params(prompt)
         payload["seed"] = seed
+        # Some OpenAI-compatible NAI relays document the same controls under
+        # SD-style aliases. Standard servers ignore unknown extension fields;
+        # relays that whitelist only these aliases can still preserve the
+        # requested guidance and deterministic seed.
+        payload["guidance_scale"] = float(gen_config.scale)
+        payload["cfg_scale"] = float(gen_config.scale)
+        payload["random_seed"] = seed
 
         logger.info(f"[BestNAI] endpoint={endpoint}")
         logger.info(f"[BestNAI] timeout={self.timeout}s")
@@ -189,6 +196,19 @@ class ImageGenerator:
             "n_samples": 1,
             "seed": seed
         }
+
+        # A few OpenAI-compatible image relays expose chat as their transport
+        # but translate common SD names instead of the NovelAI ``scale`` /
+        # ``seed`` names. Keep the canonical fields above and provide aliases
+        # only in this text-protocol fallback; the native images endpoint is
+        # never sent these extras.
+        user_payload.update(
+            {
+                "guidance_scale": float(gen_config.scale),
+                "cfg_scale": float(gen_config.scale),
+                "random_seed": seed,
+            }
+        )
 
         if gen_config.negative_prompt:
             user_payload["negative_prompt"] = gen_config.negative_prompt
