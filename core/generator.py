@@ -88,7 +88,10 @@ class ImageGenerator:
         resolved_seed = self._resolve_seed(seed)
 
         try:
-            images = await self._generate_by_images_endpoint(
+            # Tuercha and similar NAI relays expose the complete NovelAI
+            # payload through Chat Completions. Images generations is only a
+            # basic OpenAI Images surface and silently drops NAI controls.
+            images = await self._generate_by_chat_endpoint(
                 api_base=api_base,
                 api_key=access_key,
                 prompt=prompt,
@@ -98,12 +101,11 @@ class ImageGenerator:
             return GenerationResult(images=images, seed=resolved_seed)
 
         except GenerationError as e:
-            if self._should_fallback_to_chat(e):
+            if self._should_fallback_to_images(e):
                 logger.warning(
-                    f"[BestNAI] /images/generations 不可用，尝试 fallback 到 /chat/completions：{e.message}"
+                    f"[BestNAI] /chat/completions 不可用，尝试 fallback 到 /images/generations：{e.message}"
                 )
-
-                images = await self._generate_by_chat_endpoint(
+                images = await self._generate_by_images_endpoint(
                     api_base=api_base,
                     api_key=access_key,
                     prompt=prompt,
@@ -133,15 +135,17 @@ class ImageGenerator:
     ) -> List[Tuple[str, bytes]]:
         endpoint = self._endpoint(api_base, "images/generations")
 
-        payload = gen_config.to_api_params(prompt)
-        payload["seed"] = seed
-        # Some OpenAI-compatible NAI relays document the same controls under
-        # SD-style aliases. Standard servers ignore unknown extension fields;
-        # relays that whitelist only these aliases can still preserve the
-        # requested guidance and deterministic seed.
-        payload["guidance_scale"] = float(gen_config.scale)
-        payload["cfg_scale"] = float(gen_config.scale)
-        payload["random_seed"] = seed
+        # Images generations is intentionally kept to the documented basic
+        # OpenAI Images fields. Full NAI controls are sent through Chat
+        # Completions, which is the complete payload surface for NAI relays.
+        payload = {
+            "model": gen_config.model,
+            "prompt": prompt,
+            "n": 1,
+            "size": f"{gen_config.width}x{gen_config.height}",
+            "response_format": "b64_json",
+            "stream": False,
+        }
 
         logger.info(f"[BestNAI] endpoint={endpoint}")
         logger.info(f"[BestNAI] timeout={self.timeout}s")
@@ -182,10 +186,8 @@ class ImageGenerator:
         endpoint = self._endpoint(api_base, "chat/completions")
 
         user_payload = {
-            "parameter_protocol": "novelai_generation_v1",
             "prompt": prompt,
-            "model": gen_config.model,
-            "size": f"{gen_config.width}x{gen_config.height}",
+            "size": [int(gen_config.width), int(gen_config.height)],
             "width": int(gen_config.width),
             "height": int(gen_config.height),
             "steps": int(gen_config.steps),
@@ -196,19 +198,6 @@ class ImageGenerator:
             "n_samples": 1,
             "seed": seed
         }
-
-        # A few OpenAI-compatible image relays expose chat as their transport
-        # but translate common SD names instead of the NovelAI ``scale`` /
-        # ``seed`` names. Keep the canonical fields above and provide aliases
-        # only in this text-protocol fallback; the native images endpoint is
-        # never sent these extras.
-        user_payload.update(
-            {
-                "guidance_scale": float(gen_config.scale),
-                "cfg_scale": float(gen_config.scale),
-                "random_seed": seed,
-            }
-        )
 
         if gen_config.negative_prompt:
             user_payload["negative_prompt"] = gen_config.negative_prompt
@@ -228,12 +217,11 @@ class ImageGenerator:
                     "role": "system",
                     "content": (
                         "You are an image generation endpoint. The JSON object in the user message "
-                        "is the authoritative NovelAI generation request. Preserve every supported "
-                        "parameter exactly, especially model, width, height, steps, scale, sampler, "
-                        "noise_schedule, seed, negative_prompt, cfg_rescale, and characters. "
-                        "Do not silently replace supplied values with defaults. If this relay cannot "
-                        "honor a parameter, return an explicit error instead of ignoring it. "
-                        "Generate one image and return image URL, markdown image, data URL, or base64."
+                        "is the authoritative NovelAI generation request. Preserve every field exactly, "
+                        "including size, steps, scale, sampler, noise_schedule, seed, negative_prompt, "
+                        "cfg_rescale, variety_boost, and characters. Do not silently replace values "
+                        "with defaults. Generate one image and return image URL, markdown image, "
+                        "data URL, or base64."
                     )
                 },
                 {
@@ -387,7 +375,7 @@ class ImageGenerator:
 
         return ""
 
-    def _should_fallback_to_chat(self, e: GenerationError) -> bool:
+    def _should_fallback_to_images(self, e: GenerationError) -> bool:
         text = (e.message or "").lower()
         status = getattr(e, "status_code", None)
 
