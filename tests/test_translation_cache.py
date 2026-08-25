@@ -128,6 +128,32 @@ class CharacterCandidateResolutionTest(unittest.TestCase):
         self.assertEqual(character, "izumi_sagiri")
         self.assertEqual(series, "eromanga_sensei")
 
+    def test_related_character_alias_cannot_override_main_search_character(self) -> None:
+        results = {
+            "search": [
+                {
+                    "tag": "tohsaka_rin",
+                    "cn_name": "遠坂凛,Fate/stay night",
+                    "category": "Character",
+                    "score": 0.90,
+                    "source": "遠坂家",
+                }
+            ],
+            "related": [
+                {
+                    "tag": "matou_sakura",
+                    "cn_name": "間桐桜,Fate/stay night,遠坂凛",
+                    "category": "Character",
+                    "cooc_score": 0.0,
+                    "sources": ["tohsaka_rin"],
+                }
+            ],
+        }
+
+        character, _series = resolve_character_candidate("遠坂凛", results)
+
+        self.assertEqual(character, "tohsaka_rin")
+
     def test_character_plus_clothing_and_pose_still_resolves_identity(self) -> None:
         character, series = resolve_character_candidate(
             "埃罗芒阿老师穿白色连衣裙坐着",

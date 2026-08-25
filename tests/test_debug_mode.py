@@ -228,7 +228,7 @@ class DebugModeWiringTest(unittest.TestCase):
         self.assertIn("const panel = makeDebugPanel(node);", render)
         self.assertNotIn("panel.open", render)
         self.assertNotIn("debug-bar-details", self.styles)
-        self.assertIn("max-height: min(320px, 38vh);", self.styles)
+        self.assertIn("max-height: min(420px, 48vh);", self.styles)
 
     def test_frontend_accepts_legacy_flat_debug_trace(self) -> None:
         runs = self.editor.split("function debugRunsForNode(node)", 1)[1].split(

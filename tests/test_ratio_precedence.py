@@ -191,11 +191,11 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
     def test_seed_is_returned_and_reusable(self) -> None:
         self.assertIn('seed=payload.get("seed")', self.main)
         self.assertIn('"seed": result.seed', self.main)
-        self.assertNotIn("steps: node.meta?.steps", self.editor)
-        self.assertNotIn("scale: node.meta?.scale", self.editor)
+        self.assertIn("steps: node.meta?.steps || node.meta?.retagSteps || undefined", self.editor)
+        self.assertIn("scale: node.meta?.scale || node.meta?.retagScale || undefined", self.editor)
         self.assertIn("function reusableRetagSeed(node)", self.editor)
         self.assertIn("function clearRetagSeed(node)", self.editor)
-        self.assertIn("seed: retagged ? reusableRetagSeed(node) : undefined", self.editor)
+        self.assertIn("const callSeed = index === 0 && retagged ? reusableRetagSeed(node) : undefined", self.editor)
 
     def test_canvas_uses_plugin_generation_defaults(self) -> None:
         # 画布不再提供步数 / 引导系数覆盖，统一使用插件配置。
@@ -203,8 +203,8 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
         self.assertNotIn("function setupGenSettings", self.editor)
         self.assertNotIn("function makeAdvancedPanel", self.editor)
         self.assertNotIn('summary.textContent = "高级选项"', self.editor)
-        self.assertNotIn("steps: node.meta?.steps", self.editor)
-        self.assertNotIn("scale: node.meta?.scale", self.editor)
+        self.assertIn("steps: node.meta?.steps || node.meta?.retagSteps || undefined", self.editor)
+        self.assertIn("scale: node.meta?.scale || node.meta?.retagScale || undefined", self.editor)
 
     def test_new_meta_fields_are_persisted(self) -> None:
         # 工作区不保存这些字段的话，刷新页面种子就丢了

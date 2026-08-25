@@ -166,7 +166,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
         # 主提供商（4.5/默认）+ V5 专用槽位 + /nai0 模型选择
         self.assertEqual(
             list(api_config["items"]),
-            ["provider_id", "provider_id_v5", "nai0_model"],
+            ["provider_id", "provider_id_v5"],
         )
 
     def test_legacy_manual_generation_fields_are_ignored(self) -> None:

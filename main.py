@@ -707,9 +707,8 @@ class BestNAIPlugin(Star):
                 },
             )
 
-        # 中文一律翻译成英文 tags（V5 对中文自然语言/角色别名理解不稳，
-        # 与 4.5 同策略）；raw 模式只影响画师串与质量词，不影响翻译
-        if has_chinese(clean_prompt):
+        # Raw canvas mode is literal: do not call the translator or Danbooru.
+        if has_chinese(clean_prompt) and not raw_mode:
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
                     clean_prompt,
@@ -765,72 +764,78 @@ class BestNAIPlugin(Star):
             trace.note("翻译", "提示词无中文，未走翻译")
 
         # Retag tags are already English output from the single vision/tagging
-        # request. Merge them only after translating the user's prompt so the
-        # translation provider never receives the mixed/weighted string.
+        # request. Raw mode keeps both explicit inputs unchanged; normal mode
+        # continues through the category-aware merge below.
         if retag_prompt:
-            translated_user_prompt = translated_prompt or working_prompt
-            if translated_user_prompt and (
-                translation_cache_reused or not identity_checked
-            ):
-                # Cached identity metadata may have been produced by an older
-                # resolver. Re-check it for retag overlays so a fixed matcher
-                # takes effect without requiring the user to edit the node.
-                if translation_cache_reused:
-                    translated_character = ""
-                    translated_series = ""
-                with trace.stage("角色标签检索"):
-                    (
-                        translated_character,
-                        translated_series,
-                        identity_results,
-                    ) = await self._resolve_prompt_identity_details(clean_prompt)
-                if translation_cache_reused and translated_character:
-                    # A saved translation may come from an older resolver and
-                    # still contain a wrong character candidate or ``year
-                    # 2025``.  Re-apply the current deterministic tag result
-                    # before merging so stale cache data cannot reintroduce a
-                    # second role beside the confirmed replacement.
-                    translated_source = apply_character_candidate(
-                        translated_source,
-                        translated_character,
-                        translated_series,
-                        identity_results,
-                    )
-                    translated_user_prompt = ", ".join(
-                        part
-                        for part in (translated_source, untranslated_suffix)
-                        if part
-                    )
-                identity_checked = True
-                if translated_character:
-                    trace.note(
-                        "覆盖角色",
-                        ", ".join(
+            if raw_mode:
+                working_prompt = ", ".join(
+                    part for part in (clean_prompt, retag_prompt) if part
+                )
+                trace.note("原始提示词图层", working_prompt)
+            else:
+                translated_user_prompt = translated_prompt or working_prompt
+                if translated_user_prompt and (
+                    translation_cache_reused or not identity_checked
+                ):
+                    # Cached identity metadata may have been produced by an older
+                    # resolver. Re-check it for retag overlays so a fixed matcher
+                    # takes effect without requiring the user to edit the node.
+                    if translation_cache_reused:
+                        translated_character = ""
+                        translated_series = ""
+                    with trace.stage("角色标签检索"):
+                        (
+                            translated_character,
+                            translated_series,
+                            identity_results,
+                        ) = await self._resolve_prompt_identity_details(clean_prompt)
+                    if translation_cache_reused and translated_character:
+                        # A saved translation may come from an older resolver and
+                        # still contain a wrong character candidate or ``year
+                        # 2025``. Re-apply the current deterministic tag result
+                        # before merging so stale cache data cannot reintroduce a
+                        # second role beside the confirmed replacement.
+                        translated_source = apply_character_candidate(
+                            translated_source,
+                            translated_character,
+                            translated_series,
+                            identity_results,
+                        )
+                        translated_user_prompt = ", ".join(
                             part
-                            for part in (translated_character, translated_series)
+                            for part in (translated_source, untranslated_suffix)
                             if part
-                        ),
-                    )
-            merge_details = merge_retag_prompt_details(
-                translated_user_prompt,
-                retag_prompt,
-                original_user_prompt=prompt,
-                user_character=translated_character,
-                user_series=translated_series,
-                source_character=retag_character,
-                source_series=retag_series,
-                weight_user=True,
-                preserve_categories=retag_preserve_categories,
-                drop_categories=retag_drop_categories,
-            )
-            working_prompt = str(merge_details.get("prompt") or "")
-            # 多角色还原文本常同时带全局计数和各段落裸计数，叠加会多画人
-            normalized_prompt = normalize_count_tokens(working_prompt)
-            if normalized_prompt != working_prompt:
-                trace.note("人数标签归一", normalized_prompt)
-                working_prompt = normalized_prompt
-            trace.note("提示词冲突处理", merge_details)
-            trace.note("合并后提示词", working_prompt)
+                        )
+                    identity_checked = True
+                    if translated_character:
+                        trace.note(
+                            "覆盖角色",
+                            ", ".join(
+                                part
+                                for part in (translated_character, translated_series)
+                                if part
+                            ),
+                        )
+                merge_details = merge_retag_prompt_details(
+                    translated_user_prompt,
+                    retag_prompt,
+                    original_user_prompt=prompt,
+                    user_character=translated_character,
+                    user_series=translated_series,
+                    source_character=retag_character,
+                    source_series=retag_series,
+                    weight_user=True,
+                    preserve_categories=retag_preserve_categories,
+                    drop_categories=retag_drop_categories,
+                )
+                working_prompt = str(merge_details.get("prompt") or "")
+                # 多角色还原文本常同时带全局计数和各段落裸计数，叠加会多画人
+                normalized_prompt = normalize_count_tokens(working_prompt)
+                if normalized_prompt != working_prompt:
+                    trace.note("人数标签归一", normalized_prompt)
+                    working_prompt = normalized_prompt
+                trace.note("提示词冲突处理", merge_details)
+                trace.note("合并后提示词", working_prompt)
 
         try:
             gen_config = self.prompt_builder.build_generation_config(
@@ -892,7 +897,7 @@ class BestNAIPlugin(Star):
 
         if raw_mode:
             gen_config = replace(gen_config, quality=False)
-            final_prompt = normalize_prompt_ascii(working_prompt)
+            final_prompt = working_prompt
         else:
             if artist_name == "__none__":
                 artist_prompt = ""
@@ -1736,12 +1741,13 @@ class BestNAIPlugin(Star):
             gen_config.width,
             gen_config.height,
         )
+        model_display = str(gen_config.model or MODEL_V45_FULL).strip()
 
         if raw_mode:
-            return f"🎨 正在{progress_verb}（{ratio_display} | nai0 原始提示词模式）..."
+            return f"🎨 正在{progress_verb}（{ratio_display} | 原始提示词模式 | {model_display}）..."
 
         artist_display = self._get_artist_display_name(artist_slot_name, session_id)
-        return f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display}）..."
+        return f"🎨 正在{progress_verb}（{ratio_display} | 画师预设：{artist_display} | {model_display}）..."
 
     def _progress_message_for_prompt(
         self,
@@ -1750,6 +1756,7 @@ class BestNAIPlugin(Star):
         progress_verb: str,
         session_id: str = "",
         fallback_ratio: str = "",
+        model: str = "",
     ) -> str:
         clean_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
         artist_prompt_override = ""
@@ -1784,6 +1791,8 @@ class BestNAIPlugin(Star):
             ratio_name = fallback_ratio
 
         gen_config = self.prompt_builder.build_generation_config(ratio_name)
+        if model:
+            gen_config = replace(gen_config, model=resolve_model_choice(model))
         return self._format_generation_progress(
             ratio_name,
             gen_config,
@@ -2121,9 +2130,10 @@ class BestNAIPlugin(Star):
         final_prompt = clean_prompt
         tr_cfg = self.plugin_config.translator
 
-        # 中文一律翻译成英文 tags（V5 对中文自然语言/角色别名的理解不稳，
-        # 与 4.5 同策略）；raw 模式只影响画师串与质量词，不影响翻译
-        if has_chinese(clean_prompt):
+        # Raw mode is literal: send the user's text without translation or
+        # Danbooru lookup.  Safety filtering still runs below as a separate
+        # platform requirement.
+        if has_chinese(clean_prompt) and not raw_mode:
             if not tr_cfg.enabled:
                 yield event.plain_result(
                     "❌ 检测到中文提示词，但翻译功能未开启。请启用翻译器。"
@@ -2148,15 +2158,9 @@ class BestNAIPlugin(Star):
             final_prompt = translated
 
         if raw_mode:
-            raw_before_clean = final_prompt
-            final_prompt = normalize_prompt_ascii(final_prompt)
-
-            removed_chars = find_non_ascii_chars(raw_before_clean)
-
-            if removed_chars:
-                logger.info(
-                    f"[BestNAI/nai0] 已自动清理 prompt 中的非 ASCII 字符：{' '.join(removed_chars)}"
-                )
+            # Keep the prompt byte-for-byte as entered (apart from the safety
+            # filter that is applied after assembly below).
+            final_prompt = clean_prompt
 
         else:
             artist_prompt = (
@@ -2254,11 +2258,12 @@ class BestNAIPlugin(Star):
         event: AstrMessageEvent,
         raw_mode: bool = False,
         model: str = "",
+        command_name: str = "",
     ) -> AsyncGenerator:
-        command_name = "nai0" if raw_mode else "nai"
+        command_name = command_name or ("nai0" if raw_mode else "nai")
         if not model:
             model = (
-                self.plugin_config.nai0_model
+                MODEL_V45_FULL
                 if raw_mode
                 else self.plugin_config.generation.model
             )
@@ -2349,6 +2354,7 @@ class BestNAIPlugin(Star):
                     "反推",
                     self._session_id(event),
                     fallback_ratio=inferred_ratio,
+                    model=model,
                 )
             except Exception as e:
                 yield event.plain_result(
@@ -2397,15 +2403,18 @@ class BestNAIPlugin(Star):
 
             if prompt:
                 ratio_prompt, ratio_name = self._extract_ratio_from_prompt(prompt)
-                desc_part, _, artist_name = self._extract_artist_slot_from_prompt(
-                    ratio_prompt
-                )
+                if raw_mode:
+                    desc_part, artist_name = ratio_prompt, ""
+                else:
+                    desc_part, _, artist_name = self._extract_artist_slot_from_prompt(
+                        ratio_prompt
+                    )
 
                 user_prompt_for_merge = desc_part
                 user_character = ""
                 user_series = ""
 
-                if desc_part and has_chinese(desc_part):
+                if desc_part and has_chinese(desc_part) and not raw_mode:
                     tr_cfg = self.plugin_config.translator
 
                     if not tr_cfg.enabled:
@@ -2441,40 +2450,47 @@ class BestNAIPlugin(Star):
                     ).strip()
                 else:
                     user_prompt_for_merge = user_prompt_for_merge or ""
-                    if desc_part:
+                    if desc_part and not raw_mode:
                         user_character, user_series = (
                             await self._resolve_prompt_identity(desc_part)
                         )
 
-                merge_details = merge_retag_prompt_details(
-                    user_prompt_for_merge,
-                    retag_prompt,
-                    original_user_prompt=prompt,
-                    user_character=user_character,
-                    user_series=user_series,
-                    source_character=str(retag_result.get("character") or ""),
-                    source_series=str(retag_result.get("series") or ""),
-                    weight_user=True,
-                )
-                merged_overlay = str(merge_details.get("prompt") or "")
-                if merge_details.get("conflicts"):
-                    logger.info(
-                        "[BestNAI/ImageRetag] 已处理提示词冲突："
-                        f"{merge_details['conflicts']}"
+                if raw_mode:
+                    # Raw mode is literal: do not translate, resolve identity,
+                    # weight, deduplicate, or classify the user's text.
+                    merged_prompt = ", ".join(
+                        part for part in (desc_part, retag_prompt) if part
                     )
-                controls = []
-                if prompt_has_explicit_ratio(
-                    prompt,
-                    self._short_ratio_aliases(),
-                    self.ratio_presets,
-                    self._normalize_ratio_label,
-                ) and ratio_name:
-                    controls.append(ratio_name)
-                if artist_name and not raw_mode:
-                    controls.append(artist_name)
-                merged_prompt = ", ".join(
-                    part for part in (*controls, merged_overlay) if part
-                )
+                else:
+                    merge_details = merge_retag_prompt_details(
+                        user_prompt_for_merge,
+                        retag_prompt,
+                        original_user_prompt=prompt,
+                        user_character=user_character,
+                        user_series=user_series,
+                        source_character=str(retag_result.get("character") or ""),
+                        source_series=str(retag_result.get("series") or ""),
+                        weight_user=True,
+                    )
+                    merged_overlay = str(merge_details.get("prompt") or "")
+                    if merge_details.get("conflicts"):
+                        logger.info(
+                            "[BestNAI/ImageRetag] 已处理提示词冲突："
+                            f"{merge_details['conflicts']}"
+                        )
+                    controls = []
+                    if prompt_has_explicit_ratio(
+                        prompt,
+                        self._short_ratio_aliases(),
+                        self.ratio_presets,
+                        self._normalize_ratio_label,
+                    ) and ratio_name:
+                        controls.append(ratio_name)
+                    if artist_name:
+                        controls.append(artist_name)
+                    merged_prompt = ", ".join(
+                        part for part in (*controls, merged_overlay) if part
+                    )
             else:
                 merged_prompt = retag_prompt
 
@@ -2535,8 +2551,24 @@ class BestNAIPlugin(Star):
 
     @filter.command("nai0")
     async def cmd_nai0(self, event: AstrMessageEvent) -> AsyncGenerator:
-        """NAI 原始提示词生图。不会追加画师串和质量提示词，模型在插件面板选择。"""
-        async for result in self._handle_nai_command(event, raw_mode=True):
+        """NAI 4.5 原始提示词生图。"""
+        async for result in self._handle_nai_command(
+            event,
+            raw_mode=True,
+            model=MODEL_V45_FULL,
+            command_name="nai0",
+        ):
+            yield result
+
+    @filter.command("nai50")
+    async def cmd_nai50(self, event: AstrMessageEvent) -> AsyncGenerator:
+        """NAI V5 原始提示词生图。"""
+        async for result in self._handle_nai_command(
+            event,
+            raw_mode=True,
+            model=MODEL_V5_FULL,
+            command_name="nai50",
+        ):
             yield result
 
     @filter.command("画师画廊")

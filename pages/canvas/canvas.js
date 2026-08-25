@@ -3346,8 +3346,10 @@ async function generateFromNode(id, {
     renderAll();
     return;
   }
-  const translationSource = retagged ? basePrompt : workingPrompt;
-  const willTranslate = /[\u4e00-\u9fff]/.test(translationSource);
+  const translationSource = node.raw
+    ? ""
+    : (retagged ? basePrompt : workingPrompt);
+  const willTranslate = !node.raw && /[\u4e00-\u9fff]/.test(translationSource);
   const canReuseTranslation = willTranslate
     && node.meta?.translationSource === translationSource
     && !!node.meta?.translationResult;

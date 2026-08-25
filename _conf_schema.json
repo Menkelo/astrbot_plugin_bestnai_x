@@ -5,7 +5,7 @@
     "items": {
       "provider_id": {
         "description": "生图接口提供商（4.5 / 默认）",
-        "hint": "选择 AstrBot 系统提供商，/nai 与 /nai0（4.5 档）使用；插件会读取该提供商的 API 地址与 Key。",
+        "hint": "选择 AstrBot 系统提供商，/nai、/nai0（4.5 原始模式）与未单独配置 V5 提供商的 /nai5、/nai50 使用。",
         "type": "string",
         "default": "",
         "_special": "select_provider"
@@ -16,16 +16,6 @@
         "type": "string",
         "default": "",
         "_special": "select_provider"
-      },
-      "nai0_model": {
-        "description": "/nai0 使用的模型",
-        "hint": "原始提示词模式（/nai0）走 4.5 还是 V5；提供商跟随所选模型（V5 档优先用上方 V5 提供商）。",
-        "type": "string",
-        "default": "nai-diffusion-4-5-full",
-        "options": [
-          "nai-diffusion-4-5-full",
-          "nai-diffusion-5-full"
-        ]
       }
     }
   },

@@ -328,6 +328,32 @@ def _alias_match_score(
     return 0
 
 
+def _cjk_variant_match_score(subject: str, alias: str) -> int:
+    """Match a same-length CJK alias with one conservative variant/typo.
+
+    The tags service may return a traditional-character alias such as
+    ``遠坂凛`` while the user types the simplified ``远坂凛``.  This fallback
+    is intentionally limited to same-length CJK strings and at most one
+    differing character; broad fuzzy matching would reintroduce unrelated
+    characters from the related-results list.
+    """
+
+    subject_value = str(subject or "").strip()
+    alias_value = str(alias or "").strip()
+    if (
+        len(subject_value) < 2
+        or len(subject_value) != len(alias_value)
+        or not re.fullmatch(r"[\u3400-\u9fff]+", subject_value)
+        or not re.fullmatch(r"[\u3400-\u9fff]+", alias_value)
+    ):
+        return 0
+
+    differences = sum(left != right for left, right in zip(subject_value, alias_value))
+    if differences > 1:
+        return 0
+    return 900 + len(subject_value) - differences
+
+
 def _item_sources(item: Dict) -> List[str]:
     values = item.get("sources")
     if isinstance(values, str):
@@ -505,9 +531,14 @@ def resolve_character_candidate(
         return "", ""
 
     all_items = [*search_items, *related_items]
-    characters = [
+    search_characters = [
         item
-        for item in all_items
+        for item in search_items
+        if str(item.get("category") or "").casefold() == "character"
+    ]
+    related_characters = [
+        item
+        for item in related_items
         if str(item.get("category") or "").casefold() == "character"
     ]
     copyrights = [
@@ -516,22 +547,43 @@ def resolve_character_candidate(
         if str(item.get("category") or "").casefold() == "copyright"
     ]
 
-    direct_matches = []
-    for order, item in enumerate(characters):
-        score = max(
-            (
-                _alias_match_score(
-                    subject,
-                    alias,
-                    allow_prefix=True,
-                    allow_contains=True,
-                )
-                for alias in _character_aliases(item, copyrights)
-            ),
-            default=0,
+    def collect_direct_matches(characters: List[Dict], *, allow_cjk_variant: bool):
+        matches = []
+        for order, item in enumerate(characters):
+            aliases = _character_aliases(item, copyrights)
+            score = max(
+                (
+                    max(
+                        _alias_match_score(
+                            subject,
+                            alias,
+                            allow_prefix=True,
+                            allow_contains=True,
+                        ),
+                        _cjk_variant_match_score(subject, alias)
+                        if allow_cjk_variant
+                        else 0,
+                    )
+                    for alias in aliases
+                ),
+                default=0,
+            )
+            if score:
+                matches.append((score, _safe_score(item), -order, item))
+        return matches
+
+    # Related results frequently contain relationship aliases (for example,
+    # Matou Sakura's entry can list Tohsaka Rin).  A direct hit from the main
+    # search must always win over those related aliases.
+    direct_matches = collect_direct_matches(
+        search_characters,
+        allow_cjk_variant=True,
+    )
+    if not direct_matches:
+        direct_matches = collect_direct_matches(
+            related_characters,
+            allow_cjk_variant=False,
         )
-        if score:
-            direct_matches.append((score, _safe_score(item), -order, item))
 
     if direct_matches:
         matched_character_keys = {
@@ -550,6 +602,7 @@ def resolve_character_candidate(
         series = _associated_series(character, copyrights)
         return str(character.get("tag") or ""), str(series.get("tag") or "")
 
+    # No direct character hit: retain the existing series-level fallback below.
     allow_series_prefix = bool(_DESCRIPTION_HINT_RE.search(subject))
     series_matches = []
     for order, item in enumerate(copyrights):

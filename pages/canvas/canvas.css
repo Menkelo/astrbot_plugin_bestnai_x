@@ -1512,7 +1512,7 @@ select:focus-visible {
   overflow: hidden;
   border-radius: var(--image-viewer-radius);
   clip-path: inset(0 round var(--image-viewer-radius));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .12), 0 26px 80px rgba(0, 0, 0, .5);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, .5);
 }
 
 .image-viewer-stage img {
@@ -3349,12 +3349,9 @@ select:focus-visible {
 
 /* 流水只出现在画布底部状态栏，内容过长时在栏内滚动。 */
 .debug-body {
-  max-height: min(320px, 38vh);
   padding: 0 2px 2px;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
+  overflow: visible;
   cursor: text;
   -webkit-user-select: text;
   user-select: text;
@@ -3706,10 +3703,8 @@ select:focus-visible {
 .operation-log-list {
   display: grid;
   gap: 3px;
-  max-height: 150px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
+  max-height: none;
+  overflow: visible;
   cursor: text;
   -webkit-user-select: text;
   user-select: text;
@@ -3782,10 +3777,6 @@ select:focus-visible {
 
   .debug-bar-body {
     max-height: min(360px, 42vh);
-  }
-
-  .debug-body {
-    max-height: min(280px, 34vh);
   }
 
   .operation-log-entry {

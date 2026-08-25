@@ -850,8 +850,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.9.3", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.9.3"', constants)
+        self.assertIn("version: 3.9.4", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.9.4"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1053,7 +1053,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
     def test_canvas_translation_translates_chinese_for_all_models(self) -> None:
         # V5 对中文自然语言理解不稳：画布中文一律翻译，与 4.5 同策略
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("if has_chinese(clean_prompt):", main_source)
+        self.assertIn("if has_chinese(clean_prompt) and not raw_mode:", main_source)
         self.assertNotIn("V5 角色增强", main_source)
         self.assertNotIn("model_supports_cjk(current_model)", main_source)
 
@@ -1100,7 +1100,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 不再有 raw/V5 的免翻译特例
         self.assertNotIn("function currentModelSupportsCjk", editor)
         self.assertIn(
-            "const willTranslate = /[\\u4e00-\\u9fff]/.test(translationSource)",
+            "const willTranslate = !node.raw && /[\\u4e00-\\u9fff]/.test(translationSource)",
             editor,
         )
         self.assertLess(
@@ -1126,11 +1126,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
 
-        # /nai=4.5、/nai5=V5、/nai0=面板选择；V5 专用提供商槽位回落主提供商
+        # /nai=4.5、/nai5=V5、/nai0=4.5 raw、/nai50=V5 raw
         self.assertIn('@filter.command("nai5")', main_source)
+        self.assertIn('@filter.command("nai50")', main_source)
         self.assertIn("model=MODEL_V5_FULL", main_source)
         self.assertIn("model=MODEL_V45_FULL", main_source)
-        self.assertIn("self.plugin_config.nai0_model", main_source)
+        self.assertNotIn("self.plugin_config.nai0_model", main_source)
         self.assertIn("def _provider_credentials_for_model", main_source)
         # 画布配置暴露模型列表；默认模型固定 4.5，节点各自选择
         self.assertIn('"defaultModel": MODEL_V45_FULL', main_source)
@@ -1260,8 +1261,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         debug_body = styles.split(".debug-body {", 1)[1].split("}", 1)[0]
-        self.assertIn("overflow-y: auto;", debug_body)
-        self.assertIn("overscroll-behavior: contain;", debug_body)
+        debug_bar_body = styles.split(".debug-bar-body {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow: visible;", debug_body)
+        self.assertIn("overflow-y: auto;", debug_bar_body)
+        self.assertIn("overscroll-behavior: contain;", debug_bar_body)
         self.assertIn("-webkit-user-select: text;", debug_body)
         self.assertIn("user-select: text;", debug_body)
 
