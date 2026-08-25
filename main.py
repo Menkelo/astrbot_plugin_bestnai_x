@@ -930,7 +930,7 @@ class BestNAIPlugin(Star):
                 "height": gen_config.height,
                 "steps": gen_config.steps,
                 "scale": gen_config.scale,
-                "seed": payload.get("seed") or "(随机)",
+                "seed": "由返回 PNG 元数据提供",
                 "raw": raw_mode,
             },
         )

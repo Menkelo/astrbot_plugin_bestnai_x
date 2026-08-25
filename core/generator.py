@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import random
 import re
+from io import BytesIO
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
+from PIL import Image as PILImage
 
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
-from ..constants import MAX_SEED, normalize_nai_seed
+from ..constants import normalize_nai_seed
 from ..models.config import GenerationConfig, PluginConfig
+from ..services.nai_metadata import parse_nai_info
 
 
 class GenerationResult(NamedTuple):
@@ -83,9 +85,9 @@ class ImageGenerator:
 
         api_base = base_url
 
-        # 种子在这里定一次，两条端点路径和 fallback 共用同一个值。
-        # 以前两个方法各自随机，fallback 后拿到的图和日志里的种子对不上。
-        resolved_seed = self._resolve_seed(seed)
+        # Seed is written by NovelAI into the returned PNG metadata. Do not
+        # force a request seed during ordinary generation; the returned
+        # metadata is the authoritative value used for display/reproduction.
 
         try:
             # Tuercha and similar NAI relays expose the complete NovelAI
@@ -96,9 +98,9 @@ class ImageGenerator:
                 api_key=access_key,
                 prompt=prompt,
                 gen_config=gen_config,
-                seed=resolved_seed,
+                seed=None,
             )
-            return GenerationResult(images=images, seed=resolved_seed)
+            return GenerationResult(images=images, seed=self._seed_from_images(images))
 
         except GenerationError as e:
             if self._should_fallback_to_images(e):
@@ -110,20 +112,30 @@ class ImageGenerator:
                     api_key=access_key,
                     prompt=prompt,
                     gen_config=gen_config,
-                    seed=resolved_seed,
+                    seed=None,
                 )
-                return GenerationResult(images=images, seed=resolved_seed)
+                return GenerationResult(images=images, seed=self._seed_from_images(images))
 
             raise
 
     @staticmethod
-    def _resolve_seed(seed: Optional[int]) -> int:
-        """指定了合法种子就复用，否则随机一个。"""
-        value = normalize_nai_seed(seed)
-        if value is not None:
-            return value
+    def _resolve_seed(seed: Optional[int]) -> Optional[int]:
+        """Normalize an optional explicit seed for compatibility callers."""
+        return normalize_nai_seed(seed)
 
-        return random.randint(1, MAX_SEED)
+    @staticmethod
+    def _seed_from_images(images: List[Tuple[str, bytes]]) -> int:
+        """Read the actual seed emitted in the returned NovelAI PNG."""
+        for _fmt, raw in images:
+            try:
+                with PILImage.open(BytesIO(raw)) as image:
+                    info = parse_nai_info(dict(image.info or {}))
+                value = normalize_nai_seed(info.get("seed"))
+                if value is not None:
+                    return value
+            except Exception:
+                continue
+        return 0
 
     async def _generate_by_images_endpoint(
         self,
@@ -154,12 +166,8 @@ class ImageGenerator:
             "[BestNAI] 发出参数 "
             f"model={payload.get('model')}, "
             f"size={payload.get('size')}, "
-            f"steps={payload.get('steps')}, "
-            f"scale={payload.get('scale')}, "
-            f"sampler={payload.get('sampler')}, "
-            f"quality={payload.get('quality')}, "
-            f"uc_preset={payload.get('uc_preset')}, "
-            f"seed={seed}"
+            f"response_format={payload.get('response_format')}, "
+            "seed=(returned PNG metadata)"
         )
 
         data = await self._post_json(
@@ -194,9 +202,9 @@ class ImageGenerator:
             "scale": float(gen_config.scale),
             "sampler": gen_config.sampler,
             "noise_schedule": gen_config.noise_schedule,
+            "cfg_rescale": float(gen_config.cfg_rescale),
             "image_format": gen_config.image_format,
             "n_samples": 1,
-            "seed": seed
         }
 
         if gen_config.negative_prompt:
