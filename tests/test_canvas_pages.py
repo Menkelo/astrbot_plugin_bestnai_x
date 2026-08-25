@@ -352,6 +352,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("放大图片并查看提示词", editor)
         self.assertIn("function imageViewerPointHitsRenderedImage", editor)
         self.assertIn("function syncImageViewerFrameSize", editor)
+        sync_body = editor.split("function syncImageViewerFrameSize", 1)[1].split(
+            "function scheduleImageViewerFrameSync", 1
+        )[0]
+        self.assertLess(
+            sync_body.index("els.imageViewerImage.naturalWidth"),
+            sync_body.index("state.viewerImageDimensions.width"),
+        )
         self.assertIn("function scheduleImageViewerFrameSync", editor)
         self.assertIn("viewerBottomLayoutLock: null", editor)
         self.assertIn("function lockImageViewerBottomLayout", editor)
@@ -405,12 +412,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("min-height: 0;", image_frame)
         self.assertIn("overflow: hidden;", image_frame)
         viewer_image = styles.split("\n.image-viewer-stage img {", 1)[1].split("}", 1)[0]
-        self.assertIn("width: 100%;", viewer_image)
-        self.assertIn("height: 100%;", viewer_image)
+        self.assertIn("width: auto;", viewer_image)
+        self.assertIn("height: auto;", viewer_image)
         self.assertIn("min-width: 0;", viewer_image)
         self.assertIn("min-height: 0;", viewer_image)
         self.assertIn("object-fit: contain;", viewer_image)
-        self.assertIn("border-radius: 0;", viewer_image)
+        self.assertIn("border-radius: var(--image-viewer-radius);", viewer_image)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
         self.assertIn("clip-path: inset(0 round var(--image-viewer-radius));", image_frame)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
@@ -852,8 +859,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 3.9.4", metadata)
-        self.assertIn('PLUGIN_VERSION = "3.9.4"', constants)
+        self.assertIn("version: 3.9.5", metadata)
+        self.assertIn('PLUGIN_VERSION = "3.9.5"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

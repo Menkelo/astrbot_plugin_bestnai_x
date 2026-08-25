@@ -4012,11 +4012,11 @@ function syncImageViewerFrameSize(settling = false) {
   frame.style.removeProperty("width");
   frame.style.removeProperty("height");
 
-  const imageWidth = Number(state.viewerImageDimensions.width)
-    || Number(els.imageViewerImage.naturalWidth)
+  const imageWidth = Number(els.imageViewerImage.naturalWidth)
+    || Number(state.viewerImageDimensions.width)
     || 0;
-  const imageHeight = Number(state.viewerImageDimensions.height)
-    || Number(els.imageViewerImage.naturalHeight)
+  const imageHeight = Number(els.imageViewerImage.naturalHeight)
+    || Number(state.viewerImageDimensions.height)
     || 0;
   if (!imageWidth || !imageHeight) return;
 

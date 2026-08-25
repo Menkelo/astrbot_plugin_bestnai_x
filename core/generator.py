@@ -50,7 +50,7 @@ class ServerBusyError(GenerationError):
 class ImageGenerator:
     def __init__(self, config: PluginConfig) -> None:
         self.config = config
-        self.timeout = 300
+        self.timeout = 180
 
     @staticmethod
     def _endpoint(api_base: str, path: str) -> str:
