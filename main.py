@@ -381,7 +381,8 @@ class BestNAIPlugin(Star):
 
         # 先看图片自带的 NovelAI 生成参数。命中就不必让视觉模型猜了，
         # 原始 prompt 和种子一起用能真正还原这张图。
-        # 注意元数据只存在于未经重编码的原始 PNG 里。
+        # 注意：NAI PNG（tEXt）、NAI JPEG/WebP 导出（EXIF UserComment）、
+        # SD WebUI parameters 都读得出来；QQ 压缩转发的图元数据已丢，读不到。
         with trace.stage("读原图内嵌参数"):
             source_info = await asyncio.to_thread(read_image_generation_info, image_path)
 
@@ -2288,7 +2289,8 @@ class BestNAIPlugin(Star):
                 )
 
         if image_src:
-            # Original NovelAI PNGs can carry their own prompt and seed. Use
+            # Original NAI PNG/JPEG/WebP exports (and SD WebUI images) can
+            # carry their own prompt and seed. Use
             # that deterministic path before requiring a vision retag
             # provider; QQ often exposes the image as a URL.
             source_info = await read_image_generation_info_any(image_src)

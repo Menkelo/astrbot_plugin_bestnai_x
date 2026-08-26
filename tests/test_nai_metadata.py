@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import struct
 import sys
 import types
 import unittest
@@ -29,6 +30,7 @@ sys.modules.setdefault("astrbot.api", astrbot_api_module)
 from astrbot_plugin_bestnai_x.services.nai_metadata import (
     is_trusted_nai_generation_info,
     parse_nai_info,
+    parse_user_comment_text,
     read_image_generation_info,
     read_image_generation_info_any,
 )
@@ -59,6 +61,56 @@ def _nai_png(tmp_path: Path, **overrides) -> Path:
     path = tmp_path / "nai.png"
     Image.new("RGB", (32, 32), (10, 20, 30)).save(path, format="PNG", pnginfo=meta)
     return path
+
+
+def _build_exif_user_comment(payload: bytes) -> bytes:
+    """构造最小 EXIF：IFD0 → ExifIFD → UserComment(0x9286)。
+
+    JPEG / WebP 保存时 Pillow 需要带 ``Exif\\0\\0`` 前缀的完整字节串。
+    """
+
+    exif_ifd_offset = 8 + 2 + 12 + 4
+    payload_offset = exif_ifd_offset + 2 + 12 + 4
+    tiff = b"II" + struct.pack("<HI", 42, 8)
+    tiff += struct.pack("<H", 1)
+    tiff += struct.pack("<HHI", 0x8769, 4, 1) + struct.pack("<I", exif_ifd_offset)
+    tiff += struct.pack("<I", 0)
+    tiff += struct.pack("<H", 1)
+    tiff += struct.pack("<HHI", 0x9286, 7, len(payload)) + struct.pack("<I", payload_offset)
+    tiff += struct.pack("<I", 0)
+    return b"Exif\x00\x00" + tiff + payload
+
+
+def _image_with_user_comment(
+    tmp_path: Path,
+    name: str,
+    fmt: str,
+    payload: bytes,
+) -> Path:
+    path = tmp_path / name
+    Image.new("RGB", (32, 32), (10, 20, 30)).save(
+        path,
+        format=fmt,
+        exif=_build_exif_user_comment(payload),
+    )
+    return path
+
+
+def _nai_user_comment_payload(comment: dict, charset: str = "ASCII") -> bytes:
+    body = json.dumps(comment).encode("utf-8")
+    prefix = {
+        "ASCII": b"ASCII\x00\x00\x00",
+        "UNICODE": b"UNICODE\x00",
+        "none": b"",
+    }[charset]
+    return prefix + body
+
+
+SD_PARAMETERS = (
+    "masterpiece, 1girl, solo, silver hair\n"
+    "Negative prompt: lowres, bad anatomy\n"
+    "Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1234567, Size: 832x1216"
+)
 
 
 class NaiMetadataTest(unittest.TestCase):
@@ -271,6 +323,161 @@ class NaiMetadataTest(unittest.TestCase):
         self.assertIsNone(normalize_nai_seed(True))
         self.assertIsNone(normalize_nai_seed(1.5))
         self.assertIsNone(normalize_nai_seed(MAX_SEED + 1))
+
+
+class NaiWebpJpegMetadataTest(unittest.TestCase):
+    """NovelAI 新版默认导出是 WebP/JPEG，参数 JSON 在 EXIF UserComment 里。"""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_reads_nai_webp_user_comment_json(self) -> None:
+        # NAI 官方导出的 WebP：ASCII 字符集前缀 + UTF-8 JSON
+        path = _image_with_user_comment(
+            self.tmp_path,
+            "nai.webp",
+            "WEBP",
+            _nai_user_comment_payload(NAI_COMMENT),
+        )
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["prompt"], NAI_COMMENT["prompt"])
+        self.assertEqual(info["negativePrompt"], NAI_COMMENT["uc"])
+        self.assertEqual(info["seed"], 3405988762)
+        self.assertEqual(info["steps"], 28)
+        self.assertEqual(info["sampler"], "k_euler_ancestral")
+        # 带 seed 的内嵌参数可信，导入画布时可以直接复用而不必视觉反推
+        self.assertTrue(is_trusted_nai_generation_info(info))
+
+    def test_reads_nai_jpeg_unicode_user_comment(self) -> None:
+        # UNICODE 字符集前缀 + UTF-16 正文
+        payload = b"UNICODE\x00" + json.dumps(NAI_COMMENT).encode("utf-16-le")
+        path = _image_with_user_comment(self.tmp_path, "nai.jpg", "JPEG", payload)
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["prompt"], NAI_COMMENT["prompt"])
+        self.assertEqual(info["seed"], 3405988762)
+
+    def test_reads_nai_user_comment_without_charset_prefix(self) -> None:
+        # 有些实现不写 8 字节字符集标记，正文直接从 JSON 开头
+        path = _image_with_user_comment(
+            self.tmp_path,
+            "nai_raw.webp",
+            "WEBP",
+            _nai_user_comment_payload(NAI_COMMENT, charset="none"),
+        )
+
+        info = read_image_generation_info(path)
+        self.assertEqual(info["prompt"], NAI_COMMENT["prompt"])
+
+    def test_reads_char_captions_from_webp_user_comment(self) -> None:
+        comment = {
+            **NAI_COMMENT,
+            "v4_prompt": {
+                "caption": {
+                    "base_caption": NAI_COMMENT["prompt"],
+                    "char_captions": [
+                        {"char_caption": "hatsune miku", "centers": [{"x": 0.4, "y": 0.6}]},
+                    ],
+                },
+                "use_coords": True,
+                "use_order": True,
+            },
+        }
+        path = _image_with_user_comment(
+            self.tmp_path,
+            "nai_chars.webp",
+            "WEBP",
+            _nai_user_comment_payload(comment),
+        )
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(
+            info["characterPrompts"],
+            [{"prompt": "hatsune miku", "negative": "", "x": 0.4, "y": 0.6}],
+        )
+        self.assertTrue(info["characterUseCoords"])
+
+    def test_random_user_comment_text_is_ignored(self) -> None:
+        # 无关的 EXIF 备注不是生成参数，不能当 prompt 用
+        for text in ("我家猫的照片", "nothing here", "{ 这不是合法 JSON"):
+            with self.subTest(text=text):
+                self.assertEqual(parse_user_comment_text(text), {})
+        path = _image_with_user_comment(
+            self.tmp_path, "note.jpg", "JPEG", b"ASCII\x00\x00\x00my cat photo"
+        )
+        self.assertEqual(read_image_generation_info(path), {})
+
+
+class SdWebuiMetadataTest(unittest.TestCase):
+    """SD WebUI 的 parameters 三段式文本（spell.novelai.dev 的口径）。"""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_reads_sd_parameters_from_png_text_chunk(self) -> None:
+        meta = PngImagePlugin.PngInfo()
+        meta.add_text("parameters", SD_PARAMETERS)
+        path = self.tmp_path / "sd.png"
+        Image.new("RGB", (16, 16), (1, 2, 3)).save(path, format="PNG", pnginfo=meta)
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["prompt"], "masterpiece, 1girl, solo, silver hair")
+        self.assertEqual(info["negativePrompt"], "lowres, bad anatomy")
+        self.assertEqual(info["steps"], 20)
+        self.assertEqual(info["sampler"], "Euler a")
+        self.assertEqual(info["scale"], 7.0)
+        self.assertEqual(info["seed"], 1234567)
+        self.assertEqual(info["width"], 832)
+        self.assertEqual(info["height"], 1216)
+        self.assertTrue(is_trusted_nai_generation_info(info))
+
+    def test_reads_sd_parameters_from_jpeg_user_comment(self) -> None:
+        payload = b"ASCII\x00\x00\x00" + SD_PARAMETERS.encode("utf-8")
+        path = _image_with_user_comment(self.tmp_path, "sd.jpg", "JPEG", payload)
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["prompt"], "masterpiece, 1girl, solo, silver hair")
+        self.assertEqual(info["seed"], 1234567)
+
+    def test_sd_parameters_without_negative_prompt(self) -> None:
+        text = "1girl, solo\nSteps: 28, Sampler: DPM++ 2M Karras, CFG scale: 5, Seed: 42, Size: 1024x1024"
+        info = parse_user_comment_text(text)
+
+        self.assertEqual(info["prompt"], "1girl, solo")
+        self.assertNotIn("negativePrompt", info)
+        self.assertEqual(info["steps"], 28)
+        self.assertEqual(info["scale"], 5.0)
+        self.assertEqual(info["seed"], 42)
+
+    def test_nai_comment_takes_priority_over_sd_parameters(self) -> None:
+        # NovelAI 格式和 SD 格式同存时（正常不会发生），NovelAI 优先
+        meta = PngImagePlugin.PngInfo()
+        meta.add_text("Comment", json.dumps(NAI_COMMENT))
+        meta.add_text("parameters", SD_PARAMETERS)
+        info = parse_nai_info(
+            {"Comment": json.dumps(NAI_COMMENT), "parameters": SD_PARAMETERS}
+        )
+
+        self.assertEqual(info["prompt"], NAI_COMMENT["prompt"])
+        self.assertEqual(info["seed"], 3405988762)
 
 
 class PromptWeightTest(unittest.TestCase):

@@ -1108,10 +1108,11 @@ class CanvasStore:
         self.collect_orphan_assets()
 
     def repair_library_image_seed(self, asset_id: Any) -> Dict[str, Any]:
-        """旧版本收录的素材可能没存 seed；从图片内嵌的 NovelAI 元数据补一次。
+        """旧版本收录的素材可能没存 seed；从图片内嵌的生成元数据补一次。
 
-        只有 PNG 的 tEXt 块还在时才读得到；图片被重新编码后元数据会丢失，
-        此时保持原样返回，绝不臆造种子。已有合法种子的条目原样返回。
+        支持 NovelAI PNG（tEXt 块）与 JPEG/WebP（EXIF UserComment），
+        以及 SD WebUI 的 parameters 格式；图片被重新编码且元数据丢失时
+        保持原样返回，绝不臆造种子。已有合法种子的条目原样返回。
         """
         asset_id = str(asset_id or "")
         if not ASSET_ID_RE.fullmatch(asset_id):

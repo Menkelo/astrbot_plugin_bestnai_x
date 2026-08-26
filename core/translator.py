@@ -1,7 +1,10 @@
 """提示词翻译模块。
 
 功能：
-- 使用 LLM 将中文描述转换为 NovelAI / Danbooru 英文 tag。
+- 使用 LLM 将中文描述转换为 NovelAI / Danbooru 英文提示词。
+- 默认 SYSTEM_PROMPT 融合 nai5-prompting（github.com/Miint-Sunny/nai5-prompting）
+  的实测写法：词组/句子判据、互斥组、版权角色不枚举外观、服装状态词语义陷阱等。
+  NAI 4.5 与 V5 写法一致，共用同一套规则。
 - 支持 AstrBot 供应商对接。
 - 优先使用 translator_provider_id 对应供应商。
 - 翻译失败自动重试，默认最多 3 次。
@@ -30,25 +33,65 @@ from .prompt_tokens import (
 )
 
 
+# 方法论融合自 https://github.com/Miint-Sunny/nai5-prompting （通用写法：词组/句子
+# 判据、互斥组、版权角色不枚举外观、服装状态词语义陷阱等，均有 2000+ 张实测背书）。
+# NAI 4.5 与 V5 提示词写法一致，共用这一套规则，不按模型区分。
 SYSTEM_PROMPT = """
-你是 NovelAI 4/4.5 提示词专家，精通 Danbooru 标签体系。
-任务：把用户描述转换为紧凑、准确的英文 Danbooru / NovelAI tag 串。
+你是 NovelAI 4.5 / V5 提示词专家，精通 Danbooru 标签体系与 NovelAI 提示词语法。
+任务：把用户描述转换为紧凑、准确的英文 NovelAI 提示词。两代模型写法相同，按同一套规则输出。
 
-输出规则：
-- 只输出英文 tag，用英文逗号分隔；单行输出，不要解释、前缀或代码块。
+输出格式：
+- 只输出英文提示词，单行，条目间用英文逗号分隔；不要解释、前缀或代码块。
 - 禁止输出负面提示词。
-- 禁止添加 masterpiece、best quality 等质量词。
+- 禁止添加 masterpiece、best quality、very aesthetic 等质量词。
 - 不添加比例、尺寸或画幅控制 tag；这些由独立参数处理。
+- 禁止输出中文。
+
+笔法判据（最重要的一条）：离散事实用词组，关系用短句。
+- 词组（danbooru tag）写离散事实：人数、发型发色、瞳色、服装形制、姿势、镜头取景与机位高低、种族体征。
+- 简短英文短语/句子写关系：谁在谁前面、道具属于谁、动作停在哪一瞬、占画幅多少、光从哪来打在哪。
+- 姿势与机位必须词组化，不要写成句子：sitting, leg up, arm support, head rest 远优于
+  "she sits sideways with one knee drawn up"。实测句子写姿势会把姿势画糊（多出肢体）；
+  句子推不动机位，from below / from above / from behind 必须用 tag。
+- 关键独立物件拎成独立 tag（holding cup, transparent umbrella），不要埋进句子。
+- 不对称与位置状态用短句写：one thighhigh has slipped down to bunch just below the knee。
+- 引号只用于要画进图里的文字；叙事句、状态句一律不加引号（引号=渲染画面文字）。
+
+顺序与人数：
+- 人数 tag 放最前且全条只出现一次。单人女性 solo, 1girl；单人男性 solo, 1boy；
+  多人 2girls、2boys、1boy 1girl 等，不加 solo。
+- 人数之后依次：外貌、服装、表情、场景背景、镜头、动作；关系短句跟在动作附近。
+- 多人时用短句写死归属：the umbrella belongs only to the girl in the red coat。
+
+互斥组，各组内只挑一个（叠加会让模型在矛盾指令间摇摆）：
+- 视线方向：looking at viewer / looking to the side / looking up / looking down / looking away / looking at another 选一；
+  looking back、closed eyes 不是方向，可与方向叠加。
+- 取景距离：close-up / portrait / upper body / cowboy shot / full body 选一；wide shot 可与 full body 叠加。
+- 背景形态：simple / blurry / white / detailed / transparent / dark background 选一。
+- 体位：sitting / standing / lying / kneeling / squatting 选一（多角色各人体位除外，靠句子说清归属）。
+
+版权角色：
+- 使用 Danbooru 角色名格式，如 hatsune_miku_(vocaloid)，并跟作品名；角色身份必须以主搜索结果中的
+  明确匹配为准，共现/related 候选不能替换用户明确指定的角色。
+- 具名角色不要枚举外观：角色名自带全套设定，再补发色发型瞳色要么冗余要么打架。
+  没换装时名字 + 作品名 + 一个笼统引导词（school uniform / casual clothes / swimsuit）即可；
+  换装时写一个成套的服装说法，不拆成领子裙子丝带。
+- 职能、归属、相对位置（谁弹什么乐器、谁是谁的姐姐）角色名不带，拿不准就不要分配——写错比不写严重。
+- 不添加 year 2025 等年份 tag。
+
+服装状态词：
+- 服装状态 tag 先核对真实语义再用，不要按英文字面推：loose socks 是堆堆袜（不是滑落的丝袜），
+  single thighhigh 是只穿一只。这类词用错会静默把衣服换掉。
+
+权重：
+- 默认不加权。只有用户明确表达强调或输入本身带权重时才使用 NovelAI 权重，
+  格式必须正确，例如 {tag}, 1.2::tag::；不要任意给普通 tag 加权。
+
+忠实输入：
 - 不添加输入中没有出现的视觉细节：不得臆造发色、发型、瞳色、服装、配饰、动作、表情、场景、天气、时间、光线、镜头或画风。
 - 不为了凑数量扩写提示词；短输入保持短，不强行补足 tag。
 - 相同概念只保留一个最准确的 tag，禁止同义词堆叠和重复。
-- 已知二次元角色使用 Danbooru 角色名格式，如 hatsune_miku_(vocaloid)。角色身份必须以主搜索结果中的明确匹配为准；共现/related 候选不能替换用户明确指定的角色。
-- 单人女性使用 solo, 1girl。
-- 单人男性使用 solo, 1boy。
-- 多人使用 2girls、2boys、1boy 1girl 等，不加 solo。
-- 已知角色除非用户明确要求改变外貌，否则不要添加可能冲突的外貌 tag；不要添加 year 2025 等年份 tag。
-- 只有用户明确表达强调或输入本身带权重时才使用 NovelAI 权重，格式必须正确，例如 {tag}, 1.2::tag::；不要任意给普通 tag 加权。
-- 禁止输出中文。
+- 不编造画师名 / artist tag；输入给了画师串就原样保留。
 """.strip()
 
 
@@ -719,12 +762,51 @@ def apply_character_candidate(
     return ", ".join(ordered)
 
 
-class DanbooruTagRetriever:
-    """Danbooru 在线 tag 候选检索器。"""
+# DanbooruSearch 的两个公开端点互为备份：HF Space 无流量休眠（冷启动
+# 30~60 秒），魔搭镜像在线率高；主端点失败时自动改走镜像。
+DANBOORU_SEARCH_BACKUP_API_URL = "https://sakizuki-danboorusearchonline.ms.show"
 
-    def __init__(self, base_url: str, timeout: float = 10.0):
+
+class DanbooruTagRetriever:
+    """Danbooru 在线 tag 候选检索器。
+
+    主端点是 Hugging Face Space，无流量休眠后冷启动要 30~60 秒；
+    ``backup_url`` 是同一服务的魔搭镜像，主端点请求失败时自动切换，
+    避免冷启动窗口内检索整段不可用。
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 10.0,
+        backup_url: str = DANBOORU_SEARCH_BACKUP_API_URL,
+    ):
         self.base_url = base_url.rstrip("/")
+        self.backup_url = (backup_url or "").rstrip("/")
         self.timeout = timeout
+
+    def _endpoints(self) -> List[str]:
+        endpoints = [self.base_url]
+        if self.backup_url and self.backup_url != self.base_url:
+            endpoints.append(self.backup_url)
+        return endpoints
+
+    async def _post_json(
+        self,
+        session: aiohttp.ClientSession,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """按主/备顺序请求，任一端点 200 即返回其 JSON；全部失败返回 None。"""
+
+        for base in self._endpoints():
+            try:
+                async with session.post(f"{base}{path}", json=payload) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+            except Exception:
+                continue
+        return None
 
     async def lookup_tags(self, tags: List[str]) -> Dict[str, Any]:
         """Resolve exact English tags and their Chinese names in one request."""
@@ -743,9 +825,10 @@ class DanbooruTagRetriever:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
             ) as session:
-                async with session.post(
-                    f"{self.base_url}/api/search",
-                    json={
+                payload = await self._post_json(
+                    session,
+                    "/api/search",
+                    {
                         "query": ", ".join(requested.values()),
                         "top_k": min(50, max(10, len(requested))),
                         "limit": min(500, max(80, len(requested) * 4)),
@@ -755,10 +838,9 @@ class DanbooruTagRetriever:
                         "target_layers": ["英文"],
                         "group_mode": "off",
                     },
-                ) as resp:
-                    if resp.status != 200:
-                        return empty
-                    payload = await resp.json()
+                )
+                if payload is None:
+                    return empty
         except Exception:
             return empty
 
@@ -800,9 +882,10 @@ class DanbooruTagRetriever:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
             ) as session:
-                async with session.post(
-                    f"{self.base_url}/api/search",
-                    json={
+                search_data = await self._post_json(
+                    session,
+                    "/api/search",
+                    {
                         "query": query,
                         "top_k": 5,
                         "limit": 30,
@@ -810,11 +893,10 @@ class DanbooruTagRetriever:
                         "show_nsfw": False,
                         "use_segmentation": True,
                     },
-                ) as resp:
-                    if resp.status != 200:
-                        return empty
+                )
 
-                    search_data = await resp.json()
+                if search_data is None:
+                    return empty
 
                 search_results = []
 
@@ -842,35 +924,35 @@ class DanbooruTagRetriever:
                 seed_tags = [r["tag"] for r in search_results[:8]]
                 related_results = []
 
-                async with session.post(
-                    f"{self.base_url}/api/related",
-                    json={"tags": seed_tags, "limit": 20, "show_nsfw": False},
-                ) as resp:
-                    if resp.status == 200:
-                        related_data = await resp.json()
-                        items = _result_items(related_data)
-                        search_tag_set = {r["tag"] for r in search_results}
+                related_data = await self._post_json(
+                    session,
+                    "/api/related",
+                    {"tags": seed_tags, "limit": 20, "show_nsfw": False},
+                )
+                if related_data is not None:
+                    items = _result_items(related_data)
+                    search_tag_set = {r["tag"] for r in search_results}
 
-                        for item in items:
-                            tag = item.get("tag")
-                            if not tag or tag in search_tag_set:
-                                continue
+                    for item in items:
+                        tag = item.get("tag")
+                        if not tag or tag in search_tag_set:
+                            continue
 
-                            related_results.append(
-                                {
-                                    "tag": tag,
-                                    "cn_name": item.get("cn_name", ""),
-                                    "cooc_score": item.get(
-                                        "cooc_score",
-                                        item.get("score", item.get("final_score", 0.0)),
-                                    ),
-                                    "category": item.get("category", "General"),
-                                    "source": item.get("source", ""),
-                                    "layer": item.get("layer", ""),
-                                    "sources": item.get("sources", []),
-                                    "wiki": item.get("wiki", ""),
-                                }
-                            )
+                        related_results.append(
+                            {
+                                "tag": tag,
+                                "cn_name": item.get("cn_name", ""),
+                                "cooc_score": item.get(
+                                    "cooc_score",
+                                    item.get("score", item.get("final_score", 0.0)),
+                                ),
+                                "category": item.get("category", "General"),
+                                "source": item.get("source", ""),
+                                "layer": item.get("layer", ""),
+                                "sources": item.get("sources", []),
+                                "wiki": item.get("wiki", ""),
+                            }
+                        )
 
                 return {
                     "search": search_results,
