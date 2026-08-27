@@ -12,11 +12,14 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 MAX_CHAR_PROMPTS = 16
 MAX_CHAR_PROMPT_LENGTH = 2000
 _GRID_COLUMNS = "ABCDE"
+_GRID_ROWS = 5
+_POSITION_RE = re.compile(r"[A-E][1-5]")
 
 # 与原版 BestNAI 插件保持一致的默认站位
 DEFAULT_POSITIONS = {
@@ -52,7 +55,30 @@ def default_char_position(index: int, count: int) -> str:
     positions = DEFAULT_POSITIONS.get(count)
     if positions and index < len(positions):
         return positions[index]
-    return f"C{index + 1}"
+    # 原版对 5 人以上没有预设，沿用居中列 C1..C5。网格只有五行，索引再大也不能
+    # 往下溢出成 C6——那是个非法站位，会被网关以 400 打回。
+    return f"C{min(int(index) + 1, _GRID_ROWS)}"
+
+
+def is_valid_position(value: Any) -> bool:
+    """站位是否落在 A~E 列、1~5 行的网格内。"""
+    return bool(_POSITION_RE.fullmatch(str(value or "").strip().upper()))
+
+
+def has_explicit_positions(raw: Any) -> bool:
+    """原始输入里是否有人**明确指定**过合法站位。
+
+    位置只有在 ``use_coords`` 为真时才生效，否则 NovelAI 按出场顺序排布、
+    直接忽略坐标。而程序按人数自动分配的默认站位不算「用户意图」——为它
+    打开 use_coords 会把本来好好的顺序排布换成一个谁也没要求的分区。
+    """
+    if not isinstance(raw, list):
+        return False
+
+    return any(
+        isinstance(item, dict) and is_valid_position(item.get("position"))
+        for item in raw[:MAX_CHAR_PROMPTS]
+    )
 
 
 def normalize_char_entries(raw: Any) -> List[Dict[str, str]]:
@@ -75,9 +101,11 @@ def normalize_char_entries(raw: Any) -> List[Dict[str, str]]:
             "position": "",
         }
         explicit = str(item.get("position") or "").strip().upper()
-        if explicit:
+        if is_valid_position(explicit):
             entry["position"] = explicit
         else:
+            # 非法站位（"Z9"、"C6"）不能原样送出去：网关会以 400 拒绝整次
+            # 请求，连带把其余角色一起废掉。退回坐标推算或默认站位。
             entry["position"] = (
                 char_grid_position(item.get("x"), item.get("y"))
                 or default_char_position(len(result), len(raw))

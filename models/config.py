@@ -70,8 +70,9 @@ class GenerationConfig:
     characters: list = field(default_factory=list)
     use_coords: bool = False
     use_order: bool = True
-    # 结构化角色参数透传：仅当生图网关真正支持 characters 分区生成时开启；
-    # 默认关闭，走文本合并（兼容所有网关）
+    # 结构化角色参数：已实测确认中转网关放行 characters 与 use_coords，
+    # position "B3" 会被翻成 NAI 的 centers {x:0.3, y:0.5}。use_coords 仍默认
+    # 关闭——它只在用户明确指定站位时才该打开，否则按出场顺序排布。
 
     @classmethod
     def from_plugin_config(cls, config: dict) -> "GenerationConfig":

@@ -22,7 +22,7 @@ from .constants import (
     normalize_nai_seed,
 )
 from .core.api_errors import describe_api_error, strip_error_subject
-from .core.char_prompts import normalize_char_entries
+from .core.char_prompts import has_explicit_positions, normalize_char_entries
 from .core.debug_trace import DebugTrace
 from .core.generator import (
     APIKeyError,
@@ -884,17 +884,24 @@ class BestNAIPlugin(Star):
             trace.note("高级参数", "Variety+ 已开启")
 
         # 反推命中的多角色参数：结构化透传（固定开启，网关 400 时自动回退）
-        char_prompts = normalize_char_entries(payload.get("retagCharPrompts"))
+        raw_char_prompts = payload.get("retagCharPrompts")
+        char_prompts = normalize_char_entries(raw_char_prompts)
         if char_prompts:
+            # 站位只有在 use_coords 为真时才生效，否则 NovelAI 按出场顺序排布、
+            # 忽略坐标。所以用户明确指定过站位时要一并打开它；只有程序按人数
+            # 自动分配的默认站位则不开，免得把顺序排布换成没人要求的分区。
+            use_coords = bool(payload.get("retagUseCoords")) or has_explicit_positions(
+                raw_char_prompts
+            )
             gen_config = replace(
                 gen_config,
                 characters=char_prompts,
-                use_coords=bool(payload.get("retagUseCoords")),
+                use_coords=use_coords,
                 use_order=True,
             )
             trace.note(
                 "角色参数",
-                {"characters": char_prompts, "useCoords": bool(payload.get("retagUseCoords"))},
+                {"characters": char_prompts, "useCoords": use_coords},
             )
 
         resolved_artist_name = ""
