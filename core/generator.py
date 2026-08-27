@@ -16,7 +16,6 @@ from astrbot.api import logger
 from .api_errors import describe_api_error
 from ..constants import normalize_nai_seed
 from ..models.config import (
-    VARIETY_SKIP_CFG_SIGMA,
     GenerationConfig,
     PluginConfig,
     model_supports_variety_boost,
@@ -218,10 +217,10 @@ class ImageGenerator:
         if gen_config.uc_preset:
             user_payload["uc_preset"] = gen_config.uc_preset
 
-        # Variety+ 走 NAI 的真实字段 skip_cfg_above_sigma（固定 58）。关闭时
-        # 不发这个键——官方语义是「有值=开、null=关」，发 null 与不发等价。
+        # Variety+ 用网关的方言字段 variety_boost，网关会把它翻成 NovelAI 的
+        # skip_cfg_above_sigma=58。关闭时不发这个键。
         if gen_config.variety_boost and model_supports_variety_boost(gen_config.model):
-            user_payload["skip_cfg_above_sigma"] = VARIETY_SKIP_CFG_SIGMA
+            user_payload["variety_boost"] = True
 
         if gen_config.characters:
             user_payload["characters"] = gen_config.characters
@@ -237,7 +236,7 @@ class ImageGenerator:
                         "You are an image generation endpoint. The JSON object in the user message "
                         "is the authoritative NovelAI generation request. Preserve every field exactly, "
                         "including size, steps, scale, sampler, noise_schedule, seed, negative_prompt, "
-                        "cfg_rescale, skip_cfg_above_sigma, and characters. Do not silently replace values "
+                        "cfg_rescale, variety_boost, and characters. Do not silently replace values "
                         "with defaults. Generate one image and return image URL, markdown image, "
                         "data URL, or base64."
                     )

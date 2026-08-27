@@ -30,7 +30,6 @@ from astrbot_plugin_bestnai_x.core.generator import (  # noqa: E402
 from astrbot_plugin_bestnai_x.models.config import (  # noqa: E402
     MODEL_V45_FULL,
     MODEL_V5_FULL,
-    VARIETY_SKIP_CFG_SIGMA,
     GenerationConfig,
     PluginConfig,
 )
@@ -72,16 +71,16 @@ def chat_user_payload(gen_config: GenerationConfig) -> dict:
 
 
 class VarietyBoostPayloadTest(unittest.TestCase):
-    def test_variety_boost_sends_skip_cfg_above_sigma(self) -> None:
+    def test_variety_boost_sends_the_gateway_dialect_field(self) -> None:
+        # 已探测：发 variety_boost=true，返回图的元数据里
+        # skip_cfg_above_sigma=58.0 —— 网关自己做了这层翻译。
         gen_config = replace(
             GenerationConfig(), model=MODEL_V45_FULL, variety_boost=True
         )
 
         user_payload = chat_user_payload(gen_config)
 
-        self.assertEqual(
-            user_payload.get("skip_cfg_above_sigma"), VARIETY_SKIP_CFG_SIGMA
-        )
+        self.assertIs(user_payload.get("variety_boost"), True)
 
     def test_disabled_variety_boost_omits_the_field(self) -> None:
         gen_config = replace(
@@ -90,27 +89,28 @@ class VarietyBoostPayloadTest(unittest.TestCase):
 
         user_payload = chat_user_payload(gen_config)
 
-        self.assertNotIn("skip_cfg_above_sigma", user_payload)
+        self.assertNotIn("variety_boost", user_payload)
 
-    def test_v5_never_sends_skip_cfg_above_sigma(self) -> None:
-        # V5 的能力表里没有这个参数，官方请求清洗会删掉它。
+    def test_v5_never_sends_variety_boost(self) -> None:
+        # V5 的能力表里没有 skip_cfg_above_sigma，网关翻译过去也会被清洗掉。
         gen_config = replace(
             GenerationConfig(), model=MODEL_V5_FULL, variety_boost=True
         )
 
         user_payload = chat_user_payload(gen_config)
 
-        self.assertNotIn("skip_cfg_above_sigma", user_payload)
+        self.assertNotIn("variety_boost", user_payload)
 
-    def test_legacy_variety_boost_key_is_never_sent(self) -> None:
-        # `variety_boost` 不是 NovelAI 的字段名，发出去等于没发。
+    def test_raw_nai_field_name_is_never_sent(self) -> None:
+        # 已探测：网关把未知字段静默丢弃，直接发 NAI 原生的
+        # skip_cfg_above_sigma 等于没发。要发的是网关方言 variety_boost。
         gen_config = replace(
             GenerationConfig(), model=MODEL_V45_FULL, variety_boost=True
         )
 
         user_payload = chat_user_payload(gen_config)
 
-        self.assertNotIn("variety_boost", user_payload)
+        self.assertNotIn("skip_cfg_above_sigma", user_payload)
 
     def test_api_params_uses_the_same_field(self) -> None:
         gen_config = replace(
@@ -119,8 +119,8 @@ class VarietyBoostPayloadTest(unittest.TestCase):
 
         params = gen_config.to_api_params("1girl")
 
-        self.assertEqual(params.get("skip_cfg_above_sigma"), VARIETY_SKIP_CFG_SIGMA)
-        self.assertNotIn("variety_boost", params)
+        self.assertIs(params.get("variety_boost"), True)
+        self.assertNotIn("skip_cfg_above_sigma", params)
 
 
 if __name__ == "__main__":

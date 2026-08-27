@@ -28,11 +28,10 @@ def resolve_model_choice(raw) -> str:
     return value if value in SUPPORTED_MODELS else FIXED_MODEL
 
 
-# Variety+ 在 NovelAI 的 API 里没有独立开关，它就是 skip_cfg_above_sigma，
-# 官方前端固定发 58。插件早期发的 `variety_boost` 不是 NAI 的字段名。
-VARIETY_SKIP_CFG_SIGMA = 58
-
-
+# Variety+ 在中转网关（Tuercha 系）的方言里就叫 variety_boost，网关自己把它
+# 翻成 NovelAI 的 skip_cfg_above_sigma=58。已探测确认：发 variety_boost=true，
+# 返回图的元数据里 skip_cfg_above_sigma=58.0；而直接发 skip_cfg_above_sigma
+# 会被网关当未知字段静默丢弃（未知字段一律 200 但无效果）。
 def model_supports_variety_boost(model: str) -> bool:
     """V5 的官方能力表里 skip_cfg_above_sigma 不可用，请求清洗会直接删掉它。
 
@@ -149,7 +148,7 @@ class GenerationConfig:
             params["cfg_rescale"] = self.cfg_rescale
 
         if self.variety_boost and model_supports_variety_boost(self.model):
-            params["skip_cfg_above_sigma"] = VARIETY_SKIP_CFG_SIGMA
+            params["variety_boost"] = True
 
         if self.characters:
             params["characters"] = self.characters
