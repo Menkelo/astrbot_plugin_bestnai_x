@@ -60,8 +60,11 @@ from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
 from .services.image_ratio import (
     choose_ratio_source,
+    clamp_to_pixel_budget,
+    format_aspect_ratio,
     infer_ratio_label_from_size,
     prompt_has_explicit_ratio,
+    MAX_TOTAL_PIXELS,
     RATIO_SOURCE_ARTIST,
     RATIO_SOURCE_IMAGE,
     read_image_size_any,
@@ -1308,7 +1311,7 @@ class BestNAIPlugin(Star):
         if width % 64 != 0 or height % 64 != 0:
             raise ValueError(f"尺寸必须是 64 的倍数，当前为 {width}x{height}")
 
-        if width * height > 1_100_000:
+        if width * height > MAX_TOTAL_PIXELS:
             raise ValueError(f"尺寸过大：{width}x{height}")
 
         return width, height
@@ -1325,27 +1328,15 @@ class BestNAIPlugin(Star):
         if width <= 0 or height <= 0:
             return self.ratio_presets["2:3"]
 
-        target_ratio = width / height
-        target_area = width * height
-
-        candidates = CANVAS_RATIO_PRESETS
-
-        def score(item):
-            _, (cw, ch) = item
-            candidate_ratio = cw / ch
-            candidate_area = cw * ch
-            ratio_score = abs(candidate_ratio - target_ratio)
-            area_score = abs(candidate_area - target_area) / max(target_area, 1)
-            return ratio_score * 10 + area_score
-
-        best_name, best_size = min(candidates.items(), key=score)
+        anchored_width, anchored_height = clamp_to_pixel_budget(width, height)
 
         logger.warning(
-            f"[BestNAI] 输入尺寸 {width}x{height} 非法，"
-            f"已锚定到 {best_name} {best_size[0]}x{best_size[1]}"
+            f"[BestNAI] 输入尺寸 {width}x{height} 非法，已等比钳制到 "
+            f"{anchored_width}x{anchored_height}"
+            f"（{format_aspect_ratio(anchored_width, anchored_height)}）"
         )
 
-        return best_size
+        return anchored_width, anchored_height
 
     def _resolve_ratio_to_size(self, ratio_name_or_size: str) -> Tuple[int, int]:
         value = (ratio_name_or_size or "").strip() or self.default_ratio

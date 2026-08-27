@@ -68,6 +68,65 @@ RATIO_SOURCE_IMAGE = "image"
 RATIO_SOURCE_DEFAULT = "default"
 
 
+RES_SNAP_STEP = 64
+MIN_DIM = 64
+# 像素预算：大致对应 Opus 免费档。插件不做费用预估，放宽会让用户在看不见
+# 账单的情况下扣点，所以维持这个保守上限。
+MAX_TOTAL_PIXELS = 1_100_000
+
+
+def snap_dim(value: int) -> int:
+    """归一到 64 的倍数，且不小于 64。"""
+    snapped = round(int(value) / RES_SNAP_STEP) * RES_SNAP_STEP
+    return max(MIN_DIM, snapped)
+
+
+def clamp_to_pixel_budget(
+    width: int,
+    height: int,
+    budget: int = MAX_TOTAL_PIXELS,
+) -> Tuple[int, int]:
+    """先 64 对齐；超出像素预算时按 √(预算/像素) 等比缩回，向下取整到 64。
+
+    等比缩放而不是回落到某个预设尺寸：用户要 900x1200 时想要的是 3:4，
+    换成一个比例不同的预设等于悄悄改掉了构图意图。
+    """
+    snapped_width = snap_dim(width)
+    snapped_height = snap_dim(height)
+    pixels = snapped_width * snapped_height
+
+    if pixels <= budget:
+        return snapped_width, snapped_height
+
+    scale = (budget / pixels) ** 0.5
+
+    return (
+        max(MIN_DIM, int(snapped_width * scale / RES_SNAP_STEP) * RES_SNAP_STEP),
+        max(MIN_DIM, int(snapped_height * scale / RES_SNAP_STEP) * RES_SNAP_STEP),
+    )
+
+
+def format_aspect_ratio(width: int, height: int) -> str:
+    """最简整数比；分子或分母超过 99 时退化成 ``x.xx:1`` / ``1:x.xx``。"""
+    width = int(width)
+    height = int(height)
+
+    if width <= 0 or height <= 0:
+        return "—"
+
+    from math import gcd
+
+    divisor = gcd(width, height)
+    ratio_width = width // divisor
+    ratio_height = height // divisor
+
+    if ratio_width > 99 or ratio_height > 99:
+        ratio = width / height
+        return f"{ratio:.2f}:1" if ratio >= 1 else f"1:{1 / ratio:.2f}"
+
+    return f"{ratio_width}:{ratio_height}"
+
+
 def choose_ratio_source(
     user_specified: bool,
     artist_has_ratio: bool,
