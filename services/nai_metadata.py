@@ -26,8 +26,10 @@ from PIL import ExifTags, Image as PILImage
 
 try:  # Support both plugin-package imports and direct ``services`` imports.
     from ..constants import normalize_nai_seed
+    from ..core.prompt_syntax import convert_sd_to_nai, strip_inline_tags
 except ImportError:  # pragma: no cover - compatibility path for standalone tests
     from constants import normalize_nai_seed
+    from core.prompt_syntax import convert_sd_to_nai, strip_inline_tags
 
 
 # Comment JSON 里我们关心的数值字段
@@ -230,11 +232,22 @@ _SD_NEGATIVE_MARKER = "Negative prompt: "
 _SD_STEPS_MARKER = "Steps: "
 
 
+def _sd_prompt_to_nai(text: str) -> str:
+    """把 SD 的提示词整理成 NovelAI 能吃的形式。
+
+    这些参数读出来的直接用途是「复用原图参数再生成一张」，而生成走的是
+    NovelAI。SD 的 ``(tag:1.2)`` 到了 NAI 那边不是权重而是字面括号，
+    ``<lora:…>`` 更是无意义残留——不转换等于把权重整段丢掉。
+    """
+    return convert_sd_to_nai(strip_inline_tags(text))
+
+
 def _apply_sd_parameters(text: str) -> Dict[str, Any]:
     """解析 SD WebUI 的三段式参数文本。
 
     ``<prompt>\nNegative prompt: <uc>\nSteps: 20, Sampler: ..., Seed: ...``
     只提取与 NovelAI 参数对应的字段；无法识别前两个标记时不当作参数文本。
+    提示词会顺带转成 NovelAI 的权重方言，见 ``_sd_prompt_to_nai``。
     """
 
     value = str(text or "").strip()
@@ -253,13 +266,13 @@ def _apply_sd_parameters(text: str) -> Dict[str, Any]:
     )
     prompt = value[:prompt_end].strip()
     if prompt:
-        result["prompt"] = prompt
+        result["prompt"] = _sd_prompt_to_nai(prompt)
 
     if neg_idx >= 0:
         neg_end = steps_idx if steps_idx > neg_idx else len(value)
         negative = value[neg_idx + len(_SD_NEGATIVE_MARKER) : neg_end].strip()
         if negative:
-            result["negativePrompt"] = negative
+            result["negativePrompt"] = _sd_prompt_to_nai(negative)
 
     if steps_idx >= 0:
         entries: Dict[str, str] = {}

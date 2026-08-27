@@ -479,6 +479,39 @@ class SdWebuiMetadataTest(unittest.TestCase):
         self.assertEqual(info["prompt"], NAI_COMMENT["prompt"])
         self.assertEqual(info["seed"], 3405988762)
 
+    def test_sd_weights_are_converted_to_nai_dialect(self) -> None:
+        # 这些参数的用途是「拿原图参数再生成一张」，而生成走 NovelAI。
+        # SD 的 (tag:1.2) 到了 NAI 那边只是字面括号，不转等于丢权重。
+        text = (
+            "masterpiece, (silver hair:1.2), (blurry:0.95)\n"
+            "Negative prompt: (lowres:1.3), bad anatomy\n"
+            "Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1234567"
+        )
+
+        info = parse_user_comment_text(text)
+
+        self.assertEqual(info["prompt"], "masterpiece, 1.2::silver hair::, [blurry]")
+        self.assertEqual(info["negativePrompt"], "1.3::lowres::, bad anatomy")
+
+    def test_lora_tags_are_stripped_from_sd_prompt(self) -> None:
+        text = (
+            "1girl, <lora:styleXL:0.8>, solo\n"
+            "Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1"
+        )
+
+        info = parse_user_comment_text(text)
+
+        self.assertEqual(info["prompt"], "1girl, solo")
+
+    def test_novelai_prompt_is_never_run_through_the_converter(self) -> None:
+        # NAI 分支的提示词已经是 NAI 方言，再转一次会把角色名里的
+        # 括号（sho_(sho_lwlw)）变成权重记号。
+        comment = {**NAI_COMMENT, "prompt": "artist:sho_(sho_lwlw), 1girl"}
+
+        info = parse_nai_info({"Comment": json.dumps(comment)})
+
+        self.assertEqual(info["prompt"], "artist:sho_(sho_lwlw), 1girl")
+
 
 class PromptWeightTest(unittest.TestCase):
     def test_wraps_with_novelai_numeric_syntax(self) -> None:
