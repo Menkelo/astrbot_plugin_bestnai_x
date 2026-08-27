@@ -185,3 +185,32 @@ def chinese_name(tag: str) -> str:
         (name for name in names if _CJK_RE.search(name)),
         names[0] if names else "",
     )
+
+
+_SERIES_SUFFIX_RE = re.compile(r"^(.+?)_\([^()]+\)$")
+
+
+def strip_unknown_series_suffix(tag: str) -> str:
+    """``X_(作品名)`` 查无此词、而裸名 ``X`` 存在时返回裸名，否则返回空串。
+
+    Danbooru 的作品名后缀只用于消歧义，是**逐角色**的：``ganyu_(genshin_impact)``
+    要带，``hatsune_miku`` 不带。翻译提示词长期让 LLM 一律加后缀，凡是不需要
+    后缀的角色，产出的都是 NovelAI 不认识的词——模型直接忽略这个 token，角色
+    静默崩掉，而且从提示词表面完全看不出来。
+
+    只做「后缀形不存在 → 裸名存在」这一个方向。反方向（裸名补后缀）不做：
+    ``rem`` 这类词补成 ``rem_(re:zero)`` 是凭空塞进一个角色，写错比不写严重。
+    """
+    data = tables()
+    key = normalize_key(tag)
+
+    if not key or key in data.tags or key in data.aliases:
+        return ""
+
+    match = _SERIES_SUFFIX_RE.match(key)
+    if not match:
+        return ""
+
+    bare = match.group(1)
+
+    return bare if bare in data.tags else ""

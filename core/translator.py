@@ -36,6 +36,7 @@ from .tag_dict import (
     chinese_name,
     is_known_tag,
     normalize_key,
+    strip_unknown_series_suffix,
     tag_for_chinese,
     warm_up as warm_up_tag_dict,
 )
@@ -79,8 +80,11 @@ SYSTEM_PROMPT = """
 - 体位：sitting / standing / lying / kneeling / squatting 选一（多角色各人体位除外，靠句子说清归属）。
 
 版权角色：
-- 使用 Danbooru 角色名格式，如 hatsune_miku_(vocaloid)，并跟作品名；角色身份必须以主搜索结果中的
-  明确匹配为准，共现/related 候选不能替换用户明确指定的角色。
+- 使用 Danbooru 角色名格式，如 ganyu_(genshin_impact)、hatsune_miku，并跟作品名。
+  作品名后缀只用于消歧义，**不是每个角色都有**：初音的真实 tag 就是 hatsune_miku，
+  写成 hatsune_miku_(vocaloid) 是不存在的词。拿不准时以主搜索结果给出的完整 tag 为准，
+  宁可只写裸名。角色身份必须以主搜索结果中的明确匹配为准，共现/related 候选不能替换
+  用户明确指定的角色。
 - 具名角色不要枚举外观：角色名自带全套设定，再补发色发型瞳色要么冗余要么打架。
   没换装时名字 + 作品名 + 一个笼统引导词（school uniform / casual clothes / swimsuit）即可；
   换装时写一个成套的服装说法，不拆成领子裙子丝带。
@@ -510,6 +514,7 @@ def localize_prompt_tags(prompt: str) -> str:
 
     result: List[str] = []
     unknown: List[str] = []
+    repaired: List[str] = []
 
     for token in tokens:
         if not _PLAIN_TAG_RE.match(token) or len(token.split()) > _MAX_TAG_WORDS:
@@ -519,6 +524,15 @@ def localize_prompt_tags(prompt: str) -> str:
         canonical = canonical_tag(token)
 
         if not canonical:
+            # `hatsune_miku_(vocaloid)` 这类不存在的后缀形，改回真实的裸名。
+            # 这条会改动提示词，所以单独记日志，不和「未收录」混在一起。
+            bare = strip_unknown_series_suffix(token)
+
+            if bare:
+                repaired.append(f"{token} → {bare}")
+                result.append(bare)
+                continue
+
             # 词库缺失时 is_known_tag 恒为真，不会把所有 tag 判成幻觉
             if not is_known_tag(token):
                 unknown.append(token)
@@ -529,14 +543,19 @@ def localize_prompt_tags(prompt: str) -> str:
         # tag 的两种写法，保留 LLM 的原始写法，不做全局下划线化。
         result.append(canonical if canonical != normalize_key(token) else token)
 
-    if unknown:
+    if repaired or unknown:
         try:
             from astrbot.api import logger
 
-            logger.info(
-                "[BestNAI] 本地词库未收录（仅记录，未删除）："
-                + ", ".join(unknown[:20])
-            )
+            if repaired:
+                logger.info(
+                    "[BestNAI] 角色名后缀修正：" + "，".join(repaired[:10])
+                )
+            if unknown:
+                logger.info(
+                    "[BestNAI] 本地词库未收录（仅记录，未删除）："
+                    + ", ".join(unknown[:20])
+                )
         except Exception:
             pass
 

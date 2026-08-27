@@ -17,6 +17,7 @@ from astrbot_plugin_bestnai_x.core.tag_dict import (  # noqa: E402
     chinese_name,
     is_known_tag,
     normalize_key,
+    strip_unknown_series_suffix,
     tag_for_chinese,
 )
 from astrbot_plugin_bestnai_x.core.translator import (  # noqa: E402
@@ -62,6 +63,51 @@ class TagDictLookupTest(unittest.TestCase):
         self.assertEqual(canonical_tag("zzz_not_a_real_tag_xyz"), "")
         self.assertFalse(is_known_tag("zzz_not_a_real_tag_xyz"))
         self.assertEqual(tag_for_chinese("这不是一个标签"), "")
+
+
+class SeriesSuffixRepairTest(unittest.TestCase):
+    """作品名后缀是逐角色的，翻译提示词曾让 LLM 一律加，产出不存在的词。"""
+
+    def test_unneeded_suffix_is_stripped(self) -> None:
+        # 初音的真实 tag 就是 hatsune_miku，没有 _(vocaloid)
+        self.assertEqual(
+            strip_unknown_series_suffix("hatsune_miku_(vocaloid)"), "hatsune_miku"
+        )
+
+    def test_needed_suffix_is_kept(self) -> None:
+        # 这些角色的真实 tag 确实带后缀，不能动
+        for tag in (
+            "ganyu_(genshin_impact)",
+            "nahida_(genshin_impact)",
+            "artoria_pendragon_(fate)",
+        ):
+            with self.subTest(tag=tag):
+                self.assertEqual(strip_unknown_series_suffix(tag), "")
+
+    def test_bare_name_is_never_given_a_suffix(self) -> None:
+        # 反方向不做：给 rem 补成 rem_(re:zero) 是凭空塞角色
+        self.assertEqual(strip_unknown_series_suffix("rem"), "")
+
+    def test_unknown_bare_name_is_left_alone(self) -> None:
+        # 后缀形不存在、裸名也不存在时不猜
+        self.assertEqual(
+            strip_unknown_series_suffix("zzz_not_a_char_(zzz_not_a_series)"), ""
+        )
+
+    def test_space_form_is_accepted(self) -> None:
+        self.assertEqual(
+            strip_unknown_series_suffix("hatsune miku (vocaloid)"), "hatsune_miku"
+        )
+
+    def test_repair_flows_through_the_prompt_pass(self) -> None:
+        result = localize_prompt_tags("1girl, hatsune_miku_(vocaloid), solo")
+
+        self.assertEqual(result, "1girl, hatsune_miku, solo")
+
+    def test_valid_character_prompt_is_untouched(self) -> None:
+        prompt = "1girl, ganyu_(genshin_impact), solo"
+
+        self.assertEqual(localize_prompt_tags(prompt), prompt)
 
 
 class MissingAssetTest(unittest.TestCase):
