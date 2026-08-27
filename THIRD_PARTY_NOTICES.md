@@ -50,3 +50,20 @@ Requests contain only the prompt text being translated. No API keys, user identi
 or images are sent. The service is optional at runtime: when it is unreachable, returns
 a non-200 status, or times out, retrieval is skipped silently and translation falls back
 to the model's own knowledge.
+
+## Danbooru Tag Table (bundled asset)
+
+`assets/danbooru.tsv` is redistributed with this plugin. It backs local tag validation,
+alias normalization, Chinese-to-tag lookup, and the offline fallback for tag names when
+the hosted service above is unreachable.
+
+- File: `assets/danbooru.tsv` (140,782 rows: tag, popularity, Chinese names, aliases)
+- Upstream data: `zhulinyv/Auto-NovelAI-Refactor`, file
+  `assets/danbooru_e621_merged_with_zh.csv`
+- Source: https://github.com/zhulinyv/Auto-NovelAI-Refactor
+- Upstream license: GPL-3.0
+- Tag taxonomy and aliases originate from https://danbooru.donmai.us/
+
+The upstream project is GPL-3.0. This plugin is AGPL-3.0, which permits combination with
+GPL-3.0 works, so redistribution of the table here is compliant. The file was obtained
+via `mc5024/Plana-App`, which redistributes the same asset under GPL-3.0.

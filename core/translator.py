@@ -31,6 +31,14 @@ from .prompt_tokens import (
     split_prompt_tokens,
     weighted_token_parts,
 )
+from .tag_dict import (
+    canonical_tag,
+    chinese_name,
+    is_known_tag,
+    normalize_key,
+    tag_for_chinese,
+    warm_up as warm_up_tag_dict,
+)
 
 
 # 方法论融合自 https://github.com/Miint-Sunny/nai5-prompting （通用写法：词组/句子
@@ -481,6 +489,60 @@ def primary_cn_tag_name(value: str) -> str:
     )
 
 
+# LLM 输出里混着 NovelAI 权重语法（{tag}、1.2::tag::）和短句，这些原子不是纯
+# Danbooru tag，本地校验一律跳过：既免得把合法语法改坏，也免得刷屏假幻觉。
+_PLAIN_TAG_RE = re.compile(r"^[0-9a-z][0-9a-z _'\-.()]*$", re.IGNORECASE)
+_MAX_TAG_WORDS = 4
+
+
+def localize_prompt_tags(prompt: str) -> str:
+    """用本地词库把别名归一到主 tag，并记录疑似幻觉 tag。
+
+    只归一、只记日志，**不删词**：本地表不含最新 tag 与部分角色名，直接删会
+    误伤真实存在的标签。要不要升级成过滤，等日志攒够样本再定。
+    """
+
+    tokens = [part.strip() for part in str(prompt or "").split(",")]
+    tokens = [token for token in tokens if token]
+
+    if not tokens:
+        return str(prompt or "").strip()
+
+    result: List[str] = []
+    unknown: List[str] = []
+
+    for token in tokens:
+        if not _PLAIN_TAG_RE.match(token) or len(token.split()) > _MAX_TAG_WORDS:
+            result.append(token)
+            continue
+
+        canonical = canonical_tag(token)
+
+        if not canonical:
+            # 词库缺失时 is_known_tag 恒为真，不会把所有 tag 判成幻觉
+            if not is_known_tag(token):
+                unknown.append(token)
+            result.append(token)
+            continue
+
+        # 只有真正的别名跳转才改写；`silver hair` 与 `silver_hair` 是同一个
+        # tag 的两种写法，保留 LLM 的原始写法，不做全局下划线化。
+        result.append(canonical if canonical != normalize_key(token) else token)
+
+    if unknown:
+        try:
+            from astrbot.api import logger
+
+            logger.info(
+                "[BestNAI] 本地词库未收录（仅记录，未删除）："
+                + ", ".join(unknown[:20])
+            )
+        except Exception:
+            pass
+
+    return ", ".join(result)
+
+
 def _prompt_tag_tokens(prompt: str) -> List[str]:
     """Return normalized, comma-separated prompt tokens for exact tag lookup."""
     return [token.strip() for token in expand_prompt_tokens(prompt) if token.strip()]
@@ -767,6 +829,23 @@ def apply_character_candidate(
 DANBOORU_SEARCH_BACKUP_API_URL = "https://sakizuki-danboorusearchonline.ms.show"
 
 
+def _local_translations(requested: Dict[str, str]) -> Dict[str, str]:
+    """用本地词库为这批 tag 生成中文名映射。
+
+    在线标签服务跑在会休眠的 HF Space 上，冷启动那 30~60 秒里画布的 tag
+    注音会整片空白。本地表补不上语义检索，但补中文名绰绰有余。
+    """
+
+    result: Dict[str, str] = {}
+
+    for key, query_tag in requested.items():
+        cn_name = chinese_name(query_tag)
+        if cn_name:
+            result[key] = cn_name
+
+    return result
+
+
 class DanbooruTagRetriever:
     """Danbooru 在线 tag 候选检索器。
 
@@ -821,6 +900,13 @@ class DanbooruTagRetriever:
         if not requested:
             return empty
 
+        await warm_up_tag_dict()
+        # 在线查不到时不返回空手：本地词库先垫一层中文名
+        offline: Dict[str, Any] = {
+            "items": [],
+            "translations": _local_translations(requested),
+        }
+
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
@@ -840,9 +926,9 @@ class DanbooruTagRetriever:
                     },
                 )
                 if payload is None:
-                    return empty
+                    return offline
         except Exception:
-            return empty
+            return offline
 
         items: List[Dict[str, Any]] = []
         translations: Dict[str, str] = {}
@@ -866,6 +952,10 @@ class DanbooruTagRetriever:
             cn_name = primary_cn_tag_name(clean_item["cn_name"])
             if cn_name:
                 translations[key] = cn_name
+
+        # 在线结果没覆盖到的 tag 用本地词库补齐（部分命中也补）
+        for key, cn_name in offline["translations"].items():
+            translations.setdefault(key, cn_name)
 
         return {"items": items, "translations": translations}
 
@@ -1042,9 +1132,19 @@ class PromptTranslator:
         max_retries = int(getattr(self.config, "max_retries", 3) or 3)
         max_retries = max(1, min(max_retries, 5))
 
-        last_error: Optional[Exception] = None
-
         request_text = normalize_translation_text(text)
+
+        await warm_up_tag_dict()
+
+        # 整串就是一个收录在案的中文名（"双马尾"、"猫耳"）时直接命中主 tag，
+        # 既不过 LLM 也不过网络。在线服务休眠时这条路径照样可用。
+        # 先查原文再查归一后的文本：normalize_translation_text 是为 LLM 做的
+        # 扩写（蓝发→蓝头发），而词库收的恰恰是"蓝发"。
+        direct_tag = tag_for_chinese(text.strip()) or tag_for_chinese(request_text)
+        if direct_tag:
+            return TranslatedPrompt(direct_tag)
+
+        last_error: Optional[Exception] = None
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -1202,4 +1302,4 @@ class PromptTranslator:
 
         result = result.strip("`\"' ")
 
-        return result
+        return localize_prompt_tags(result)
