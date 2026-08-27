@@ -9,6 +9,10 @@ SD WebUI 生成的图则把 `prompt\nNegative prompt: ...\nSteps: ...` 三段式
 参数文本写进 PNG tEXt `parameters` 或 JPEG/WebP 的 EXIF `UserComment`。
 以上格式全部支持（参考 spell.novelai.dev 的解析口径）。
 
+还有第三条路径：NovelAI 的隐写导出把同一段 JSON 压缩后写进 PNG **alpha
+通道的最低位**，tEXt 块里什么都没有。只看 tEXt 的解析器遇到这类图会读不
+出任何参数，见 ``read_stealth_alpha_info``。
+
 要点：这些信息**只在原图里存在**。图片一旦被重新编码且工具没有搬移
 元数据（QQ 压缩转发的图基本如此），tEXt 块和 EXIF 就没了。
 """
@@ -16,10 +20,11 @@ SD WebUI 生成的图则把 `prompt\nNegative prompt: ...\nSteps: ...` 三段式
 from __future__ import annotations
 
 import asyncio
+import gzip
 from io import BytesIO
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import aiohttp
 from PIL import ExifTags, Image as PILImage
@@ -363,6 +368,93 @@ def _read_exif_user_comment(image: PILImage.Image) -> str:
     return str(raw or "").strip()
 
 
+# NovelAI 的隐写导出把参数塞进 alpha 通道最低位：列优先逐像素取 1 bit，
+# 8 bit 拼成一字节（高位在前），开头是 15 字节魔数，随后 4 字节大端整数是
+# **载荷比特数**，再往后是 gzip 压缩的 JSON。
+_STEALTH_MAGIC = b"stealth_pngcomp"
+# 载荷长度由图片像素数天然封顶，这里只挡住畸形长度字段导致的巨量分配
+_MAX_STEALTH_BYTES = 8 * 1024 * 1024
+
+
+def _alpha_lsb_bits(alpha: bytes, width: int, height: int) -> Iterator[int]:
+    """按列优先逐个吐出 alpha 最低位。
+
+    写成生成器是为了短路：非隐写图在读完 15 字节魔数（120 bit）后就会被判
+    出局，不必为每张图都扫完上百万像素。
+    """
+
+    for col in range(width):
+        for row in range(height):
+            yield alpha[row * width + col] & 1
+
+
+def _take_bytes(bits: Iterator[int], count: int) -> bytes:
+    """从位流里取 count 个字节，高位在前。位流提前耗尽时抛 StopIteration。"""
+
+    out = bytearray()
+
+    for _ in range(count):
+        value = 0
+        for _ in range(8):
+            value = (value << 1) | next(bits)
+        out.append(value)
+
+    return bytes(out)
+
+
+def read_stealth_alpha_info(image: PILImage.Image) -> Dict[str, Any]:
+    """读 NovelAI 写在 alpha 通道最低位的生成参数，读不到返回空 dict。
+
+    这是 tEXt / EXIF 之外的第三条导出路径。只看 tEXt 的解析器遇到这类图会
+    完全读不出参数，白跑一次视觉反推——对"复用原图参数"来说是实打实的漏洞。
+    """
+
+    try:
+        if "A" not in image.getbands():
+            return {}
+
+        width, height = int(image.width), int(image.height)
+        if width <= 0 or height <= 0:
+            return {}
+
+        alpha = image.getchannel("A").tobytes()
+        if len(alpha) < width * height:
+            return {}
+
+        bits = _alpha_lsb_bits(alpha, width, height)
+
+        if _take_bytes(bits, len(_STEALTH_MAGIC)) != _STEALTH_MAGIC:
+            return {}
+
+        length_bits = int.from_bytes(_take_bytes(bits, 4), "big")
+        length_bytes = -(-length_bits // 8)
+
+        if length_bytes <= 0 or length_bytes > _MAX_STEALTH_BYTES:
+            return {}
+
+        payload = json.loads(
+            gzip.decompress(_take_bytes(bits, length_bytes)).decode(
+                "utf-8", errors="replace"
+            )
+        )
+
+        if not isinstance(payload, dict):
+            return {}
+
+    except Exception:
+        return {}
+
+    # 隐写载荷装的就是 PNG tEXt 那套键值（Description / Comment / Software），
+    # 交给同一个解析器。个别生产端会把 Comment 存成已解析的对象而不是 JSON
+    # 字符串，这里统一回字符串形态。
+    normalized = {
+        key: json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else value
+        for key, value in payload.items()
+    }
+
+    return parse_nai_info(normalized)
+
+
 def is_trusted_nai_generation_info(info: Dict[str, Any]) -> bool:
     """Return whether ``info['prompt']`` is credible NovelAI metadata.
 
@@ -417,7 +509,9 @@ def read_image_generation_info(path: str | Path) -> Dict[str, Any]:
 def _parse_open_image(image: PILImage.Image) -> Dict[str, Any]:
     fmt = str(image.format or "").upper()
     if fmt == "PNG":
-        return parse_nai_info(dict(image.info or {}))
+        info = parse_nai_info(dict(image.info or {}))
+        # tEXt 块被剥掉（或本来就走隐写导出）时再看 alpha 通道
+        return info if info else read_stealth_alpha_info(image)
     if fmt in ("JPEG", "WEBP"):
         return parse_user_comment_text(_read_exif_user_comment(image))
     return {}

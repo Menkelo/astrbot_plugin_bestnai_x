@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import gzip
 import struct
 import sys
 import types
@@ -511,6 +512,125 @@ class SdWebuiMetadataTest(unittest.TestCase):
         info = parse_nai_info({"Comment": json.dumps(comment)})
 
         self.assertEqual(info["prompt"], "artist:sho_(sho_lwlw), 1girl")
+
+
+class StealthAlphaMetadataTest(unittest.TestCase):
+    """NovelAI 写在 alpha 通道最低位的隐写参数（stealth_pngcomp）。"""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    @staticmethod
+    def _embed(image: Image.Image, blob: bytes) -> Image.Image:
+        """把字节流写进 alpha 最低位：列优先、字节高位在前。
+
+        这是读取端的镜像实现，独立写一遍才能证明解析器读的是真格式，
+        而不是自说自话。
+        """
+        width, height = image.size
+        alpha = bytearray(image.getchannel("A").tobytes())
+
+        bits = [(byte >> shift) & 1 for byte in blob for shift in range(7, -1, -1)]
+        if len(bits) > width * height:
+            raise ValueError("图太小，装不下载荷")
+
+        for index, bit in enumerate(bits):
+            col, row = divmod(index, height)
+            position = row * width + col
+            alpha[position] = (alpha[position] & 0xFE) | bit
+
+        merged = image.copy()
+        merged.putalpha(Image.frombytes("L", (width, height), bytes(alpha)))
+        return merged
+
+    def _stealth_png(self, name: str, payload: dict, size=(96, 96)) -> Path:
+        body = gzip.compress(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        # 长度字段记的是**比特数**，不是字节数
+        blob = b"stealth_pngcomp" + (len(body) * 8).to_bytes(4, "big") + body
+
+        image = Image.new("RGBA", size, (120, 130, 140, 255))
+        path = self.tmp_path / name
+        self._embed(image, blob).save(path, format="PNG")
+        return path
+
+    def test_reads_parameters_hidden_in_the_alpha_channel(self) -> None:
+        path = self._stealth_png(
+            "stealth.png",
+            {
+                "Description": NAI_COMMENT["prompt"],
+                "Comment": json.dumps(NAI_COMMENT),
+                "Software": "NovelAI",
+            },
+        )
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["seed"], 3405988762)
+        self.assertEqual(info["steps"], 28)
+        self.assertEqual(info["sampler"], "k_euler_ancestral")
+        self.assertEqual(info["prompt"], NAI_COMMENT["prompt"])
+        self.assertTrue(is_trusted_nai_generation_info(info))
+
+    def test_async_reader_also_sees_the_hidden_parameters(self) -> None:
+        path = self._stealth_png(
+            "stealth_async.png", {"Comment": json.dumps(NAI_COMMENT)}
+        )
+
+        info = asyncio.run(read_image_generation_info_any(path))
+
+        self.assertEqual(info["seed"], 3405988762)
+
+    def test_text_chunk_wins_over_the_alpha_channel(self) -> None:
+        # tEXt 还在就用 tEXt，隐写只是兜底
+        path = self._stealth_png(
+            "both.png", {"Comment": json.dumps({**NAI_COMMENT, "seed": 111})}
+        )
+        meta = PngImagePlugin.PngInfo()
+        meta.add_text("Comment", json.dumps(NAI_COMMENT))
+        with Image.open(path) as image:
+            image.load()
+            image.save(path, format="PNG", pnginfo=meta)
+
+        info = read_image_generation_info(path)
+
+        self.assertEqual(info["seed"], 3405988762)
+
+    def test_ordinary_rgba_image_returns_empty(self) -> None:
+        path = self.tmp_path / "plain_rgba.png"
+        Image.new("RGBA", (64, 64), (10, 20, 30, 255)).save(path, format="PNG")
+
+        self.assertEqual(read_image_generation_info(path), {})
+
+    def test_image_without_alpha_channel_returns_empty(self) -> None:
+        path = self.tmp_path / "no_alpha.png"
+        Image.new("RGB", (64, 64), (10, 20, 30)).save(path, format="PNG")
+
+        self.assertEqual(read_image_generation_info(path), {})
+
+    def test_corrupted_payload_returns_empty(self) -> None:
+        # 魔数对得上但后面是垃圾：不能抛异常，按「没有元数据」处理
+        blob = b"stealth_pngcomp" + (64 * 8).to_bytes(4, "big") + bytes(64)
+        image = Image.new("RGBA", (96, 96), (120, 130, 140, 255))
+        path = self.tmp_path / "corrupt.png"
+        self._embed(image, blob).save(path, format="PNG")
+
+        self.assertEqual(read_image_generation_info(path), {})
+
+    def test_declared_length_beyond_the_image_returns_empty(self) -> None:
+        body = gzip.compress(b'{"Comment": "{}"}')
+        # 长度字段谎报成远超图片容量的值，位流会提前耗尽
+        blob = b"stealth_pngcomp" + (900_000 * 8).to_bytes(4, "big") + body
+        image = Image.new("RGBA", (96, 96), (120, 130, 140, 255))
+        path = self.tmp_path / "overlong.png"
+        self._embed(image, blob).save(path, format="PNG")
+
+        self.assertEqual(read_image_generation_info(path), {})
 
 
 class PromptWeightTest(unittest.TestCase):
