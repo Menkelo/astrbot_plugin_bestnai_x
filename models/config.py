@@ -27,6 +27,19 @@ def resolve_model_choice(raw) -> str:
     value = str(raw or "").strip()
     return value if value in SUPPORTED_MODELS else FIXED_MODEL
 
+
+# Variety+ 在 NovelAI 的 API 里没有独立开关，它就是 skip_cfg_above_sigma，
+# 官方前端固定发 58。插件早期发的 `variety_boost` 不是 NAI 的字段名。
+VARIETY_SKIP_CFG_SIGMA = 58
+
+
+def model_supports_variety_boost(model: str) -> bool:
+    """V5 的官方能力表里 skip_cfg_above_sigma 不可用，请求清洗会直接删掉它。
+
+    V4.x 才认这个参数。带着它请求 V5 除了让载荷变脏没有别的作用。
+    """
+    return "diffusion-5" not in str(model or "").lower()
+
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 DEFAULT_NEGATIVE_PROMPT = "lowres, bad anatomy, bad hands, text, error, missing fingers"
 DEFAULT_DANBOORU_API_URL = "https://sakizuki-danboorusearch.hf.space"
@@ -135,8 +148,8 @@ class GenerationConfig:
         if self.cfg_rescale != 0.0:
             params["cfg_rescale"] = self.cfg_rescale
 
-        if self.variety_boost:
-            params["variety_boost"] = self.variety_boost
+        if self.variety_boost and model_supports_variety_boost(self.model):
+            params["skip_cfg_above_sigma"] = VARIETY_SKIP_CFG_SIGMA
 
         if self.characters:
             params["characters"] = self.characters
