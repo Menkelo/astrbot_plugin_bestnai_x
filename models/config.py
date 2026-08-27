@@ -117,47 +117,6 @@ class GenerationConfig:
             ),
         )
 
-    def to_api_params(self, prompt: str) -> dict:
-        if isinstance(self.quality, str):
-            quality_value = self.quality
-        elif self.quality:
-            quality_value = DEFAULT_QUALITY_STRING
-        else:
-            quality_value = ""
-
-        params = {
-            "model": self.model,
-            "prompt": prompt,
-            "size": f"{self.width}x{self.height}",
-            "steps": int(self.steps),
-            "scale": float(self.scale),
-            "sampler": self.sampler,
-            "quality": quality_value,
-            "noise_schedule": self.noise_schedule,
-            "image_format": self.image_format,
-            "n_samples": 1,
-            "response_format": "b64_json",
-        }
-
-        if self.negative_prompt:
-            params["negative_prompt"] = self.negative_prompt
-
-        if self.uc_preset:
-            params["uc_preset"] = self.uc_preset
-
-        if self.cfg_rescale != 0.0:
-            params["cfg_rescale"] = self.cfg_rescale
-
-        if self.variety_boost and model_supports_variety_boost(self.model):
-            params["variety_boost"] = True
-
-        if self.characters:
-            params["characters"] = self.characters
-            params["use_coords"] = self.use_coords
-            params["use_order"] = self.use_order
-
-        return params
-
 
 @dataclass
 class TranslatorConfig:

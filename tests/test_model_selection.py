@@ -61,16 +61,13 @@ class ModelSelectionTest(unittest.TestCase):
         self.assertEqual(config.api_url_v5, "")
         self.assertEqual(config.api_key_v5, "")
 
-    def test_provider_model_flows_into_api_params(self) -> None:
+    def test_provider_model_flows_into_versioned_config(self) -> None:
         # 生图模型跟随接口提供商，运行时写入 generation.model
         config = PluginConfig.from_dict({})
         config.generation = replace(config.generation, model=MODEL_V5_FULL)
 
         versioned = config.get_generation_config_for_version("4.5")
         self.assertEqual(versioned.model, MODEL_V5_FULL)
-
-        params = versioned.to_api_params("1girl")
-        self.assertEqual(params["model"], MODEL_V5_FULL)
 
     def test_prompt_builder_keeps_provider_model(self) -> None:
         plugin_config = PluginConfig.from_dict({})

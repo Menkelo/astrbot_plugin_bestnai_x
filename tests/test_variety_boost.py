@@ -38,9 +38,9 @@ from astrbot_plugin_bestnai_x.models.config import (  # noqa: E402
 def chat_user_payload(gen_config: GenerationConfig) -> dict:
     """跑一次真实的 chat 生图路径，把发出去的 NAI JSON 截下来。
 
-    Variety+ 曾经只出现在 to_api_params()（生产无调用点）和系统提示词的
-    字段清单里，真正发出的 user_payload 里一个字节都没有。断言必须落在
-    实际载荷上，否则这个空转还会再回来一次。
+    Variety+ 曾经只出现在一个生产无调用点的方法和系统提示词的字段清单里，
+    真正发出的 user_payload 里一个字节都没有。断言必须落在实际载荷上，
+    否则这个空转还会再回来一次。
     """
 
     generator = ImageGenerator(PluginConfig.from_dict({}))
@@ -111,16 +111,6 @@ class VarietyBoostPayloadTest(unittest.TestCase):
         user_payload = chat_user_payload(gen_config)
 
         self.assertNotIn("skip_cfg_above_sigma", user_payload)
-
-    def test_api_params_uses_the_same_field(self) -> None:
-        gen_config = replace(
-            GenerationConfig(), model=MODEL_V45_FULL, variety_boost=True
-        )
-
-        params = gen_config.to_api_params("1girl")
-
-        self.assertIs(params.get("variety_boost"), True)
-        self.assertNotIn("skip_cfg_above_sigma", params)
 
 
 if __name__ == "__main__":
