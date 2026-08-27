@@ -851,6 +851,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn(".asset-drag-ghost {", styles)
         self.assertIn("overscroll-behavior: contain;", styles)
 
+    def test_image_viewer_backdrop_does_not_also_close_the_asset_library(self) -> None:
+        """大图预览是从素材库点开的，退出预览不该把底下的素材库一起收掉。
+
+        两个关闭逻辑都挂在 pointerdown 上，而收起素材库的那个是 document 上的
+        **捕获阶段**监听——它先于预览自己的处理器执行，预览侧就算 stopPropagation
+        也拦不住。所以只能在收起素材库的条件里显式排除 .image-viewer。
+        """
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        closer = editor.split("// 点击素材库面板之外的地方收起素材库", 1)[1].split(
+            "}, true);", 1
+        )[0]
+
+        self.assertIn('target.closest(".asset-panel, .image-viewer")', closer)
+        # 判断不了归属时不关，顺带避免对非 Element 调用 closest 抛错
+        self.assertIn("if (!(target instanceof Element)) return;", closer)
+        # 预览自身仍靠 pointerdown 关闭，点空白处照旧退出预览
+        self.assertIn('els.imageViewer.addEventListener("pointerdown"', editor)
+
     def test_plugin_metadata_and_astrbot_compatibility_are_exposed(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         metadata = (ROOT / "metadata.yaml").read_text(encoding="utf-8")
@@ -859,8 +878,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.0.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.0.0"', constants)
+        self.assertIn("version: 4.0.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.0.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

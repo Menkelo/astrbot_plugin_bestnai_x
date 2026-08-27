@@ -5548,7 +5548,11 @@ els.debugBar?.addEventListener("dblclick", (event) => event.stopPropagation());
 document.addEventListener("pointerdown", (event) => {
   if (!els.assetPanel?.classList.contains("open")) return;
   const target = event.target;
-  if (target instanceof Element && target.closest(".asset-panel")) return;
+  // 判断不了归属就别关，免得误收
+  if (!(target instanceof Element)) return;
+  // 大图预览是从素材库里点开的，盖在库上面：点它的空白处只该退出预览，
+  // 不该把底下的素材库一起收掉。
+  if (target.closest(".asset-panel, .image-viewer")) return;
   if (target.closest("#assetLibraryBtn, #mobileAssetLibraryBtn")) return;
   setAssetPanel(false);
 }, true);
