@@ -51,6 +51,28 @@ def char_grid_position(x: Any, y: Any) -> str | None:
     return f"{_GRID_COLUMNS[column]}{row}"
 
 
+def char_grid_center(position: Any) -> Dict[str, float] | None:
+    """把网格记号（如 C3）换算回 0~1 的中心点坐标，非法输入返回 None。
+
+    ``char_grid_position`` 的反函数。走中转网关时这一步由网关代劳
+    （已实测 ``B3`` 被翻成 ``{x: 0.3, y: 0.5}``），但 NovelAI 官方协议
+    要的是 ``centers`` 里的小数坐标，得插件自己算。
+
+    取格子中心而不是格子起点：五列均分后 B 列的中心是 ``(1 + 0.5) / 5``
+    = 0.3，与网关的实测值一致，也能被 ``char_grid_position`` 原样读回。
+    """
+    text = str(position or "").strip().upper()
+    if not _POSITION_RE.fullmatch(text):
+        return None
+
+    column = _GRID_COLUMNS.index(text[0])
+    row = int(text[1]) - 1
+    return {
+        "x": (column + 0.5) / len(_GRID_COLUMNS),
+        "y": (row + 0.5) / _GRID_ROWS,
+    }
+
+
 def default_char_position(index: int, count: int) -> str:
     positions = DEFAULT_POSITIONS.get(count)
     if positions and index < len(positions):

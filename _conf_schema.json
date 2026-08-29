@@ -12,10 +12,28 @@
       },
       "provider_id_v5": {
         "description": "V5 生图接口提供商（可选）",
-        "hint": "/nai5 与 V5 档专用；留空则复用上方提供商（同一网关支持两个模型时无需重复填写）。",
+        "hint": "/nai5 与 V5 档专用；留空则复用上方提供商（同一网关支持两个模型时无需重复填写）。开启下方「NovelAI 官方接口」后本项不生效。",
         "type": "string",
         "default": "",
         "_special": "select_provider"
+      },
+      "use_official_api": {
+        "description": "使用 NovelAI 官方接口",
+        "hint": "开启后不再使用上方两个提供商，改为按 NovelAI 官方协议（/ai/generate-image）直连下方地址，用 Token 鉴权。4.5 与 V5 共用同一个端点。",
+        "type": "bool",
+        "default": false
+      },
+      "official_api_url": {
+        "description": "官方接口地址",
+        "hint": "NovelAI 官方为 https://image.novelai.net；自建或第三方站点填该站点地址（不要带 /ai/generate-image，插件会自己拼）。仅在上方开关开启时生效。",
+        "type": "string",
+        "default": "https://image.novelai.net"
+      },
+      "official_api_token": {
+        "description": "NovelAI Token",
+        "hint": "NovelAI 账户设置里的持久 Token（pst- 开头），或站点签发的等价 Token。官方接口对同账号并发敏感，建议把「生图并发限制」保持为 1。仅在上方开关开启时生效。",
+        "type": "string",
+        "default": ""
       }
     }
   },

@@ -1,6 +1,6 @@
 # astrbot_plugin_bestnai_x
 
-在 AstrBot 中通过 OpenAI 兼容接口生成 NovelAI 风格图片。生图模型跟随所选生图接口提供商配置的模型名（如 `nai-diffusion-4-5-full`、`nai-diffusion-5-full`），提供商未配置模型时回退 `nai-diffusion-4-5-full`。
+在 AstrBot 中通过 OpenAI 兼容接口生成 NovelAI 风格图片，也可切换为 NovelAI 官方协议直连（Token 鉴权）。生图模型跟随所选生图接口提供商配置的模型名（如 `nai-diffusion-4-5-full`、`nai-diffusion-5-full`），提供商未配置模型时回退 `nai-diffusion-4-5-full`。
 
 原版仓库：[cunzaijiang/astrbot_plugin_bestnai](https://github.com/cunzaijiang/astrbot_plugin_bestnai)
 
@@ -85,8 +85,27 @@ pip install aiohttp pillow
 |--------|------|--------|------|
 | `provider_id` | string | 空 | 生图接口提供商（4.5 / 默认档），需在 AstrBot 中选择；插件会读取该提供商的 API 地址与 Key |
 | `provider_id_v5` | string | 空 | V5 专用生图接口提供商（可选）。`/nai5` 与 V5 档优先使用；留空则复用上方提供商 |
+| `use_official_api` | bool | `false` | 使用 NovelAI 官方接口。开启后上面两个提供商**一律不生效** |
+| `official_api_url` | string | `https://image.novelai.net` | 官方接口地址。自建或第三方站点填该站点地址，不要带 `/ai/generate-image`，插件会自己拼 |
+| `official_api_token` | string | 空 | NovelAI 持久 Token（`pst-` 开头），或站点签发的等价 Token |
 
 生图接口不再提供手填地址与 Key，统一由 AstrBot 提供商管理。生图模型同样取自该提供商配置的模型名，未配置时回退 `nai-diffusion-4-5-full`。
+
+#### 两种接入方式
+
+| | 提供商模式（默认） | 官方接口模式 |
+|---|---|---|
+| 协议 | OpenAI 兼容，走 `/v1/chat/completions`，`/v1/images/generations` 兜底 | NovelAI 官方协议，走 `/ai/generate-image` |
+| 凭据来源 | 所选 AstrBot 提供商的 API 地址与 Key | 面板上的官方接口地址与 Token |
+| 适用对象 | Tuercha 等 NAI 中转网关 | NovelAI 官方，或任何实现了官方协议的站点 |
+| 4.5 / V5 | 可分别指定提供商 | 共用同一个端点与 Token |
+
+开启官方接口模式后：
+
+- `provider_id` / `provider_id_v5` 两个槽位都不再被读取，`/nai`、`/nai5` 及画布节点全部走官方端点，模型仍由指令与节点各自决定
+- 官方接口对同一账号的并发比较敏感，建议把 `generation_config.max_concurrency` 保持为 `1`
+- 该模式不做接口兜底：官方协议里没有 `chat/completions` 与 `images/generations` 这两条路，请求失败会直接报错，便于定位
+- 余额不足（HTTP 402）会被识别为额度错误
 
 ### 2. generation_config - 生图参数
 
@@ -274,9 +293,9 @@ pip install aiohttp pillow
 
 | 错误 | 说明 | 解决方案 |
 |------|------|----------|
-| 插件未配置 | 未选择生图接口提供商，或提供商缺少 API 地址 / Key | 完成 `api_config` 配置并检查所选 AstrBot 提供商 |
+| 插件未配置 | 未选择生图接口提供商，或提供商缺少 API 地址 / Key；官方接口模式下则是地址或 Token 没填 | 完成 `api_config` 配置并检查所选 AstrBot 提供商 |
 | API Key 错误（401/403） | API Key 无效 | 检查 API Key 是否正确 |
-| 点数不足 | 账户余额不足（错误信息含 quota/余额/insufficient） | 充值或使用更小的分辨率 |
+| 点数不足 | 账户余额不足（错误信息含 quota/余额/insufficient，官方接口另以 HTTP 402 表示 Anlas 不足） | 充值或使用更小的分辨率 |
 | 频率限制（429） | 请求过于频繁 | 等待后重试 |
 | 服务器繁忙（5xx） | 服务端负载过高 | 稍后重试 |
 | 生图请求超时 | 网络或服务器响应慢（180s 超时） | 检查网络连接，稍后重试 |
@@ -301,7 +320,8 @@ astrbot_plugin_bestnai_x/
 ├── models/
 │   └── config.py            # 配置数据模型（PluginConfig / GenerationConfig / SafetyConfig 等）
 ├── core/
-│   ├── generator.py         # 生图 API 调用核心（/images/generations + /chat/completions 回退）
+│   ├── generator.py         # 生图 API 调用核心（/images/generations + /chat/completions 回退；官方接口模式改走 /ai/generate-image）
+│   ├── novelai_api.py       # NovelAI 官方协议的请求载荷构造与 ZIP 响应解包
 │   ├── safety.py            # 安全审核（提示词过滤 + 图片视觉审核 + 负面词追加）
 │   ├── translator.py        # 中文提示词翻译 + Danbooru tag 检索
 │   ├── api_errors.py        # 上游报错可读化 + API Key 脱敏

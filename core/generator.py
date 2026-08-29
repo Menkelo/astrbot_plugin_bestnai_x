@@ -14,6 +14,7 @@ from PIL import Image as PILImage
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
+from .novelai_api import build_generate_payload, extract_image_blobs
 from ..constants import normalize_nai_seed
 from ..models.config import (
     GenerationConfig,
@@ -71,6 +72,22 @@ class ImageGenerator:
 
         return f"{base}/{path.lstrip('/')}"
 
+    @staticmethod
+    def _official_endpoint(api_base: str) -> str:
+        """拼 NovelAI 官方协议的生图地址。
+
+        不能复用 ``_endpoint``：那个会强行补 ``/v1``，而官方协议的路径是
+        ``/ai/generate-image``，没有 /v1 这一层。
+        """
+        base = (api_base or "").rstrip("/")
+        path = "/ai/generate-image"
+
+        # 用户很可能直接把完整的接口地址粘进来，别拼成 .../ai/generate-image/ai/generate-image
+        if base.endswith(path):
+            return base
+
+        return f"{base}{path}"
+
     async def generate(
         self,
         prompt: str,
@@ -85,6 +102,8 @@ class ImageGenerator:
         access_key = (api_key or self.config.api_key).strip()
 
         if not base_url or not access_key:
+            if getattr(self.config, "use_official_api", False):
+                raise APIKeyError("NovelAI 官方接口未就绪，请检查接口地址与 Token")
             raise APIKeyError("生图接口提供商未就绪，请检查提供商的 API 地址与 Key")
 
         api_base = base_url
@@ -92,6 +111,18 @@ class ImageGenerator:
         # Seed is written by NovelAI into the returned PNG metadata. Do not
         # force a request seed during ordinary generation; the returned
         # metadata is the authoritative value used for display/reproduction.
+
+        if getattr(self.config, "use_official_api", False):
+            # 官方协议没有 chat/completions 与 images/generations 这两条路，
+            # 所以不做兜底重试——失败就是失败，让报错原样冒上去便于定位。
+            images = await self._generate_by_official_endpoint(
+                api_base=api_base,
+                api_key=access_key,
+                prompt=prompt,
+                gen_config=gen_config,
+                seed=None,
+            )
+            return GenerationResult(images=images, seed=self._seed_from_images(images))
 
         try:
             # Tuercha and similar NAI relays expose the complete NovelAI
@@ -277,6 +308,97 @@ class ImageGenerator:
 
         return images
 
+    async def _generate_by_official_endpoint(
+        self,
+        api_base: str,
+        api_key: str,
+        prompt: str,
+        gen_config: GenerationConfig,
+        seed: Optional[int] = None,
+    ) -> List[Tuple[str, bytes]]:
+        endpoint = self._official_endpoint(api_base)
+        payload = build_generate_payload(prompt, gen_config, seed=seed)
+
+        logger.info(f"[BestNAI] official_endpoint={endpoint}")
+        logger.info(f"[BestNAI] timeout={self.timeout}s")
+        # 官方协议的字段名靠服务端报错来校准，出错时必须能立刻看到发出去的是什么。
+        # 这里打完整载荷而不是挑几个字段打。
+        logger.info(
+            f"[BestNAI] 官方生图请求体 {json.dumps(payload, ensure_ascii=False)}"
+        )
+
+        data = await self._post_binary(
+            endpoint=endpoint,
+            api_key=api_key,
+            payload=payload,
+        )
+
+        images: List[Tuple[str, bytes]] = []
+
+        for blob in extract_image_blobs(data):
+            if self._looks_like_image(blob):
+                images.append((self._detect_image_format(blob), blob))
+
+        if not images:
+            # 200 却不是图片，通常是站点把错误信息塞进了正常响应体。
+            # 必须把正文摘要带出来，否则「靠报错定位字段名」这条路就断了。
+            preview = data[:300].decode("utf-8", errors="replace").strip()
+            raise GenerationError(
+                f"官方接口未返回可解析图片（{len(data)} 字节）：{preview}"
+            )
+
+        return images
+
+    async def _post_binary(
+        self,
+        endpoint: str,
+        api_key: str,
+        payload: Dict[str, Any],
+    ) -> bytes:
+        """POST 到官方接口并取回二进制响应。
+
+        成功时响应体是 ZIP（或裸图片），只有失败时才是 JSON，所以不能复用
+        ``_post_json``——它一上来就把响应当文本读，对图片字节没有意义。
+        错误分支仍然走 ``_raise_for_status``，两条路的报错口径保持一致。
+        """
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/x-zip-compressed, image/*, */*",
+        }
+
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    endpoint,
+                    headers=headers,
+                    json=payload,
+                ) as resp:
+                    if resp.status < 200 or resp.status >= 300:
+                        message = self._extract_error_message_from_text(
+                            await resp.text()
+                        )
+                        self._raise_for_status(resp.status, message)
+
+                    return await resp.read()
+
+        except GenerationError:
+            raise
+
+        except aiohttp.ClientConnectorError as e:
+            raise GenerationError(f"无法连接 API：{e}") from e
+
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            raise ServerBusyError("生图请求超时，请稍后重试") from e
+
+        except aiohttp.ClientError as e:
+            raise GenerationError(f"网络请求失败：{e}") from e
+
+        except Exception as e:
+            raise GenerationError(f"请求生图接口失败：{e}") from e
+
     async def _post_json(
         self,
         endpoint: str,
@@ -345,6 +467,10 @@ class ImageGenerator:
 
         if status in (401, 403):
             raise APIKeyError(msg, status)
+
+        # NovelAI 官方用 402 表示 Anlas 不足
+        if status == 402:
+            raise QuotaExceededError(msg, status)
 
         if status == 429:
             lower = msg.lower()

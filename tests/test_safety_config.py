@@ -163,10 +163,16 @@ class SafetyPromptWordsTest(unittest.TestCase):
         api_config = schema["api_config"]
 
         self.assertEqual(api_config["description"], "生图接口配置")
-        # 主提供商（4.5/默认）+ V5 专用槽位 + /nai0 模型选择
+        # 主提供商（4.5/默认）+ V5 专用槽位，以及 NovelAI 官方接口的开关/地址/Token
         self.assertEqual(
             list(api_config["items"]),
-            ["provider_id", "provider_id_v5"],
+            [
+                "provider_id",
+                "provider_id_v5",
+                "use_official_api",
+                "official_api_url",
+                "official_api_token",
+            ],
         )
 
     def test_legacy_manual_generation_fields_are_ignored(self) -> None:

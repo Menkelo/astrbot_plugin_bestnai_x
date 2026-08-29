@@ -199,7 +199,11 @@ class BestNAIPlugin(Star):
             tag_translation_callback=self._canvas_translate_tags,
         )
 
-        api_source = self.plugin_config.image_provider_id or "(未选择)"
+        api_source = (
+            "NovelAI 官方接口"
+            if getattr(self.plugin_config, "use_official_api", False)
+            else (self.plugin_config.image_provider_id or "(未选择)")
+        )
 
         artist_source = (
             self.plugin_config.artist_preset
@@ -1169,7 +1173,15 @@ class BestNAIPlugin(Star):
 
         生图模型不再跟随提供商配置，改由指令/画布节点显式决定；
         提供商槽位只负责端点与密钥。
+
+        开启 NovelAI 官方接口时两个槽位一律不参与：端点与 Token 直接来自
+        面板，4.5 与 V5 共用。凭据仍然落在 api_url / api_key 这一对字段上，
+        所以 `_provider_credentials_for_model` 和各生图调用点不用区分模式。
         """
+        if getattr(self.plugin_config, "use_official_api", False):
+            self._resolve_official_api()
+            return
+
         provider_id = getattr(self.plugin_config, "image_provider_id", "") or ""
         self.plugin_config.api_url = ""
         self.plugin_config.api_key = ""
@@ -1206,8 +1218,41 @@ class BestNAIPlugin(Star):
                     f"api_base={self.plugin_config.api_url_v5}"
                 )
 
+    def _not_configured_message(self) -> str:
+        """未配置时给用户的提示，按当前接入方式给出对应的指引。"""
+        if getattr(self.plugin_config, "use_official_api", False):
+            return "❌ 插件未配置。\n请在插件配置中填写 NovelAI 官方接口地址与 Token。"
+        return "❌ 插件未配置。\n请在插件配置中选择生图接口提供商。"
+
+    def _resolve_official_api(self) -> None:
+        """把面板上的官方端点与 Token 装进凭据字段。
+
+        V5 槽位留空并直接标记为已就绪，于是
+        `_provider_credentials_for_model` 会按既有的「V5 槽位为空就回落主
+        槽位」逻辑把两档模型都送到同一个官方端点。
+        """
+        url = str(getattr(self.plugin_config, "official_api_url", "") or "").strip()
+        token = str(getattr(self.plugin_config, "official_api_token", "") or "").strip()
+
+        self.plugin_config.api_url = url
+        self.plugin_config.api_key = token
+        self.plugin_config.api_url_v5 = ""
+        self.plugin_config.api_key_v5 = ""
+        self._image_provider_resolved = bool(url and token)
+        self._image_provider_v5_resolved = True
+
+        if not url:
+            logger.warning("[BestNAI] 已启用 NovelAI 官方接口，但未填写接口地址")
+        elif not token:
+            logger.warning("[BestNAI] 已启用 NovelAI 官方接口，但未填写 Token")
+        else:
+            logger.info(f"[BestNAI] 已启用 NovelAI 官方接口：api_base={url}")
+
     def _provider_credentials_for_model(self, model: str) -> Tuple[str, str]:
-        """按本次请求的模型挑提供商：V5 优先专用槽位，缺省回落主槽位。"""
+        """按本次请求的模型挑提供商：V5 优先专用槽位，缺省回落主槽位。
+
+        官方接口模式下 V5 槽位恒为空，两档模型都会落到同一个官方端点。
+        """
         if model_supports_cjk(model):
             cfg = self.plugin_config
             if cfg.api_url_v5 and cfg.api_key_v5:
@@ -1993,10 +2038,7 @@ class BestNAIPlugin(Star):
             self._ensure_image_provider_ready()
 
         if not self.plugin_config.is_configured():
-            yield event.plain_result(
-                "❌ 插件未配置。\n"
-                "请在插件配置中选择生图接口提供商。"
-            )
+            yield event.plain_result(self._not_configured_message())
             return
 
         ratio_intent_prompt = prompt if user_ratio_prompt is None else user_ratio_prompt
@@ -2322,10 +2364,7 @@ class BestNAIPlugin(Star):
                 self._ensure_image_provider_ready()
 
             if not self.plugin_config.is_configured():
-                yield event.plain_result(
-                    "❌ 插件未配置。\n"
-                    "请在插件配置中选择生图接口提供商。"
-                )
+                yield event.plain_result(self._not_configured_message())
                 return
 
             inferred_ratio = ""

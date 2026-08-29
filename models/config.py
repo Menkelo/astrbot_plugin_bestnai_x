@@ -42,6 +42,8 @@ def model_supports_variety_boost(model: str) -> bool:
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 DEFAULT_NEGATIVE_PROMPT = "lowres, bad anatomy, bad hands, text, error, missing fingers"
 DEFAULT_DANBOORU_API_URL = "https://sakizuki-danboorusearch.hf.space"
+# NovelAI 官方生图主机。自建或第三方站点在配置面板里改成自己的地址。
+DEFAULT_OFFICIAL_API_URL = "https://image.novelai.net"
 
 DEFAULT_ARTIST_PRESET_LIST = [
     "可爱:artist:ciloranko , [artist:sho_(sho_lwlw)], [[artist:tianliang_duohe_fangdongye]],[[[[[[artist:kani_biimu]]]]]]",
@@ -159,6 +161,11 @@ class PluginConfig:
     image_provider_id_v5: str = ""
     api_url_v5: str = ""
     api_key_v5: str = ""
+    # NovelAI 官方协议直连。开启后上面两个提供商槽位一律不生效，
+    # 4.5 与 V5 共用同一个端点与 Token。
+    use_official_api: bool = False
+    official_api_url: str = DEFAULT_OFFICIAL_API_URL
+    official_api_token: str = ""
     # /nai0 的模型选择（面板·生图接口配置）；画布模型由节点各自选择
     nai0_model: str = FIXED_MODEL
     max_concurrency: int = 1
@@ -260,6 +267,11 @@ class PluginConfig:
             image_provider_id_v5=image_provider_id_v5,
             api_url_v5="",
             api_key_v5="",
+            use_official_api=bool(api_conf.get("use_official_api", False)),
+            official_api_url=str(
+                api_conf.get("official_api_url", DEFAULT_OFFICIAL_API_URL) or ""
+            ).strip(),
+            official_api_token=str(api_conf.get("official_api_token", "") or "").strip(),
             nai0_model=resolve_model_choice(api_conf.get("nai0_model")),
             max_concurrency=max_concurrency,
             generation=GenerationConfig.from_plugin_config(config),
