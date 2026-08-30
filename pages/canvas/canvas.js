@@ -2016,10 +2016,12 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   const body = document.createElement("div");
   body.className = "retag-layer-body";
   body.hidden = true;
-  // 原图标签可能有几十条，需要把滚轮留给自身滚动；高级参数卡没有这条
-  // 拦截，所以其余附加区域仍按画布缩放处理。这里只阻止冒泡，不 preventDefault，
+  // 原图标签较多、确实出现滚动条时才把滚轮留给自身滚动；内容不足以溢出
+  // 时不拦截，让滚轮继续交给画布缩放。这里只阻止冒泡，不 preventDefault，
   // 原生滚动条和触控板惯性滚动都能正常工作。
-  body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+  body.addEventListener("wheel", (event) => {
+    if (body.scrollHeight > body.clientHeight + 1) event.stopPropagation();
+  }, { passive: true });
   const help = document.createElement("p");
   help.className = "retag-layer-help";
   help.textContent = "自动按改图规则覆盖同类原图标签；锁定会保留原图分类；移除只删除原图标签，手写同类标签仍可加入。点单条标签可单独划掉它。";
@@ -2640,7 +2642,16 @@ function highlightSelectMenu(index) {
   const next = ((Number(index) || 0) % options.length + options.length) % options.length;
   selectMenu.activeIndex = next;
   options.forEach((option, i) => option.classList.toggle("active", i === next));
-  options[next].scrollIntoView({ block: "nearest" });
+  // 不用 scrollIntoView：它可能连带滚动页面/画布，打开长画师列表时会出现
+  // 瞬间“弹一下”。只调整浮层自己的 scrollTop，避免任何外部布局跳动。
+  const option = options[next];
+  const optionTop = option.offsetTop;
+  const optionBottom = optionTop + option.offsetHeight;
+  if (optionTop < selectMenu.element.scrollTop) {
+    selectMenu.element.scrollTop = optionTop;
+  } else if (optionBottom > selectMenu.element.scrollTop + selectMenu.element.clientHeight) {
+    selectMenu.element.scrollTop = optionBottom - selectMenu.element.clientHeight;
+  }
   selectMenu.trigger?.setAttribute("aria-activedescendant", options[next].id);
 }
 
@@ -2732,6 +2743,11 @@ function makeSelectField(label, items, value, onChange) {
   // 卡片的 pointerdown 会 bringNodeToFront 移动 DOM，移动会让随后的 click
   // 落空——和折叠卡的 toggle 是同一个坑。
   trigger.addEventListener("pointerdown", (event) => event.stopPropagation());
+  // 鼠标打开时不抢焦点，避免按钮的默认按下/焦点反馈造成瞬时跳变；键盘
+  // Tab 进入时仍然保留 focus-visible 样式和完整键盘操作。
+  trigger.addEventListener("mousedown", (event) => {
+    if (event.button === 0) event.preventDefault();
+  });
   trigger.addEventListener("click", (event) => {
     event.stopPropagation();
     if (selectMenu.trigger === trigger) {

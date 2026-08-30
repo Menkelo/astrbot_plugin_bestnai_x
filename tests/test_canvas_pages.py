@@ -262,9 +262,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 附加卡片不再吞掉滚轮；选中提示词卡时，滚轮继续控制画布缩放
         self.assertNotIn('if (retagLayer) return !!retagLayer.closest(".node.selected")', editor)
         self.assertIn(
-            'body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });',
+            'body.addEventListener("wheel", (event) => {',
             retag_body,
         )
+        self.assertIn("body.scrollHeight > body.clientHeight + 1", retag_body)
+        self.assertIn("if (body.scrollHeight > body.clientHeight + 1) event.stopPropagation();", retag_body)
         self.assertIn("function collapseRetagLayers()", editor)
         self.assertIn(
             "void retagFromNode(destination, false, { automatic: true });",
@@ -888,8 +890,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.6", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.6"', constants)
+        self.assertIn("version: 4.4.7", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.7"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1299,6 +1301,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('event.key === "ArrowDown" || event.key === "ArrowUp"', editor)
         self.assertIn('if (event.key === "Escape" && isOpen)', editor)
         self.assertIn('if (!target?.closest(".node-select, .node-select-menu")) closeSelectMenu()', editor)
+        self.assertIn("只调整浮层自己的 scrollTop", editor)
+        self.assertNotIn("options[next].scrollIntoView", editor)
+        self.assertIn('if (event.button === 0) event.preventDefault();', editor)
         self.assertIn(".node-select-menu {", styles)
         self.assertIn(".node-select:focus-visible {", styles)
         self.assertNotIn(".node-select:focus,", styles)
