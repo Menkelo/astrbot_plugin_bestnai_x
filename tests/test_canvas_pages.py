@@ -878,8 +878,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.3.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.3.0"', constants)
+        self.assertIn("version: 4.3.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.3.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1100,7 +1100,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
-        # 命中内嵌参数时缓存原图采样参数，生成时随载荷回传
+        # 采样参数来自对原图文件的解析，直接采纳后端返回值。fromMetadata 只
+        # 说明 prompt 是内嵌的，命中画布缓存时它是 false，但图片里的采样参数
+        # 依然有效——拿它当门禁会把这批参数整批丢成 0
+        self.assertIn("retagSteps: boundedMetaNumber(result?.steps, 1, 200)", editor)
+        self.assertIn("retagScale: boundedMetaNumber(result?.scale, 0.1, 100)", editor)
+        self.assertIn(
+            "retagCfgRescale: boundedMetaNumber(result?.cfgRescale, 0, 100)",
+            editor,
+        )
+        self.assertIn(
+            'retagNoiseSchedule: String(result?.noiseSchedule || "").trim()',
+            editor,
+        )
+        self.assertIn('retagSampler: String(result?.sampler || "").trim()', editor)
+        # 防回归：不能再把 fromMetadata 当成采样参数的开关
         for key in (
             "retagSteps",
             "retagScale",
@@ -1108,7 +1122,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "retagNoiseSchedule",
             "retagSampler",
         ):
-            self.assertIn(f"{key}: result.fromMetadata", editor)
+            self.assertNotIn(f"{key}: result.fromMetadata", editor)
         self.assertIn(
             "cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined",
             editor,
@@ -1154,6 +1168,48 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor.index("正在翻译并生成图片"),
         )
         self.assertNotIn("正在生成图片（原始提示词）", editor)
+
+    def test_icons_are_cached_and_not_rescanned(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # lucide 扫的是 [data-lucide]，而它生成的 SVG 自己也带这个属性，
+        # 于是每次 createIcons 都会把已转换好的图标再重建一遍；renderNodes
+        # 又是整层 replaceChildren，图标一多就明显拖慢
+        self.assertIn("const iconCache = new Map();", editor)
+        self.assertIn("function cacheRenderedIcons(scope)", editor)
+        self.assertIn('scope.querySelectorAll("svg[data-lucide]")', editor)
+        # 成品必须摘掉 data-lucide，否则下一轮扫描又会把它捡起来重做
+        self.assertIn('svg.removeAttribute("data-lucide")', editor)
+        # 命中缓存时克隆，不再走 lucide 解析
+        self.assertIn("const clone = cached.cloneNode(true);", editor)
+        # 模板要剥掉调用方的自定义 class，否则会焊进所有后续克隆
+        self.assertIn('template.setAttribute("class", `lucide lucide-${name}`)', editor)
+        # refreshIcons 必须在生成之后回填缓存
+        refresh_body = editor.split("function refreshIcons", 1)[1].split("\n}", 1)[0]
+        self.assertIn("cacheRenderedIcons", refresh_body)
+        self.assertLess(
+            refresh_body.index("createIcons"),
+            refresh_body.index("cacheRenderedIcons"),
+        )
+
+    def test_raw_toggle_tooltips_stay_inside_the_card(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        # 「翻译」被 space-between 推到 footer 中段，沿用 left:0 会让气泡顶出
+        # 卡片右边；改成以自身为中心展开并收窄到卡片最窄宽度（220px）放得下
+        translate_rule = styles.split(".raw-translate::after", 1)[1].split("}", 1)[0]
+        self.assertIn("left: 50%", translate_rule)
+        self.assertIn("width: 200px", translate_rule)
+        self.assertIn("translateX(-50%)", translate_rule)
+        # hover 态若不带 translateX 会在悬停瞬间跳回左对齐
+        hover_rule = styles.split(".raw-translate:hover::after", 1)[1].split("}", 1)[0]
+        self.assertIn("translateX(-50%)", hover_rule)
+
+        # raw 的说明不能再声称「按原始英文 tags 生成」——现在中文可以翻译
+        raw_tooltip = editor.split("rawLabel.dataset.tooltip = ", 1)[1].split("\n", 1)[0]
+        self.assertNotIn("原始英文", raw_tooltip)
+        self.assertIn("翻译", raw_tooltip)
 
     def test_raw_mode_can_opt_back_into_translation(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

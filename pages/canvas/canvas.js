@@ -238,17 +238,46 @@ const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults";
 const ASSET_RENDER_BATCH = 48;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+// lucide 的 createIcons 扫的是 [data-lucide]，而它生成的 SVG 自己也带这个
+// 属性——于是每调用一次，已经转换好的图标都会被原地重建一遍。renderNodes
+// 又是整层 replaceChildren，同一个图标在一次渲染里要解析几十次。
+// 首次转换后在这里留一份成品，之后直接克隆；克隆体不带 data-lucide，
+// 既省掉重复解析，也不会再被后续扫描捡起来重做。
+const iconCache = new Map();
+
 function icon(name, className = "") {
+  const cached = iconCache.get(name);
+  if (cached) {
+    const clone = cached.cloneNode(true);
+    if (className) clone.classList.add(...className.split(/\s+/).filter(Boolean));
+    return clone;
+  }
   const element = document.createElement("i");
   element.dataset.lucide = name;
   if (className) element.className = className;
   return element;
 }
 
+function cacheRenderedIcons(scope) {
+  if (!scope?.querySelectorAll) return;
+  scope.querySelectorAll("svg[data-lucide]").forEach((svg) => {
+    const name = svg.getAttribute("data-lucide");
+    svg.removeAttribute("data-lucide");
+    if (!name || iconCache.has(name)) return;
+    const template = svg.cloneNode(true);
+    // 模板只留 lucide 自己的 class，调用方的自定义 class 由 icon() 再追加，
+    // 否则第一个用到该图标的调用点会把它的 class 焊进所有后续克隆里。
+    template.setAttribute("class", `lucide lucide-${name}`);
+    template.removeAttribute("data-lucide");
+    iconCache.set(name, template);
+  });
+}
+
 function refreshIcons(root = document) {
   if (window.lucide?.createIcons) {
     window.lucide.createIcons({ root, attrs: { "stroke-width": 1.8 } });
   }
+  cacheRenderedIcons(root === document ? document.body : root);
 }
 
 function formatOperationTime(timestamp) {
@@ -1399,7 +1428,7 @@ function renderPromptNode(node) {
   footer.className = "node-footer";
   const rawLabel = document.createElement("label");
   rawLabel.className = "raw-toggle";
-  rawLabel.dataset.tooltip = "不使用画师预设和质量词，按原始英文 NAI tags 生成；普通负面提示词仍然生效。";
+  rawLabel.dataset.tooltip = "不追加画师预设和质量词，按你写的内容原样生成；负面提示词仍然生效。中文默认不翻译，需要时用右边的「翻译」单独开启。";
   const raw = document.createElement("input");
   raw.type = "checkbox";
   raw.checked = !!node.raw;
@@ -3953,22 +3982,15 @@ async function retagFromNode(
       // V4+ 内嵌参数里的多角色提示词，结构化透传给生图网关
       retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts),
       retagUseCoords: !!result?.charUseCoords,
-      // 命中内嵌参数时沿用原图的采样参数（steps/scale/cfg_rescale/噪声计划）
-      retagSteps: result.fromMetadata
-        ? boundedMetaNumber(result?.steps, 1, 200)
-        : 0,
-      retagScale: result.fromMetadata
-        ? boundedMetaNumber(result?.scale, 0.1, 100)
-        : 0,
-      retagCfgRescale: result.fromMetadata
-        ? boundedMetaNumber(result?.cfgRescale, 0, 100)
-        : 0,
-      retagNoiseSchedule: result.fromMetadata
-        ? String(result?.noiseSchedule || "").trim()
-        : "",
-      retagSampler: result.fromMetadata
-        ? String(result?.sampler || "").trim()
-        : "",
+      // 采样参数直接来自对原图文件的元数据解析，和 prompt 从哪来无关。
+      // fromMetadata 只说明"prompt 是内嵌的"，命中画布缓存时它是 false，
+      // 可图片里的 steps/sampler 依然有效——拿它当门禁等于整批丢掉。
+      // 走视觉模型的分支后端根本不返回这几个字段，取到 undefined 自然归零。
+      retagSteps: boundedMetaNumber(result?.steps, 1, 200),
+      retagScale: boundedMetaNumber(result?.scale, 0.1, 100),
+      retagCfgRescale: boundedMetaNumber(result?.cfgRescale, 0, 100),
+      retagNoiseSchedule: String(result?.noiseSchedule || "").trim(),
+      retagSampler: String(result?.sampler || "").trim(),
       retagLayerExpanded: node.meta?.retagLayerExpanded === true,
       translatedPrompt: retagPrompt,
     };

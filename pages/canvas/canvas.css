@@ -1022,6 +1022,20 @@ select:focus-visible {
   transform: translateY(0);
 }
 
+/* 「翻译」被 space-between 推到 footer 中段，沿用 left:0 会让 244px 的气泡
+   直接顶出卡片右边。改成以自身为中心展开并收窄：卡片最窄 220px，200px
+   的气泡两侧仍各有 10px 余量，拉宽卡片只会更宽松。 */
+.raw-translate::after {
+  left: 50%;
+  width: 200px;
+  transform: translateX(-50%) translateY(3px);
+}
+
+.raw-translate:hover::after,
+.raw-translate:has(input:focus-visible)::after {
+  transform: translateX(-50%) translateY(0);
+}
+
 .node-commands {
   display: flex;
   flex: 0 0 auto;
