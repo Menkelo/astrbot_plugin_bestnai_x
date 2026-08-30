@@ -1778,6 +1778,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
   card.className = "retag-layer-card adv-card";
   card.dataset.nodeId = node.id;
   card.addEventListener("pointerdown", (event) => {
+    // 中键拖动要继续冒泡到画布，让附加卡片区域也能平移画布。
+    if (event.button === 1) return;
     event.stopPropagation();
     bringNodeToFront(node.id, nodeElement);
     if (!isNodeSelected(node.id)) selectNode(node.id);
@@ -1797,7 +1799,9 @@ function makeAdvancedParamsCard(node, nodeElement) {
   toggle.append(title, summary, chevron);
   // 阻断冒泡：卡片 pointerdown 会 bringNodeToFront 移动 DOM，
   // 移动会让随后到来的 click 落空，折叠就"点了没反应"
-  toggle.addEventListener("pointerdown", (event) => event.stopPropagation());
+  toggle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 1) event.stopPropagation();
+  });
 
   const body = document.createElement("div");
   body.className = "retag-layer-body";
@@ -1990,6 +1994,8 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   card.className = "retag-layer-card";
   card.dataset.nodeId = node.id;
   card.addEventListener("pointerdown", (event) => {
+    // 中键拖动要继续冒泡到画布，让附加卡片区域也能平移画布。
+    if (event.button === 1) return;
     event.stopPropagation();
     bringNodeToFront(node.id, nodeElement);
     if (!isNodeSelected(node.id)) selectNode(node.id);

@@ -232,6 +232,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
 
         self.assertIn("function makeRetagLayerCard", editor)
+        retag_body = editor.split("function makeRetagLayerCard", 1)[1].split(
+            "function formatDebugMs", 1
+        )[0]
+        self.assertIn("if (event.button === 1) return;", retag_body)
         render = editor.split("function renderPromptNode(node)", 1)[1].split(
             "const DEBUG_SECTIONS", 1
         )[0]
@@ -881,8 +885,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.4", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.4"', constants)
+        self.assertIn("version: 4.4.5", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.5"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1293,6 +1297,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('if (event.key === "Escape" && isOpen)', editor)
         self.assertIn('if (!target?.closest(".node-select, .node-select-menu")) closeSelectMenu()', editor)
         self.assertIn(".node-select-menu {", styles)
+        self.assertIn(".node-select:focus-visible {", styles)
+        self.assertNotIn(".node-select:focus,", styles)
         menu_rule = styles.split(".node-select-menu {", 1)[1].split("}", 1)[0]
         self.assertIn("scrollbar-width: thin", menu_rule)
         self.assertIn("scrollbar-color: rgba(100, 116, 139, .22) transparent", menu_rule)
@@ -1420,8 +1426,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 原生 title 要悬停约一秒才出来，和提示词卡的秒开气泡对不上，不该再混用
         self.assertNotIn(".title = ", adv_body)
         # 折叠点击不被卡片 pointerdown 的 DOM 移动吞掉
+        # 中键需要继续冒泡到画布；普通点击仍需阻断，避免卡片重排吞掉 toggle click
         self.assertIn(
-            'toggle.addEventListener("pointerdown", (event) => event.stopPropagation());',
+            'if (event.button !== 1) event.stopPropagation();',
             adv_body,
         )
         # 挂载卡片随节点自然缩放（与 3.3.8 行为一致，保持同比例观感）

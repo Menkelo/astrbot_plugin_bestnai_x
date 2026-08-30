@@ -901,8 +901,15 @@ select:focus-visible {
 }
 
 .prompt-text:focus,
-.note-text:focus,
-.node-select:focus {
+.note-text:focus {
+  border-color: var(--line-2);
+  background: var(--card-solid);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
+}
+
+/* 鼠标点开自定义下拉时不显示一圈瞬时的浏览器焦点光晕；键盘操作仍保留
+   全局 focus-visible 轮廓，避免可访问性退化。 */
+.node-select:focus-visible {
   border-color: var(--line-2);
   background: var(--card-solid);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
