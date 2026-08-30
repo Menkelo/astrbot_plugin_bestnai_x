@@ -2016,6 +2016,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   const body = document.createElement("div");
   body.className = "retag-layer-body";
   body.hidden = true;
+  // 原图标签可能有几十条，需要把滚轮留给自身滚动；高级参数卡没有这条
+  // 拦截，所以其余附加区域仍按画布缩放处理。这里只阻止冒泡，不 preventDefault，
+  // 原生滚动条和触控板惯性滚动都能正常工作。
+  body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
   const help = document.createElement("p");
   help.className = "retag-layer-help";
   help.textContent = "自动按改图规则覆盖同类原图标签；锁定会保留原图分类；移除只删除原图标签，手写同类标签仍可加入。点单条标签可单独划掉它。";

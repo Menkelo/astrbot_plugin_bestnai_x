@@ -261,7 +261,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("expandedRetagLayers", editor)
         # 附加卡片不再吞掉滚轮；选中提示词卡时，滚轮继续控制画布缩放
         self.assertNotIn('if (retagLayer) return !!retagLayer.closest(".node.selected")', editor)
-        self.assertNotIn("if (isNodeSelected(node.id)) event.stopPropagation();", editor)
+        self.assertIn(
+            'body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });',
+            retag_body,
+        )
         self.assertIn("function collapseRetagLayers()", editor)
         self.assertIn(
             "void retagFromNode(destination, false, { automatic: true });",
@@ -885,8 +888,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.5", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.5"', constants)
+        self.assertIn("version: 4.4.6", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.6"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1026,7 +1029,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('.closest(".node.selected")', wheel_owner)
         # 高级参数卡和原图标签卡不占用滚轮；选中提示词卡时它们的滚轮继续缩放画布
         self.assertNotIn(".retag-layer-card", wheel_owner)
-        self.assertNotIn('body.addEventListener("wheel"', editor)
+        self.assertEqual(editor.count('body.addEventListener("wheel"'), 1)
         wheel_body = editor.split('els.viewport.addEventListener("wheel"', 1)[1].split(
             'els.assetPanel.addEventListener("wheel"', 1
         )[0]
