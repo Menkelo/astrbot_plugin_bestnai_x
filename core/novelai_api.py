@@ -30,8 +30,14 @@ from ..models.config import GenerationConfig, model_supports_variety_boost
 # 顶层动作。文生图是 "generate"，img2img / inpaint 另有取值，本插件不涉及。
 ACTION_GENERATE = "generate"
 
-# parameters 的结构版本号。NovelAI 靠它区分新旧参数语义。
-PARAMS_VERSION = 3
+# parameters 的结构版本号。**实测 3 被拒**：服务端回
+# "Unsupported value for parameters.params_version."，说明字段本身认识、
+# 只是取值不在允许集合里。而插件并不需要钉住协议版本，所以默认不发这个键，
+# 让服务端用它自己的默认值。
+#
+# 若某个站点确实要求它，报错会变成「缺少 params_version」——那时把这里设成
+# 具体整数即可。用 tools/probe_novelai.py 可以一次性试出合法取值。
+PARAMS_VERSION: Optional[int] = None
 
 # uc 预设在官方协议里是**整数枚举**，而网关方言收的是 "light" 这样的字符串。
 UC_PRESET_CODES: Dict[str, int] = {
@@ -88,7 +94,6 @@ def build_generate_payload(
     改一个键名的代价就越小。
     """
     parameters: Dict[str, Any] = {
-        "params_version": PARAMS_VERSION,
         "width": int(gen_config.width),
         "height": int(gen_config.height),
         "scale": float(gen_config.scale),
@@ -107,6 +112,9 @@ def build_generate_payload(
     normalized_seed = normalize_nai_seed(seed)
     if normalized_seed is not None:
         parameters["seed"] = normalized_seed
+
+    if PARAMS_VERSION is not None:
+        parameters["params_version"] = PARAMS_VERSION
 
     # Variety+：V5 的能力表里没有这个参数，带上只会让载荷变脏。
     if gen_config.variety_boost and model_supports_variety_boost(gen_config.model):

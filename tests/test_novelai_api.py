@@ -126,6 +126,13 @@ class BuildPayloadTest(unittest.TestCase):
         self.assertEqual(parameters["n_samples"], 1)
         self.assertEqual(parameters["negative_prompt"], "lowres, bad hands")
 
+    def test_params_version_is_not_sent_by_default(self) -> None:
+        # 实测发 3 被服务端拒掉（Unsupported value for parameters.params_version），
+        # 而插件不需要钉住协议版本，交给服务端用自己的默认值
+        parameters = build_generate_payload("1girl", BASE)["parameters"]
+
+        self.assertNotIn("params_version", parameters)
+
     def test_uc_preset_is_sent_as_an_integer_code(self) -> None:
         # 网关方言收字符串 "light"，官方协议收整数
         for name, code in UC_PRESET_CODES.items():
