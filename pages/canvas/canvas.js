@@ -2158,9 +2158,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     setOpen(open);
     scheduleSave();
   });
-  body.addEventListener("wheel", (event) => {
-    if (isNodeSelected(node.id)) event.stopPropagation();
-  }, { passive: true });
   refreshSummary();
   setOpen(node.meta?.retagLayerExpanded === true);
   card.append(toggle, body);
@@ -5957,8 +5954,6 @@ function nodeEditorOwnsWheel(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   if (!targetElement) return false;
   if (targetElement.closest(".asset-panel, .image-viewer-details, .debug-bar")) return true;
-  const retagLayer = targetElement.closest(".retag-layer-card");
-  if (retagLayer) return !!retagLayer.closest(".node.selected");
   const editor = targetElement.closest(".prompt-text, .note-text");
   return !!editor?.closest(".node.selected");
 }
