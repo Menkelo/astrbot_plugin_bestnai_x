@@ -2677,7 +2677,9 @@ function placeSelectMenu(trigger) {
     ? cardRect.height / card.offsetHeight
     : cardScaleX;
   const scale = clamp((cardScaleX + cardScaleY) / 2, 0.1, 4);
-  const width = Math.max(rect.width / scale, 140 / scale);
+  // 宽度严格跟随当前字段；不再加屏幕/浮层最小宽度，避免缩小画布后菜单
+  // 比对应的画幅/画师/模型/张数字段宽出一大截并覆盖旁边内容。
+  const width = Math.max(rect.width / scale, 1);
   menu.style.width = `${width}px`;
   menu.style.transformOrigin = "top left";
   menu.style.transform = `scale(${scale})`;

@@ -1312,6 +1312,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("menu.style.maxHeight =", editor)
         self.assertIn("menu.style.transform = `scale(${scale})`", editor)
         self.assertIn("rect.width / scale", editor)
+        self.assertIn("const width = Math.max(rect.width / scale, 1);", editor)
         self.assertIn('if (event.button === 0) event.preventDefault();', editor)
         self.assertIn(".node-select-menu {", styles)
         self.assertIn(".node-select:focus-visible {", styles)
