@@ -890,8 +890,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.7", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.7"', constants)
+        self.assertIn("version: 4.4.8", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.8"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1303,6 +1303,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('if (!target?.closest(".node-select, .node-select-menu")) closeSelectMenu()', editor)
         self.assertIn("只调整浮层自己的 scrollTop", editor)
         self.assertNotIn("options[next].scrollIntoView", editor)
+        self.assertIn("只有选项", editor)
+        self.assertIn("完全跑出可视区域后才滚动", editor)
+        self.assertIn("optionBottom <= visibleTop", editor)
+        self.assertIn("optionTop >= visibleBottom", editor)
+        self.assertIn("menu.style.transform = `scale(${scale})`", editor)
+        self.assertIn("rect.width / scale", editor)
         self.assertIn('if (event.button === 0) event.preventDefault();', editor)
         self.assertIn(".node-select-menu {", styles)
         self.assertIn(".node-select:focus-visible {", styles)

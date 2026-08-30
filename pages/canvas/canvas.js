@@ -2647,9 +2647,13 @@ function highlightSelectMenu(index) {
   const option = options[next];
   const optionTop = option.offsetTop;
   const optionBottom = optionTop + option.offsetHeight;
-  if (optionTop < selectMenu.element.scrollTop) {
+  const visibleTop = selectMenu.element.scrollTop;
+  const visibleBottom = visibleTop + selectMenu.element.clientHeight;
+  // 鼠标预选时，部分露出的选项不要立刻把整层菜单“弹”一下；只有选项
+  // 完全跑出可视区域后才滚动，避免长画师列表跟着指针不断跳动。
+  if (optionBottom <= visibleTop) {
     selectMenu.element.scrollTop = optionTop;
-  } else if (optionBottom > selectMenu.element.scrollTop + selectMenu.element.clientHeight) {
+  } else if (optionTop >= visibleBottom) {
     selectMenu.element.scrollTop = optionBottom - selectMenu.element.clientHeight;
   }
   selectMenu.trigger?.setAttribute("aria-activedescendant", options[next].id);
@@ -2662,10 +2666,16 @@ function placeSelectMenu(trigger) {
     closeSelectMenu();
     return;
   }
-  // 缩小画布时触发器会很窄，浮层不跟着缩到读不了
-  const width = Math.max(rect.width, 168);
+  // 浮层挂在 body 上，脱离 world 的 transform；手动补上当前画布缩放，
+  // 让宽度、字号和卡片保持同比例，而不是永远用屏幕固定像素。
+  const scale = clamp(Number(state.viewport.scale) || 1, 0.1, 4);
+  const width = Math.max(rect.width / scale, 140 / scale);
   menu.style.width = `${width}px`;
-  const maxLeft = Math.max(12, window.innerWidth - width - 12);
+  menu.style.transformOrigin = "top left";
+  menu.style.transform = `scale(${scale})`;
+  menu.style.maxHeight = `${Math.max(120, (window.innerHeight - 24) / scale)}px`;
+  const visualWidth = width * scale;
+  const maxLeft = Math.max(12, window.innerWidth - visualWidth - 12);
   menu.style.left = `${Math.max(12, Math.min(rect.left, maxLeft))}px`;
   // 先量高度再决定往下还是往上开
   const height = menu.getBoundingClientRect().height;
