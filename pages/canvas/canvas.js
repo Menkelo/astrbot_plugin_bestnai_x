@@ -2666,14 +2666,21 @@ function placeSelectMenu(trigger) {
     closeSelectMenu();
     return;
   }
-  // 浮层挂在 body 上，脱离 world 的 transform；手动补上当前画布缩放，
-  // 让宽度、字号和卡片保持同比例，而不是永远用屏幕固定像素。
-  const scale = clamp(Number(state.viewport.scale) || 1, 0.1, 4);
+  // 浮层挂在 body 上，脱离 world 的 transform；从当前提示词卡片的实际
+  // 渲染尺寸计算比例，让浮层跟随卡片本身，而不是依赖全局画布缩放状态。
+  const card = trigger.closest(".node");
+  const cardRect = card?.getBoundingClientRect?.();
+  const cardScaleX = cardRect?.width && card?.offsetWidth
+    ? cardRect.width / card.offsetWidth
+    : 1;
+  const cardScaleY = cardRect?.height && card?.offsetHeight
+    ? cardRect.height / card.offsetHeight
+    : cardScaleX;
+  const scale = clamp((cardScaleX + cardScaleY) / 2, 0.1, 4);
   const width = Math.max(rect.width / scale, 140 / scale);
   menu.style.width = `${width}px`;
   menu.style.transformOrigin = "top left";
   menu.style.transform = `scale(${scale})`;
-  menu.style.maxHeight = `${Math.max(120, (window.innerHeight - 24) / scale)}px`;
   const visualWidth = width * scale;
   const maxLeft = Math.max(12, window.innerWidth - visualWidth - 12);
   menu.style.left = `${Math.max(12, Math.min(rect.left, maxLeft))}px`;

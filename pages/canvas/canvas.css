@@ -1009,8 +1009,8 @@ select:focus-visible {
   background: var(--soft);
 }
 
-/* 自定义下拉浮层：挂在 body 上并用 fixed 定位，不受画布缩放、节点 overflow
-   或卡片重建影响。 */
+/* 自定义下拉浮层：挂在 body 上并用 fixed 定位，避免节点 overflow 或卡片重建
+   影响；脚本会按当前提示词卡片的实际比例补回同比例缩放。 */
 .node-select-menu {
   position: fixed;
   z-index: 120;
