@@ -914,7 +914,7 @@ select:focus-visible {
   margin-top: 9px;
 }
 
-/* 卡片下方挂载区：高级参数卡在上，原图标签图层在下。
+/* 卡片下方挂载区：高级参数卡在上，原图标签在下。
    卡片随节点自然缩放，与节点保持同比例观感 */
 .node-attach-stack {
   position: absolute;
@@ -922,6 +922,10 @@ select:focus-visible {
   top: calc(100% + 11px);
   left: 0;
   display: grid;
+  /* 必须是 minmax(0, 1fr) 而不是默认的 auto：grid item 的 min-width: auto
+     会让列宽被最宽的内容顶开，两张卡共用这一列，于是标签一长就把高级参数
+     卡一起拉宽，不再跟随提示词卡片。 */
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   gap: 8px;
 }
@@ -977,6 +981,12 @@ select:focus-visible {
   color: var(--muted);
   cursor: pointer;
   font-size: 10.5px;
+}
+
+/* 上面的 display 是作者样式表，会盖过浏览器默认的 [hidden] { display: none }。
+   选 V5 时要靠 hidden 藏掉 Variety+，所以必须显式补一条更高特异度的规则。 */
+.raw-toggle[hidden] {
+  display: none;
 }
 
 .raw-toggle input {
@@ -1328,6 +1338,11 @@ select:focus-visible {
 }
 
 .retag-layer-tag {
+  /* white-space: nowrap 让 flex item 的 min-content 等于整条标签的长度，
+     而 min-width: auto 会压过下面的 max-width: 100%。不显式归零，长标签
+     就会把整张卡撑宽。归零后配合 overflow/text-overflow 截断，
+     全文仍可通过 title 悬停查看。 */
+  min-width: 0;
   max-width: 100%;
   padding: 3px 6px;
   overflow: hidden;
@@ -1335,11 +1350,48 @@ select:focus-visible {
   border-radius: 999px;
   background: var(--card-solid);
   color: var(--muted);
+  cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 8.5px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.retag-layer-tag:hover {
+  border-color: var(--strong);
+  color: var(--text);
+}
+
+/* 被单独划掉的标签：保留可读性，一眼看出它不会进入合并 */
+.retag-layer-tag.is-dropped {
+  border-style: dashed;
+  opacity: .5;
+  text-decoration: line-through;
+}
+
+.retag-layer-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.retag-layer-tool {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card-solid);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.retag-layer-tool:hover {
+  border-color: var(--strong);
+  color: var(--text);
 }
 
 .image-node {

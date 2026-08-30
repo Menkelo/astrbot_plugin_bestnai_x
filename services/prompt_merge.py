@@ -465,6 +465,27 @@ def _ordered_retag_layer_categories(values: Iterable[str]) -> list[str]:
     return [category for category in RETAG_LAYER_CATEGORIES if category in selected]
 
 
+# 单条原图标签的移除清单上限。卡片里的标签来自一次反推，正常远少于此；
+# 这个上限只是挡住畸形/恶意载荷带来的无谓开销。
+MAX_RETAG_DROP_TAGS = 256
+
+
+def normalize_retag_layer_tags(values: Any) -> set[str]:
+    """把前端传来的单条标签规范成可比对的 key 集合。
+
+    卡片里的 chip 来自 :func:`group_prompt_tags`，那边发出去的是**原子**
+    （``_flatten_atoms``），所以这里也按原子的 ``_key`` 口径归一，两边才对得上。
+    """
+
+    if not isinstance(values, (list, tuple, set, frozenset)):
+        return set()
+    return {
+        key
+        for value in list(values)[:MAX_RETAG_DROP_TAGS]
+        if (key := _key(str(value or "")))
+    }
+
+
 def _source_identity_keys(character: str = "", series: str = "") -> set[str]:
     keys: set[str] = set()
     for value in (character, series):
@@ -518,17 +539,32 @@ def merge_retag_prompt_details(
     mode: str = "edit",
     preserve_categories: Any = None,
     drop_categories: Any = None,
+    drop_tags: Any = None,
 ) -> Dict[str, Any]:
     """Merge image tags and return a structured conflict summary.
 
     Plain user tags replace conflicting source-image categories. ``mode`` is
     retained only for compatibility with older callers and always normalizes
     to ``edit``.
+
+    ``drop_tags`` 是分类级 ``drop_categories`` 的细粒度补充：只删掉点名的那
+    几条原图标签，同类的其余标签照常参与合并。
     """
     merge_mode = normalize_retag_mode(mode)
     user_text = normalize_prompt_ascii(translated_user_prompt or "").strip()
     raw_user_text = original_user_prompt or user_text
     source_tokens = _tokens(retag_prompt)
+    dropped_tag_keys = normalize_retag_layer_tags(drop_tags)
+    if dropped_tag_keys:
+        # 在这里过滤就够了：retag_prompt 全函数只在上一行被消费一次，
+        # 后面所有原图相关的推导（source_atoms 等）都从 source_tokens 出发。
+        # 只在一个 token 的原子**全部**被点名时才丢弃它，避免带权重的
+        # `1.3::a, b ::` 因为单个原子命中就被整段抹掉。
+        source_tokens = [
+            token
+            for token in source_tokens
+            if not ((keys := _token_keys(token)) and keys <= dropped_tag_keys)
+        ]
     user_tokens = _tokens(user_text)
     preserved_categories = normalize_retag_layer_categories(preserve_categories)
     dropped_categories = normalize_retag_layer_categories(drop_categories)
@@ -784,6 +820,7 @@ def merge_retag_prompt(
     mode: str = "edit",
     preserve_categories: Any = None,
     drop_categories: Any = None,
+    drop_tags: Any = None,
 ) -> str:
     """Compatibility wrapper returning only the merged prompt string."""
 
@@ -800,5 +837,6 @@ def merge_retag_prompt(
             mode=mode,
             preserve_categories=preserve_categories,
             drop_categories=drop_categories,
+            drop_tags=drop_tags,
         )["prompt"]
     )

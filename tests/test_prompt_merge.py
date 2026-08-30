@@ -21,10 +21,12 @@ sys.modules.setdefault("astrbot", astrbot_module)
 sys.modules.setdefault("astrbot.api", astrbot_api_module)
 
 from astrbot_plugin_bestnai_x.services.prompt_merge import (
+    MAX_RETAG_DROP_TAGS,
     extract_retag_mode,
     group_prompt_tags,
     merge_retag_prompt,
     merge_retag_prompt_details,
+    normalize_retag_layer_tags,
 )
 
 
@@ -464,6 +466,77 @@ class PromptOverrideMergeTest(unittest.TestCase):
         self.assertNotIn("school_uniform", details["prompt"])
         self.assertIn("black_hair", details["prompt"])
         self.assertEqual(details["dropCategories"], ["clothing"])
+
+    def test_dropped_single_tag_leaves_the_rest_of_its_category(self) -> None:
+        # 分类级移除是整类一刀切；这里只点名一条，同类其余标签要留下
+        source = f"{self.source}, blue_eyes, closed_eyes"
+        details = merge_retag_prompt_details(
+            "",
+            source,
+            weight_user=False,
+            drop_tags=["closed_eyes"],
+        )
+
+        self.assertNotIn("closed_eyes", details["prompt"])
+        self.assertIn("blue_eyes", details["prompt"])
+        self.assertIn("school_uniform", details["prompt"])
+
+    def test_dropped_tag_matching_ignores_case_and_spacing(self) -> None:
+        details = merge_retag_prompt_details(
+            "",
+            self.source,
+            weight_user=False,
+            drop_tags=["  School_Uniform  "],
+        )
+
+        self.assertNotIn("school_uniform", details["prompt"])
+        self.assertIn("black_hair", details["prompt"])
+
+    def test_dropped_tags_combine_with_dropped_categories(self) -> None:
+        source = f"{self.source}, blue_eyes, closed_eyes"
+        details = merge_retag_prompt_details(
+            "",
+            source,
+            weight_user=False,
+            drop_categories=["clothing"],
+            drop_tags=["closed_eyes"],
+        )
+
+        self.assertNotIn("school_uniform", details["prompt"])
+        self.assertNotIn("closed_eyes", details["prompt"])
+        self.assertIn("blue_eyes", details["prompt"])
+
+    def test_unknown_or_malformed_drop_tags_change_nothing(self) -> None:
+        baseline = merge_retag_prompt_details("", self.source, weight_user=False)
+
+        for value in (None, "not-a-list", [], ["", "   "], ["never_tagged"]):
+            with self.subTest(value=value):
+                details = merge_retag_prompt_details(
+                    "",
+                    self.source,
+                    weight_user=False,
+                    drop_tags=value,
+                )
+                self.assertEqual(details["prompt"], baseline["prompt"])
+
+    def test_drop_tag_normalizer_is_bounded_and_keyed(self) -> None:
+        self.assertEqual(normalize_retag_layer_tags(["A_Tag", "a_tag"]), {"a_tag"})
+        self.assertEqual(normalize_retag_layer_tags("nope"), set())
+        oversized = [f"tag_{index}" for index in range(MAX_RETAG_DROP_TAGS + 50)]
+        self.assertEqual(
+            len(normalize_retag_layer_tags(oversized)), MAX_RETAG_DROP_TAGS
+        )
+
+    def test_drop_tags_reach_the_compatibility_wrapper(self) -> None:
+        result = merge_retag_prompt(
+            "",
+            self.source,
+            weight_user=False,
+            drop_tags=["school_uniform"],
+        )
+
+        self.assertNotIn("school_uniform", result)
+        self.assertIn("black_hair", result)
 
     def test_locked_hair_survives_structured_character_replacement(self) -> None:
         result = merge_retag_prompt(

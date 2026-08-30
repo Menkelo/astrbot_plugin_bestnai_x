@@ -83,6 +83,7 @@ from .services.prompt_builder import (
     save_image_to_temp,
 )
 from .services.prompt_merge import (
+    MAX_RETAG_DROP_TAGS,
     RETAG_LAYER_CATEGORIES,
     extract_retag_mode,
     group_prompt_tags,
@@ -669,6 +670,14 @@ class BestNAIPlugin(Star):
             for category in RETAG_LAYER_CATEGORIES
             if category in retag_drop_categories
         ]
+        # 单条标签的移除清单：分类级移除的细粒度补充，同类其余标签不受影响。
+        # 载荷来自客户端，先确认是列表——传字符串会被逐字符迭代成一堆单字。
+        raw_retag_drop_tags = payload.get("retagDropTags")
+        retag_drop_tags = [
+            text
+            for value in (raw_retag_drop_tags if isinstance(raw_retag_drop_tags, list) else [])
+            if isinstance(value, str) and (text := value.strip())
+        ][:MAX_RETAG_DROP_TAGS]
         if retag_character and not prompt_has_tag(retag_prompt, retag_character):
             # Do not trust stale structured metadata after an older retag
             # result was edited or migrated; the prompt itself is authoritative.
@@ -713,6 +722,7 @@ class BestNAIPlugin(Star):
                 {
                     "锁定原图": ordered_retag_preserve_categories,
                     "移除原图": ordered_retag_drop_categories,
+                    "移除标签": retag_drop_tags,
                 },
             )
 
@@ -836,6 +846,7 @@ class BestNAIPlugin(Star):
                     weight_user=True,
                     preserve_categories=retag_preserve_categories,
                     drop_categories=retag_drop_categories,
+                    drop_tags=retag_drop_tags,
                 )
                 working_prompt = str(merge_details.get("prompt") or "")
                 # 多角色还原文本常同时带全局计数和各段落裸计数，叠加会多画人
@@ -1005,6 +1016,7 @@ class BestNAIPlugin(Star):
                 "artist": resolved_artist_name,
                 "retagPreserveCategories": ordered_retag_preserve_categories,
                 "retagDropCategories": ordered_retag_drop_categories,
+                "retagDropTags": retag_drop_tags,
                 "raw": raw_mode,
                 "model": gen_config.model,
                 "seed": result.seed,

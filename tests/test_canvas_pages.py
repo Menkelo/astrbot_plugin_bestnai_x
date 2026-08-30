@@ -238,8 +238,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("makeRetagLayerCard(node, sourceImage, element)", render)
         self.assertIn("stack.appendChild(retagLayerCard)", render)
         self.assertNotIn("body.appendChild(retagLayerCard)", render)
-        self.assertIn('document.createTextNode("原图标签图层")', editor)
-        self.assertNotIn('document.createTextNode("原图标签图层 / Source tags")', editor)
+        self.assertIn('document.createTextNode("原图标签")', editor)
+        self.assertNotIn('document.createTextNode("原图标签图层")', editor)
         self.assertIn('["auto", "自动"]', editor)
         self.assertIn('["preserve", "锁定"]', editor)
         self.assertIn('["drop", "移除"]', editor)
@@ -878,8 +878,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.1.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.1.0"', constants)
+        self.assertIn("version: 4.2.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.2.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1238,6 +1238,94 @@ class CanvasPageBridgeTest(unittest.TestCase):
         thumb_block = styles.split(".asset-stack-thumb {", 1)[1].split("}", 1)[0]
         self.assertIn("height: 72%", thumb_block)
         self.assertNotIn("aspect-ratio", thumb_block)
+
+    def test_source_tags_support_per_tag_removal(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        # 分类级移除是整类一刀切；单条移除补上「同类里只想去掉某几条」
+        self.assertIn("function toggleRetagDroppedTag(node, tag)", editor)
+        self.assertIn("function isRetagTagDropped(node, tag)", editor)
+        self.assertIn("retagDropTags: retagDroppedTags(node)", editor)
+
+        # chip 要是真按钮，键盘可达；不能只在 code 上挂 click
+        card_body = editor.split("function makeRetagLayerCard", 1)[1]
+        self.assertIn('chip = document.createElement("button")', card_body)
+        self.assertIn("is-dropped", card_body)
+
+        # 存的必须是原始标签，不是双语显示文本，否则后端比对不上
+        self.assertIn("toggleRetagDroppedTag(node, tag)", card_body)
+
+        self.assertIn(".retag-layer-tag.is-dropped", styles)
+        self.assertIn("line-through", styles)
+
+        # 后端：载荷 → 合并 → 回传三段都要通
+        self.assertIn('payload.get("retagDropTags")', main)
+        self.assertIn("drop_tags=retag_drop_tags", main)
+        self.assertIn('"retagDropTags": retag_drop_tags', main)
+
+    def test_source_tags_card_offers_copy_and_restore(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        card_body = editor.split("function makeRetagLayerCard", 1)[1]
+
+        # 复制只给没划掉的标签，否则复制出来的和实际生效的对不上
+        self.assertIn("!isRetagTagDropped(node, tag)", card_body)
+        self.assertIn('copyPlainText(text, "复制原图标签")', card_body)
+        self.assertIn("retagDropTags: []", card_body)
+
+    def test_attach_stack_width_follows_the_prompt_card(self) -> None:
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        # 挂载区是单列 grid，两张卡共用这一列。grid item 默认 min-width: auto，
+        # 列宽会被最宽的内容顶开——于是原图标签一展开，高级参数卡被一起拉宽，
+        # 不再跟随提示词卡片。minmax(0, 1fr) 把列钉死在容器宽度上。
+        stack_block = styles.split(".node-attach-stack {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", stack_block)
+        self.assertIn("width: 100%", stack_block)
+
+        # 标签 chip 是 nowrap 的 flex item：min-width: auto 等于整条标签长度，
+        # 而且会压过 max-width: 100%。必须显式归零才能截断而不是撑宽。
+        tag_block = styles.split(".retag-layer-tag {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", tag_block)
+        self.assertIn("white-space: nowrap", tag_block)
+        self.assertIn("text-overflow: ellipsis", tag_block)
+
+    def test_variety_plus_is_hidden_when_v5_is_selected(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        # V5 的官方能力表里没有 skip_cfg_above_sigma，后端 model_supports_variety_boost()
+        # 会直接把它从载荷删掉。UI 上摆一个点了不生效的开关只会误导用户。
+        self.assertIn("function modelSupportsVariety(model)", editor)
+        self.assertIn('includes("diffusion-5")', editor)
+
+        adv_body = editor.split("function makeAdvancedParamsCard", 1)[1].split(
+            "function makeRetagLayerCard", 1
+        )[0]
+        self.assertIn("varietyLabel.hidden = !varietySupported", adv_body)
+        # 不可用时也不该计进折叠标题的摘要，否则摘要会显示一个并不生效的 Variety+
+        self.assertIn(
+            "if (varietySupported && node.meta?.varietyBoost) parts.push",
+            adv_body,
+        )
+
+        # 切模型时重建高级参数卡，否则开关不会跟着模型变
+        self.assertIn(".node-attach-stack > .adv-card", editor)
+        self.assertIn("staleAdvCard.replaceWith(freshAdvCard)", editor)
+
+        # .raw-toggle 的 display:inline-flex 是作者样式表，会盖过浏览器默认的
+        # [hidden] { display:none }。不补这条规则，hidden 根本藏不住。
+        self.assertIn(".raw-toggle[hidden]", styles)
+
+    def test_switching_model_keeps_the_variety_setting(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        model_change = editor.split("const modelField = makeSelectField(", 1)[1].split(
+            "const countField", 1
+        )[0]
+
+        # 只藏不清：来回切模型不该把用户已经勾好的 Variety+ 吃掉
+        self.assertNotIn("varietyBoost: false", model_change)
 
     def test_canvas_scripts_must_parse(self) -> None:
         # canvas.js 一旦语法错误整个画布都会白屏（图标全空、节点不渲染），

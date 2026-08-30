@@ -1372,6 +1372,13 @@ function renderPromptNode(node) {
       node.model = value;
       rememberPromptDefaults({ model: value });
       clearDebugTrace(node);
+      // 重建高级参数卡：Variety+ 是否可用取决于模型。复用同一个构造函数，
+      // 可见性、勾选态、摘要三处一次对齐；折叠状态存在 node.meta 里不会丢。
+      const staleAdvCard = element.querySelector(".node-attach-stack > .adv-card");
+      if (staleAdvCard) {
+        const freshAdvCard = makeAdvancedParamsCard(node, element);
+        if (freshAdvCard) staleAdvCard.replaceWith(freshAdvCard);
+      }
       scheduleSave();
       recordOperation("切换模型", `${node.title || "提示词节点"} · ${value}`);
     },
@@ -1440,7 +1447,7 @@ function renderPromptNode(node) {
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
   body.append(prompt, options, footer, status);
-  // 卡片下方挂载区：高级参数卡在上，原图标签图层在下
+  // 卡片下方挂载区：高级参数卡在上，原图标签在下
   const advCard = makeAdvancedParamsCard(node, element);
   const retagLayerCard = makeRetagLayerCard(node, sourceImage, element);
   if (advCard || retagLayerCard) {
@@ -1604,6 +1611,41 @@ function retagLayerCategoryLists(node) {
   };
 }
 
+// 单条标签的移除清单。分类级「移除」是整类一刀切，这里补的是「同类里只想
+// 去掉某几条」——反推出 blue_eyes, closed_eyes 时只划掉后者。
+function retagDroppedTags(node) {
+  const raw = node?.meta?.retagDropTags;
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const result = [];
+  raw.forEach((value) => {
+    const text = String(value ?? "").trim();
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(text);
+  });
+  return result;
+}
+
+function isRetagTagDropped(node, tag) {
+  const key = String(tag ?? "").trim().toLowerCase();
+  return !!key && retagDroppedTags(node).some((value) => value.toLowerCase() === key);
+}
+
+function toggleRetagDroppedTag(node, tag) {
+  const text = String(tag ?? "").trim();
+  if (!text) return false;
+  const current = retagDroppedTags(node);
+  const key = text.toLowerCase();
+  const next = current.filter((value) => value.toLowerCase() !== key);
+  const dropped = next.length === current.length;
+  if (dropped) next.push(text);
+  node.meta = { ...(node.meta || {}), retagDropTags: next };
+  return dropped;
+}
+
 function collapseRetagLayers() {
   let changed = false;
   state.nodes.forEach((node) => {
@@ -1620,6 +1662,13 @@ function collapseRetagLayers() {
   });
   if (changed) scheduleSave();
   return changed;
+}
+
+// 与后端 models/config.py 的 model_supports_variety_boost() 保持一致：
+// V5 的官方能力表里没有 skip_cfg_above_sigma，请求清洗会直接把它删掉。
+// 既然点了不生效，UI 上就不该摆着这个开关。
+function modelSupportsVariety(model) {
+  return !String(model || "").toLowerCase().includes("diffusion-5");
 }
 
 function makeAdvancedParamsCard(node, nodeElement) {
@@ -1655,13 +1704,17 @@ function makeAdvancedParamsCard(node, nodeElement) {
   const effectiveValue = (key, retagKey, fallback) =>
     node.meta?.[key] || node.meta?.[retagKey] || fallback;
 
+  // Variety+ 只对 V4.x 有效。切到 V5 时不清 node.meta.varietyBoost——
+  // 那样来回切模型会把用户的设置吃掉；只是藏起来、并且不计入摘要。
+  const varietySupported = modelSupportsVariety(node.model || state.config.defaultModel);
+
   const refreshSummary = () => {
     const parts = [
       `步数 ${effectiveValue("steps", "retagSteps", 28)}`,
       `引导 ${effectiveValue("scale", "retagScale", 7)}`,
       `Rescale ${effectiveValue("cfgRescale", "retagCfgRescale", 0)}`,
     ];
-    if (node.meta?.varietyBoost) parts.push("Variety+");
+    if (varietySupported && node.meta?.varietyBoost) parts.push("Variety+");
     summary.textContent = parts.join(" · ");
   };
 
@@ -1773,6 +1826,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   );
   const varietyLabel = document.createElement("label");
   varietyLabel.className = "raw-toggle adv-variety";
+  varietyLabel.hidden = !varietySupported;
   varietyLabel.dataset.tooltip = "Variety+：提升构图与姿态多样性，缓解高引导下出图雷同；默认关闭";
   const variety = document.createElement("input");
   variety.type = "checkbox";
@@ -1830,7 +1884,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   toggle.setAttribute("aria-expanded", "false");
   const title = document.createElement("span");
   title.className = "retag-layer-title";
-  title.append(icon("layers-3"), document.createTextNode("原图标签图层"));
+  title.append(icon("layers-3"), document.createTextNode("原图标签"));
   const summary = document.createElement("span");
   summary.className = "retag-layer-summary";
   const chevron = icon("chevron-down", "retag-layer-chevron");
@@ -1841,7 +1895,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
   body.hidden = true;
   const help = document.createElement("p");
   help.className = "retag-layer-help";
-  help.textContent = "自动按改图规则覆盖同类原图标签；锁定会保留原图分类；移除只删除原图标签，手写同类标签仍可加入。";
+  help.textContent = "自动按改图规则覆盖同类原图标签；锁定会保留原图分类；移除只删除原图标签，手写同类标签仍可加入。点单条标签可单独划掉它。";
   body.appendChild(help);
 
   const refreshSummary = () => {
@@ -1849,8 +1903,42 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const parts = [`${entries.length} 类`];
     if (lists.preserve.length) parts.push(`锁定 ${lists.preserve.length}`);
     if (lists.drop.length) parts.push(`移除 ${lists.drop.length}`);
+    const droppedTags = retagDroppedTags(node).length;
+    if (droppedTags) parts.push(`划掉 ${droppedTags} 条`);
     summary.textContent = parts.join(" · ");
   };
+
+  const tools = document.createElement("div");
+  tools.className = "retag-layer-tools";
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "retag-layer-tool";
+  copyButton.textContent = "复制全部";
+  copyButton.title = "复制未被划掉的原图标签（逗号分隔）";
+  copyButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const text = entries
+      .flatMap(([, categoryTags]) => categoryTags)
+      .filter((tag) => !isRetagTagDropped(node, tag))
+      .join(", ");
+    copyPlainText(text, "复制原图标签");
+  });
+  const restoreButton = document.createElement("button");
+  restoreButton.type = "button";
+  restoreButton.className = "retag-layer-tool";
+  restoreButton.textContent = "恢复划掉";
+  restoreButton.title = "取消所有单条标签的移除标记";
+  restoreButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!retagDroppedTags(node).length) return;
+    pushHistory();
+    node.meta = { ...(node.meta || {}), retagDropTags: [] };
+    clearDebugTrace(node);
+    scheduleSave();
+    renderNodes();
+  });
+  tools.append(copyButton, restoreButton);
+  body.appendChild(tools);
 
   entries.forEach(([category, tags]) => {
     const row = document.createElement("section");
@@ -1910,10 +1998,31 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const tagList = document.createElement("div");
     tagList.className = "retag-layer-tags";
     tags.forEach((tag) => {
-      const chip = document.createElement("code");
+      // 用 button 而不是 code：这是可操作元素，键盘也要能到达
+      const chip = document.createElement("button");
+      chip.type = "button";
       chip.className = "retag-layer-tag";
-      chip.textContent = bilingualRetagTagText(tag, tagTranslations);
-      chip.title = chip.textContent;
+      const display = bilingualRetagTagText(tag, tagTranslations);
+      chip.textContent = display;
+      const syncChip = () => {
+        const dropped = isRetagTagDropped(node, tag);
+        chip.classList.toggle("is-dropped", dropped);
+        chip.setAttribute("aria-pressed", String(dropped));
+        chip.title = dropped
+          ? `${display}\n已移除，点击恢复`
+          : `${display}\n点击移除这一条原图标签`;
+      };
+      syncChip();
+      chip.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pushHistory();
+        // 存原始标签而不是双语显示文本，后端要按它比对
+        toggleRetagDroppedTag(node, tag);
+        syncChip();
+        refreshSummary();
+        clearDebugTrace(node);
+        scheduleSave();
+      });
       tagList.appendChild(chip);
     });
     row.append(rowHead, tagList);
@@ -3383,6 +3492,7 @@ async function generateFromNode(id, {
       artist: node.artist,
       retagPreserveCategories: retagLayerCategories.preserve,
       retagDropCategories: retagLayerCategories.drop,
+      retagDropTags: retagDroppedTags(node),
       raw: !!node.raw,
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
