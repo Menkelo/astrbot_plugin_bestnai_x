@@ -2532,22 +2532,205 @@ function renderDebugBar() {
   refreshIcons(els.debugBar);
 }
 
+// 自定义下拉。原生 select 展开后的列表由系统绘制，样式化不了，也不跟随
+// 画布缩放。这里用触发按钮 + 单例浮层替掉它。
+//
+// 浮层做成全局单例而不是每个字段一份：renderNodes 每次都整层重建，节点一多
+// 就是几十份浮层 DOM 白白重建。浮层挂在 body 上用 fixed 定位，这样不受节点
+// 的 transform / overflow 影响。
+const selectMenu = {
+  element: null,
+  trigger: null,
+  items: [],
+  activeIndex: -1,
+  onPick: null,
+};
+
+function ensureSelectMenu() {
+  if (selectMenu.element) return selectMenu.element;
+  const menu = document.createElement("div");
+  menu.className = "node-select-menu";
+  menu.id = "nodeSelectMenu";
+  menu.setAttribute("role", "listbox");
+  menu.hidden = true;
+  menu.addEventListener("pointerdown", (event) => event.stopPropagation());
+  document.body.appendChild(menu);
+  selectMenu.element = menu;
+  return menu;
+}
+
+function selectMenuOpen() {
+  return !!selectMenu.element && !selectMenu.element.hidden;
+}
+
+function closeSelectMenu() {
+  if (!selectMenuOpen()) return;
+  selectMenu.element.hidden = true;
+  selectMenu.element.replaceChildren();
+  selectMenu.trigger?.setAttribute("aria-expanded", "false");
+  selectMenu.trigger?.removeAttribute("aria-activedescendant");
+  selectMenu.trigger?.classList.remove("open");
+  selectMenu.trigger = null;
+  selectMenu.items = [];
+  selectMenu.activeIndex = -1;
+  selectMenu.onPick = null;
+}
+
+function highlightSelectMenu(index) {
+  const options = [...selectMenu.element.children];
+  if (!options.length) return;
+  const next = ((Number(index) || 0) % options.length + options.length) % options.length;
+  selectMenu.activeIndex = next;
+  options.forEach((option, i) => option.classList.toggle("active", i === next));
+  options[next].scrollIntoView({ block: "nearest" });
+  selectMenu.trigger?.setAttribute("aria-activedescendant", options[next].id);
+}
+
+function placeSelectMenu(trigger) {
+  const menu = selectMenu.element;
+  const rect = trigger.getBoundingClientRect();
+  if (!rect.width || !rect.height || !trigger.isConnected) {
+    closeSelectMenu();
+    return;
+  }
+  // 缩小画布时触发器会很窄，浮层不跟着缩到读不了
+  const width = Math.max(rect.width, 168);
+  menu.style.width = `${width}px`;
+  const maxLeft = Math.max(12, window.innerWidth - width - 12);
+  menu.style.left = `${Math.max(12, Math.min(rect.left, maxLeft))}px`;
+  // 先量高度再决定往下还是往上开
+  const height = menu.getBoundingClientRect().height;
+  const below = window.innerHeight - rect.bottom;
+  menu.style.top = below < height + 16 && rect.top > height + 16
+    ? `${rect.top - height - 6}px`
+    : `${rect.bottom + 6}px`;
+}
+
+function openSelectMenu(trigger, items, value, onPick) {
+  const menu = ensureSelectMenu();
+  closeSelectMenu();
+  selectMenu.trigger = trigger;
+  selectMenu.items = items;
+  selectMenu.onPick = onPick;
+
+  const options = items.map((item, index) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.id = `nodeSelectOption_${index}`;
+    option.className = "node-select-option";
+    option.tabIndex = -1;
+    option.setAttribute("role", "option");
+    const selected = String(item.value) === String(value);
+    option.setAttribute("aria-selected", String(selected));
+    option.classList.toggle("selected", selected);
+    const text = document.createElement("span");
+    text.textContent = item.label;
+    option.append(text);
+    if (selected) option.append(icon("check", "node-select-check"));
+    option.addEventListener("click", () => {
+      const pick = selectMenu.onPick;
+      // 原生 select 会立即把当前值显示在控件里；自定义按钮也要在回调
+      // 触发重绘之前同步更新，否则用户会看到旧选项停留在按钮上。
+      if (selectMenu.trigger) {
+        selectMenu.trigger.textContent = item.label;
+        selectMenu.trigger.setAttribute("aria-activedescendant", option.id);
+      }
+      closeSelectMenu();
+      pick?.(item.value);
+    });
+    option.addEventListener("pointerenter", () => highlightSelectMenu(index));
+    return option;
+  });
+  menu.replaceChildren(...options);
+  menu.hidden = false;
+  refreshIcons(menu);
+  trigger.setAttribute("aria-expanded", "true");
+  trigger.classList.add("open");
+  placeSelectMenu(trigger);
+  const selectedIndex = items.findIndex((item) => String(item.value) === String(value));
+  highlightSelectMenu(selectedIndex < 0 ? 0 : selectedIndex);
+}
+
 function makeSelectField(label, items, value, onChange) {
-  const field = document.createElement("label");
+  const field = document.createElement("div");
   field.className = "field-label";
   const caption = document.createElement("span");
   caption.textContent = label;
-  const select = document.createElement("select");
-  select.className = "node-select";
-  (items || []).forEach((item) => {
-    const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
-    select.appendChild(option);
+
+  const options = (items || []).map((item) => ({
+    value: String(item.value ?? ""),
+    label: String(item.label ?? ""),
+  }));
+  let currentValue = String(value || "");
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "node-select";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-controls", "nodeSelectMenu");
+  trigger.setAttribute("aria-expanded", "false");
+  const current = options.find((item) => item.value === String(value || ""));
+  trigger.textContent = current?.label || options[0]?.label || "";
+
+  // 卡片的 pointerdown 会 bringNodeToFront 移动 DOM，移动会让随后的 click
+  // 落空——和折叠卡的 toggle 是同一个坑。
+  trigger.addEventListener("pointerdown", (event) => event.stopPropagation());
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (selectMenu.trigger === trigger) {
+      closeSelectMenu();
+      return;
+    }
+    openSelectMenu(trigger, options, currentValue, (nextValue) => {
+      currentValue = String(nextValue);
+      onChange(nextValue);
+    });
   });
-  select.value = value || "";
-  select.addEventListener("change", () => onChange(select.value));
-  field.append(caption, select);
+  trigger.addEventListener("keydown", (event) => {
+    const isOpen = selectMenu.trigger === trigger;
+    if (event.key === "Escape" && isOpen) {
+      event.preventDefault();
+      closeSelectMenu();
+      return;
+    }
+    if (event.key === "Tab" && isOpen) {
+      closeSelectMenu();
+      return;
+    }
+    if (isOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        highlightSelectMenu(selectMenu.activeIndex + delta);
+        return;
+      }
+      if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        highlightSelectMenu(event.key === "Home" ? 0 : options.length - 1);
+        return;
+      }
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        const item = selectMenu.items[selectMenu.activeIndex];
+        const pick = selectMenu.onPick;
+        if (item) {
+          trigger.textContent = item.label;
+          currentValue = item.value;
+          closeSelectMenu();
+          pick?.(item.value);
+        }
+      }
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openSelectMenu(trigger, options, currentValue, (nextValue) => {
+      currentValue = String(nextValue);
+      onChange(nextValue);
+    });
+    if (event.key === "ArrowUp") highlightSelectMenu(selectMenu.activeIndex - 1);
+  });
+
+  field.append(caption, trigger);
   return field;
 }
 
@@ -2584,6 +2767,8 @@ function renderImageNode(node) {
     frame.appendChild(artistBadge);
   } else if (node.meta?.raw) {
     // 与画师角标互斥：raw 不追加画师预设，服务端也就不会回 artist。
+    // 沿用同一套样式——两者同属"这张图用了什么"的标注，不该长得不一样；
+    // image-raw-badge 只作语义标记，不覆盖任何视觉属性。
     // 不挂 title——这类角标是 pointer-events: none，原生提示根本触发不了。
     const rawBadge = document.createElement("span");
     rawBadge.className = "image-artist-badge image-raw-badge";
@@ -2705,6 +2890,9 @@ function restoreEditingFocus(snapshot) {
 function renderNodes() {
   // 生成完成等异步流程会触发重渲染。整层 replaceChildren 会把正在输入的
   // 焦点和光标一起清掉，所以先记下来再还原。
+  // 下拉浮层挂在 body 上，触发器却属于即将被 replaceChildren 移除的节点；
+  // 先收起，避免浮层残留并继续回调一枚游离的旧节点。
+  closeSelectMenu();
   const editing = captureEditingFocus();
   els.nodeLayer.replaceChildren();
   state.nodes.forEach((node) => {
@@ -3043,6 +3231,9 @@ function alignPromptRatioToImage(promptNode, imageNode) {
 }
 
 function renderViewport() {
+  // 平移/缩放会改变触发器的 fixed 坐标；让用户重新点击打开，避免菜单漂在
+  // 旧位置，也避免它盖住正在进行的画布手势。
+  closeSelectMenu();
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
@@ -5888,6 +6079,7 @@ els.viewport.addEventListener("drop", (event) => {
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
+window.addEventListener("blur", closeSelectMenu);
 
 document.getElementById("addPromptBtn").addEventListener("click", () => addNode(createPromptNode()));
 document.getElementById("addNoteBtn").addEventListener("click", () => addNode(createNoteNode()));
@@ -5990,6 +6182,10 @@ els.newProjectInput.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("pointerdown", (event) => {
+  if (selectMenuOpen()) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest(".node-select, .node-select-menu")) closeSelectMenu();
+  }
   if (!els.projectMenu.hidden && !event.target.closest(".project-switcher, .project-menu")) {
     setProjectMenu(false);
   }
@@ -6186,6 +6382,10 @@ document.addEventListener("keydown", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const editing = !!target?.closest("textarea, input, select, [contenteditable='true']");
   if (event.key === "Escape") {
+    if (selectMenuOpen()) {
+      closeSelectMenu();
+      return;
+    }
     if (!els.assetDeleteModal.hidden) {
       closeAssetDeleteModal();
       return;
@@ -6255,6 +6455,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", () => {
+  if (selectMenuOpen()) placeSelectMenu(selectMenu.trigger);
   setCanvasContextMenu(false);
   setNodeContextMenu(false);
   setSelectionContextMenu(false);

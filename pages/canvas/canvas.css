@@ -797,6 +797,8 @@ select:focus-visible {
   gap: 2px;
 }
 
+/* 画师角标与「原始提示词」角标（.image-raw-badge）共用这套样式：两者互斥、
+   占右上角同一位置，同属"这张图用了什么"的标注，不该长得不一样。 */
 .image-artist-badge,
 .asset-thumb-artist {
   overflow: hidden;
@@ -809,14 +811,6 @@ select:focus-visible {
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 原始提示词出图的角标，占画师角标同一个位置（两者互斥：raw 不追加画师）。
-   换个配色，免得一眼看去以为是画师名。 */
-.image-raw-badge {
-  border-color: rgba(37, 99, 235, .25);
-  background: rgba(37, 99, 235, .1);
-  color: var(--prompt);
 }
 
 .node-action {
@@ -962,7 +956,7 @@ select:focus-visible {
 /* 自定义下拉箭头。原生箭头各系统长得都不一样，和卡片其余部分格格不入。
    用两条边框转 45° 画 V 形，比 mask + SVG data URI 可靠得多（后者一旦
    解析失败就会退化成一个灰色小方块），颜色也直接跟着 CSS 变量走。
-   pointer-events: none 把点击交还给底下的 select。 */
+   pointer-events: none 把点击交还给底下的按钮。 */
 .field-label::after {
   position: absolute;
   right: 12px;
@@ -1007,11 +1001,67 @@ select:focus-visible {
   background: var(--soft);
 }
 
-/* 展开的选项列表由系统绘制，样式化能力有限；这两条在 Chromium 上能生效，
-   在其他内核上会被忽略，属于兜底而非保证。 */
-.node-select option {
+/* 自定义下拉浮层：挂在 body 上并用 fixed 定位，不受画布缩放、节点 overflow
+   或卡片重建影响。 */
+.node-select-menu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  max-height: min(280px, calc(100vh - 24px));
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
   background: var(--card-solid);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .18);
+}
+
+.node-select-menu[hidden] {
+  display: none;
+}
+
+.node-select-option {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.node-select-option:hover,
+.node-select-option.active {
+  background: var(--soft-2);
   color: var(--text);
+}
+
+.node-select-option.selected {
+  color: var(--text);
+  font-weight: 750;
+}
+
+.node-select-option:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.node-select-check {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  color: var(--prompt);
+}
+
+.field-label:has(.node-select.open)::after {
+  bottom: 12px;
+  transform: rotate(225deg);
 }
 
 .node-footer {
@@ -1082,10 +1132,10 @@ select:focus-visible {
 [data-tooltip]:has(input:focus-visible)::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
-  /* 悬停约 2s 才浮现。鼠标扫过卡片时不该一路弹气泡——这些说明是"想不起来
+  /* 悬停约 1s 才浮现。鼠标扫过卡片时不该一路弹气泡——这些说明是"想不起来
      再看一眼"的东西，不是随时要糊在脸上的。延迟只写在这条 hover 规则里，
      下面那些按位置覆盖 transform 的规则不碰 transition-delay，会继承到。 */
-  transition-delay: 2s;
+  transition-delay: 1s;
 }
 
 /* 「原始提示词」在 footer 最左，居中展开会向左溢出，这一个仍走左对齐。 */

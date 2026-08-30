@@ -880,8 +880,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.1"', constants)
+        self.assertIn("version: 4.4.2", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.2"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1249,11 +1249,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 与画师角标互斥：raw 不追加画师，服务端也就不回 artist
         self.assertIn("} else if (node.meta?.raw) {", editor)
         self.assertIn('rawBadge.className = "image-artist-badge image-raw-badge"', editor)
-        self.assertIn(".image-raw-badge {", styles)
+        # raw 与画师角标共用同一套视觉样式，image-raw-badge 只保留语义标记
+        self.assertIn(".image-artist-badge,", styles)
+        self.assertIn("image-raw-badge", styles)
         # 这类角标是 pointer-events: none，原生 title 根本触发不了，别照抄
         self.assertNotIn("rawBadge.title", editor)
 
     def test_node_selects_are_not_browser_default(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         select_rule = styles.split("\n.node-select {", 1)[1].split("}", 1)[0]
@@ -1273,6 +1276,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("position: relative", label_rule)
         # 右侧要给箭头让出空间，否则长选项会压到箭头上
         self.assertIn("padding: 0 26px 0 9px", select_rule)
+        # 原生列表无法统一样式，字段使用 body 上的单例浮层，并支持键盘和外部点击关闭
+        self.assertIn("const selectMenu = {", editor)
+        self.assertIn('menu.className = "node-select-menu"', editor)
+        self.assertIn('trigger.setAttribute("aria-haspopup", "listbox")', editor)
+        self.assertIn('event.key === "ArrowDown" || event.key === "ArrowUp"', editor)
+        self.assertIn('if (event.key === "Escape" && isOpen)', editor)
+        self.assertIn('if (!target?.closest(".node-select, .node-select-menu")) closeSelectMenu()', editor)
+        self.assertIn(".node-select-menu {", styles)
 
     def test_raw_toggle_tooltips_stay_inside_the_card(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1289,8 +1300,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # hover 态若不带 translateX 会在悬停瞬间跳回左对齐
         hover_rule = styles.split("[data-tooltip]:hover::after,", 1)[1].split("}", 1)[0]
         self.assertIn("translateX(-50%)", hover_rule)
-        # 悬停约 2s 才浮现：鼠标扫过卡片不该一路弹气泡
-        self.assertIn("transition-delay: 2s", hover_rule)
+        # 悬停约 1s 才浮现：鼠标扫过卡片不该一路弹气泡
+        self.assertIn("transition-delay: 1s", hover_rule)
         # 延迟只加在浮现那一侧，收起要立刻——base 规则不能带 delay
         self.assertNotIn("transition-delay", base_rule)
 
