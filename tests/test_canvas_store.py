@@ -311,17 +311,38 @@ class CanvasStoreTest(unittest.TestCase):
                             "retagCfgRescale": "not-a-number",
                             "retagNoiseSchedule": "x" * 99,
                         },
-                    }
+                    },
+                    {
+                        "id": "prompt_2",
+                        "type": "prompt",
+                        "x": 0,
+                        "y": 0,
+                        "prompt": "1boy",
+                        # 真实会遇到的超限值：NAI 图常见 50 步 / 引导 11
+                        "meta": {
+                            "retagSteps": 50,
+                            "retagScale": 15,
+                            "retagCfgRescale": 4,
+                        },
+                    },
                 ],
                 "connections": [],
             }
         )
 
         meta = sanitized["nodes"][0]["meta"]
-        self.assertEqual(meta["retagSteps"], 200)
+        # 上限对齐 MAX_STEPS：放宽会让旧存档里的原图 50 步原样读回来，
+        # 滑条卡在 28、数字标签却写 50，而实际发出去的仍是后端钳过的 28
+        self.assertEqual(meta["retagSteps"], 28)
         self.assertEqual(meta["retagScale"], 0)
         self.assertEqual(meta["retagCfgRescale"], 0)
         self.assertLessEqual(len(meta["retagNoiseSchedule"]), 32)
+
+        # 超上限要截到边界，不能原样收下，也不能退化成 0（那会回落默认值）
+        clamped = sanitized["nodes"][1]["meta"]
+        self.assertEqual(clamped["retagSteps"], 28)
+        self.assertEqual(clamped["retagScale"], 10)
+        self.assertEqual(clamped["retagCfgRescale"], 1)
 
     def test_workspace_drops_malformed_seed_values_instead_of_clamping_them(self) -> None:
         workspace = self.store.sanitize_workspace(

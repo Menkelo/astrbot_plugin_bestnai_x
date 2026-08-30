@@ -1725,6 +1725,16 @@ function modelSupportsVariety(model) {
   return !String(model || "").toLowerCase().includes("diffusion-5");
 }
 
+// 高级参数的取值范围，与后端 MIN/MAX_STEPS、MIN/MAX_SCALE 和 cfg_rescale
+// 的钳制口径一一对应。滑条、反推带回的原图参数、缓存复用三处共用这一份：
+// 原图 50 步会被后端 _clamp_steps 钳成 28，前端若按更宽的范围原样收下，
+// 就会出现滑条卡在 28、数字标签写 50、实际发 28 的四处对不上。
+const ADV_RANGES = {
+  steps: { min: 1, max: 28 },
+  scale: { min: 1, max: 10 },
+  cfgRescale: { min: 0, max: 1 },
+};
+
 function makeAdvancedParamsCard(node, nodeElement) {
   const card = document.createElement("aside");
   card.className = "retag-layer-card adv-card";
@@ -1868,8 +1878,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
       "步数",
       "steps",
       "retagSteps",
-      1,
-      28,
+      ADV_RANGES.steps.min,
+      ADV_RANGES.steps.max,
       1,
       "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费",
       28,
@@ -1879,8 +1889,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
       "引导",
       "scale",
       "retagScale",
-      1,
-      10,
+      ADV_RANGES.scale.min,
+      ADV_RANGES.scale.max,
       0.1,
       "提示词引导强度（Prompt Guidance / CFG）：越高越贴合提示词、细节更锐，过高会过饱和；V4.5/V5 建议 5-7",
       7,
@@ -1890,8 +1900,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
       "Rescale",
       "cfgRescale",
       "retagCfgRescale",
-      0,
-      1,
+      ADV_RANGES.cfgRescale.min,
+      ADV_RANGES.cfgRescale.max,
       0.05,
       "CFG Rescale：抑制高引导下的色彩过曝（deepfried 观感），常用 0-0.3",
       0,
@@ -3823,9 +3833,14 @@ function normalizeNaiSeed(value) {
   return Number.isInteger(seed) && seed >= 1 && seed <= 4_294_967_295 ? seed : 0;
 }
 
-function boundedMetaNumber(value, min, max) {
+// 超范围时截取到边界，而不是当成"没这个值"：反推带回原图 50 步应该落到上限
+// 28，不该退化成未设置再回落默认值；引导同理（原图 15 该截到 10，而不是变回
+// 默认 7）。缺失/非数字/非正数返回 0——下游一律用 falsy 判定"未设置"，
+// Rescale 的合法 0 值走这条路的结果也是 0。
+function clampMetaNumber(value, min, max) {
   const number = Number(value);
-  return Number.isFinite(number) && number >= min && number <= max ? number : 0;
+  if (!Number.isFinite(number) || number <= 0) return 0;
+  return Math.min(Math.max(number, min), max);
 }
 
 function sourceImageSeed(node) {
@@ -3888,9 +3903,13 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
     charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts),
     charUseCoords: !!meta.retagUseCoords,
-    steps: boundedMetaNumber(meta.retagSteps, 1, 200),
-    scale: boundedMetaNumber(meta.retagScale, 0.1, 100),
-    cfgRescale: boundedMetaNumber(meta.retagCfgRescale, 0, 100),
+    steps: clampMetaNumber(meta.retagSteps, ADV_RANGES.steps.min, ADV_RANGES.steps.max),
+    scale: clampMetaNumber(meta.retagScale, ADV_RANGES.scale.min, ADV_RANGES.scale.max),
+    cfgRescale: clampMetaNumber(
+      meta.retagCfgRescale,
+      ADV_RANGES.cfgRescale.min,
+      ADV_RANGES.cfgRescale.max,
+    ),
     noiseSchedule: String(meta.retagNoiseSchedule || "").trim(),
     sampler: String(meta.retagSampler || "").trim(),
   };
@@ -3986,9 +4005,13 @@ async function retagFromNode(
       // fromMetadata 只说明"prompt 是内嵌的"，命中画布缓存时它是 false，
       // 可图片里的 steps/sampler 依然有效——拿它当门禁等于整批丢掉。
       // 走视觉模型的分支后端根本不返回这几个字段，取到 undefined 自然归零。
-      retagSteps: boundedMetaNumber(result?.steps, 1, 200),
-      retagScale: boundedMetaNumber(result?.scale, 0.1, 100),
-      retagCfgRescale: boundedMetaNumber(result?.cfgRescale, 0, 100),
+      retagSteps: clampMetaNumber(result?.steps, ADV_RANGES.steps.min, ADV_RANGES.steps.max),
+      retagScale: clampMetaNumber(result?.scale, ADV_RANGES.scale.min, ADV_RANGES.scale.max),
+      retagCfgRescale: clampMetaNumber(
+        result?.cfgRescale,
+        ADV_RANGES.cfgRescale.min,
+        ADV_RANGES.cfgRescale.max,
+      ),
       retagNoiseSchedule: String(result?.noiseSchedule || "").trim(),
       retagSampler: String(result?.sampler || "").trim(),
       retagLayerExpanded: node.meta?.retagLayerExpanded === true,

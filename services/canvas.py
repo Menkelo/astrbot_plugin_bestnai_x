@@ -740,11 +740,14 @@ class CanvasStore:
                 "userResized": bool(raw_meta.get("userResized", False)),
                 # 用户手动选过画幅后，首次链接图片的自动对齐不再生效
                 "ratioManual": bool(raw_meta.get("ratioManual", False)),
-                # 命中内嵌参数时沿用的原图采样参数（0/空 = 未命中）
-                "retagSteps": int(_bounded_number(raw_meta.get("retagSteps"), 0, 0, 200)),
-                "retagScale": _bounded_number(raw_meta.get("retagScale"), 0, 0, 100),
+                # 命中内嵌参数时沿用的原图采样参数（0/空 = 未命中）。
+                # 上限对齐 MAX_STEPS / MAX_SCALE 与 cfg_rescale 的钳制口径：
+                # 放宽会让旧存档里的原图 50 步原样读回来，滑条卡在 28、数字
+                # 却写 50。下限保持 0，那是"未设置"的哨兵值，不能钳成 1。
+                "retagSteps": int(_bounded_number(raw_meta.get("retagSteps"), 0, 0, 28)),
+                "retagScale": _bounded_number(raw_meta.get("retagScale"), 0, 0, 10),
                 "retagCfgRescale": _bounded_number(
-                    raw_meta.get("retagCfgRescale"), 0, 0, 100
+                    raw_meta.get("retagCfgRescale"), 0, 0, 1
                 ),
                 "retagNoiseSchedule": _short_text(raw_meta.get("retagNoiseSchedule"), 32),
                 "retagSampler": _short_text(raw_meta.get("retagSampler"), 48),

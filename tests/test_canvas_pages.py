@@ -878,8 +878,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.3.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.3.1"', constants)
+        self.assertIn("version: 4.3.2", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.3.2"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1103,17 +1103,30 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 采样参数来自对原图文件的解析，直接采纳后端返回值。fromMetadata 只
         # 说明 prompt 是内嵌的，命中画布缓存时它是 false，但图片里的采样参数
         # 依然有效——拿它当门禁会把这批参数整批丢成 0
-        self.assertIn("retagSteps: boundedMetaNumber(result?.steps, 1, 200)", editor)
-        self.assertIn("retagScale: boundedMetaNumber(result?.scale, 0.1, 100)", editor)
         self.assertIn(
-            "retagCfgRescale: boundedMetaNumber(result?.cfgRescale, 0, 100)",
+            "retagSteps: clampMetaNumber(result?.steps, ADV_RANGES.steps.min, ADV_RANGES.steps.max)",
             editor,
         )
+        self.assertIn(
+            "retagScale: clampMetaNumber(result?.scale, ADV_RANGES.scale.min, ADV_RANGES.scale.max)",
+            editor,
+        )
+        self.assertIn("retagCfgRescale: clampMetaNumber(", editor)
         self.assertIn(
             'retagNoiseSchedule: String(result?.noiseSchedule || "").trim()',
             editor,
         )
         self.assertIn('retagSampler: String(result?.sampler || "").trim()', editor)
+        # 滑条范围与反推钳制共用一份常量，且对齐后端 MAX_STEPS / MAX_SCALE，
+        # 否则会出现滑条卡 28、数字标签写 50、实际发 28 的三处不一致
+        self.assertIn("const ADV_RANGES = {", editor)
+        self.assertIn("steps: { min: 1, max: 28 }", editor)
+        self.assertIn("scale: { min: 1, max: 10 }", editor)
+        self.assertIn("cfgRescale: { min: 0, max: 1 }", editor)
+        self.assertIn("ADV_RANGES.steps.max", editor)
+        # 超范围要截到边界，不是当成"没这个值"再回落默认
+        self.assertIn("return Math.min(Math.max(number, min), max);", editor)
+        self.assertNotIn("function boundedMetaNumber", editor)
         # 防回归：不能再把 fromMetadata 当成采样参数的开关
         for key in (
             "retagSteps",
