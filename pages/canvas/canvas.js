@@ -199,7 +199,7 @@ const state = {
   pendingDeleteCanvasId: "",
   currentCanvasTitle: "未命名项目",
   assetCache: new Map(),
-  promptDefaults: { ratio: "", artist: "", model: "", advSteps: 0, advScale: 0, advCfgRescale: 0, advVariety: false },
+  promptDefaults: { ratio: "", artist: "", model: "" },
   debugEnabled: (() => {
     try { return localStorage.getItem("bestnaiCanvasDebug") === "1"; } catch (_) { return false; }
   })(),
@@ -984,16 +984,15 @@ function createPromptNode(point = null) {
     prompt: "",
     ratio: adv.ratio || state.config.defaultRatio || "2:3",
     artist: adv.artist,
-    // 模型与高级参数跟随上一张卡片；张数不跟随（始终 1 张）
+    // 画幅/画师/模型跟随上一张卡片；张数不跟随（始终 1 张）。
+    // 高级参数刻意不跟随：它写进的是 meta.steps 这一层，而优先级是
+    // meta.steps > meta.retagSteps > 默认值——跟随值会永久盖住反推读到的
+    // 原图参数，出现"读到了 28 步，滑条却是上一张的 20"。新卡片留空，
+    // 让滑条按 原图参数 → 默认值（28 / 7 / 0，Variety+ 关）回落。
     model: adv.model || state.config.defaultModel || "nai-diffusion-4-5-full",
     raw: false,
     createdAt: new Date().toISOString(),
-    meta: {
-      ...(Number(adv.advSteps) > 0 ? { steps: Number(adv.advSteps) } : {}),
-      ...(Number(adv.advScale) > 0 ? { scale: Number(adv.advScale) } : {}),
-      ...(Number(adv.advCfgRescale) > 0 ? { cfgRescale: Number(adv.advCfgRescale) } : {}),
-      ...(adv.advVariety === true ? { varietyBoost: true } : {}),
-    },
+    meta: {},
   };
 }
 
@@ -1042,10 +1041,6 @@ function loadPromptDefaults(preferences = {}) {
     ratio: String(preferences.ratio || stored.ratio || ""),
     artist: String(preferences.artist || stored.artist || ""),
     model: String(preferences.model || stored.model || ""),
-    advSteps: Number(preferences.advSteps ?? stored.advSteps ?? 0) || 0,
-    advScale: Number(preferences.advScale ?? stored.advScale ?? 0) || 0,
-    advCfgRescale: Number(preferences.advCfgRescale ?? stored.advCfgRescale ?? 0) || 0,
-    advVariety: preferences.advVariety ?? stored.advVariety === true,
   };
   const fallbackRatio = state.config.defaultRatio
     || optionValue(state.config.ratios?.[0])
@@ -1055,10 +1050,6 @@ function loadPromptDefaults(preferences = {}) {
     ratio: hasOptionValue(state.config.ratios, persisted.ratio) ? persisted.ratio : fallbackRatio,
     artist: normalizedArtistSelection(persisted.artist),
     model: hasOptionValue(state.config.models, persisted.model) ? persisted.model : fallbackModel,
-    advSteps: Math.min(28, Math.max(0, persisted.advSteps)),
-    advScale: Math.min(10, Math.max(0, persisted.advScale)),
-    advCfgRescale: Math.min(1, Math.max(0, persisted.advCfgRescale)),
-    advVariety: persisted.advVariety === true,
   };
 }
 
@@ -1069,10 +1060,6 @@ function persistCanvasPreferences() {
     ratio: state.promptDefaults.ratio || "",
     artist: state.promptDefaults.artist || "",
     model: state.promptDefaults.model || "",
-    advSteps: state.promptDefaults.advSteps || 0,
-    advScale: state.promptDefaults.advScale || 0,
-    advCfgRescale: state.promptDefaults.advCfgRescale || 0,
-    advVariety: state.promptDefaults.advVariety === true,
   };
   state.preferencesSaveChain = state.preferencesSaveChain
     .catch(() => undefined)
@@ -1783,13 +1770,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   };
 
   // 滑条：实时显示生效值；手写值标 • 并可 ↺ 一键回落
-  const advDefaultKeys = {
-    steps: "advSteps",
-    scale: "advScale",
-    cfgRescale: "advCfgRescale",
-  };
   const advSlider = (label, key, retagKey, min, max, step, tooltip, fallback, format) => {
-    const advDefaultKey = advDefaultKeys[key] || key;
     const field = document.createElement("div");
     field.className = "adv-field";
 
@@ -1834,8 +1815,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
       clearDebugTrace(node);
     });
     slider.addEventListener("change", () => {
-      // 手动设置过的参数作为新卡片的跟随默认值
-      rememberPromptDefaults({ [advDefaultKey]: Number(slider.value) });
+      // 不再写入跟随默认：滑条改的是 meta.steps 这一层，把它记成新卡片的
+      // 初值会永久盖住反推读到的原图参数。这里只落盘当前节点。
       scheduleSave();
     });
     reset.addEventListener("click", () => {
@@ -1843,8 +1824,6 @@ function makeAdvancedParamsCard(node, nodeElement) {
         const { [key]: _dropped, ...meta } = node.meta;
         node.meta = meta;
       }
-      // 重置同时清除跟随默认（0 = 不跟随）
-      rememberPromptDefaults({ [advDefaultKey]: 0 });
       paint();
       refreshSummary();
       clearDebugTrace(node);
@@ -1921,7 +1900,6 @@ function makeAdvancedParamsCard(node, nodeElement) {
   variety.checked = !!node.meta?.varietyBoost;
   variety.addEventListener("change", () => {
     node.meta = { ...(node.meta || {}), varietyBoost: variety.checked };
-    rememberPromptDefaults({ advVariety: variety.checked });
     refreshSummary();
     clearDebugTrace(node);
     scheduleSave();

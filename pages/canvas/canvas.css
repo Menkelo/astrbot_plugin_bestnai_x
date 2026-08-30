@@ -960,24 +960,26 @@ select:focus-visible {
 }
 
 /* 自定义下拉箭头。原生箭头各系统长得都不一样，和卡片其余部分格格不入。
-   用 mask 上色而不是把颜色写进 SVG，这样箭头跟着 CSS 变量走。
+   用两条边框转 45° 画 V 形，比 mask + SVG data URI 可靠得多（后者一旦
+   解析失败就会退化成一个灰色小方块），颜色也直接跟着 CSS 变量走。
    pointer-events: none 把点击交还给底下的 select。 */
 .field-label::after {
   position: absolute;
-  right: 10px;
-  bottom: 14px;
-  width: 9px;
+  right: 12px;
+  bottom: 15px;
+  width: 6px;
   height: 6px;
-  background: var(--faint);
+  border-right: 1.6px solid var(--faint);
+  border-bottom: 1.6px solid var(--faint);
   content: "";
-  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
   pointer-events: none;
-  transition: background .15s var(--ease);
-  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  transform: rotate(45deg);
+  transition: border-color .15s var(--ease);
 }
 
 .field-label:hover::after {
-  background: var(--muted);
+  border-right-color: var(--muted);
+  border-bottom-color: var(--muted);
 }
 
 .node-select {
@@ -1044,8 +1046,8 @@ select:focus-visible {
 }
 
 /* 统一的说明气泡。原先只挂在 .raw-toggle 上，高级参数卡那边只能退回原生
-   title——原生 title 要悬停约一秒才出来、外观还是系统样式，和这套秒开的
-   气泡对不上。改挂到属性选择器后，任何元素加 data-tooltip 都是同一套。
+   title——两套外观、两种触发时机。改挂到属性选择器后，任何元素加
+   data-tooltip 都是同一套。
    气泡默认居中展开：卡片内的窄元素（三列滑条）左对齐会直接顶出边界。 */
 [data-tooltip] {
   position: relative;
@@ -1070,7 +1072,8 @@ select:focus-visible {
   opacity: 0;
   pointer-events: none;
   transform: translateX(-50%) translateY(3px);
-  transition: opacity .15s var(--ease), transform .15s var(--ease);
+  /* 收起不带延迟：移开鼠标应该立刻消失，延迟只加在浮现那一侧 */
+  transition: opacity .12s var(--ease), transform .12s var(--ease);
   white-space: normal;
 }
 
@@ -1079,6 +1082,10 @@ select:focus-visible {
 [data-tooltip]:has(input:focus-visible)::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  /* 悬停约 2s 才浮现。鼠标扫过卡片时不该一路弹气泡——这些说明是"想不起来
+     再看一眼"的东西，不是随时要糊在脸上的。延迟只写在这条 hover 规则里，
+     下面那些按位置覆盖 transform 的规则不碰 transition-delay，会继承到。 */
+  transition-delay: 2s;
 }
 
 /* 「原始提示词」在 footer 最左，居中展开会向左溢出，这一个仍走左对齐。 */

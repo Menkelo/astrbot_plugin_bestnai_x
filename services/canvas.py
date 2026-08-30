@@ -433,10 +433,6 @@ class CanvasStore:
                     "ratio": "",
                     "artist": "",
                     "model": "",
-                    "advSteps": 0,
-                    "advScale": 0,
-                    "advCfgRescale": 0,
-                    "advVariety": False,
                 },
             )
 
@@ -470,10 +466,6 @@ class CanvasStore:
             "ratio": _short_text(payload.get("ratio"), 32),
             "artist": _short_text(payload.get("artist"), 120),
             "model": _short_text(payload.get("model"), 64),
-            "advSteps": int(_bounded_number(payload.get("advSteps"), 0, 0, 200)),
-            "advScale": _bounded_number(payload.get("advScale"), 0, 0, 100),
-            "advCfgRescale": _bounded_number(payload.get("advCfgRescale"), 0, 0, 1),
-            "advVariety": bool(payload.get("advVariety", False)),
         }
 
     def save_preferences(self, payload: Any) -> Dict[str, str]:
@@ -491,14 +483,6 @@ class CanvasStore:
                 current["artist"] = _short_text(payload.get("artist"), 120)
             if "model" in payload:
                 current["model"] = _short_text(payload.get("model"), 64)
-            if "advSteps" in payload:
-                current["advSteps"] = int(_bounded_number(payload.get("advSteps"), 0, 0, 200))
-            if "advScale" in payload:
-                current["advScale"] = _bounded_number(payload.get("advScale"), 0, 0, 100)
-            if "advCfgRescale" in payload:
-                current["advCfgRescale"] = _bounded_number(payload.get("advCfgRescale"), 0, 0, 1)
-            if "advVariety" in payload:
-                current["advVariety"] = bool(payload.get("advVariety", False))
             self._write_json(self.preferences_path, current)
             return current
 

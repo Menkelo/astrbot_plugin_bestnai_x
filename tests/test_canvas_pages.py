@@ -880,8 +880,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.0"', constants)
+        self.assertIn("version: 4.4.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1259,12 +1259,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
         select_rule = styles.split("\n.node-select {", 1)[1].split("}", 1)[0]
         self.assertIn("appearance: none", select_rule)
         self.assertIn("-webkit-appearance: none", select_rule)
-        # 去掉原生箭头后必须自己补一个，否则看不出这是下拉框
+        # 去掉原生箭头后必须自己补一个，否则看不出这是下拉框。
+        # 用边框转 45° 画，不用 mask + SVG data URI——后者一旦解析失败
+        # 会退化成一个灰色小方块，比没有箭头更难看。
         arrow_rule = styles.split(".field-label::after {", 1)[1].split("}", 1)[0]
-        self.assertIn("mask:", arrow_rule)
+        self.assertIn("transform: rotate(45deg)", arrow_rule)
+        self.assertIn("border-right: 1.6px solid var(--faint)", arrow_rule)
+        self.assertIn("border-bottom: 1.6px solid var(--faint)", arrow_rule)
         self.assertIn("pointer-events: none", arrow_rule)
-        # 箭头颜色走变量而不是写死在 SVG 里
-        self.assertIn("background: var(--faint)", arrow_rule)
+        self.assertNotIn("mask", arrow_rule)
         # 伪元素要有定位锚点
         label_rule = styles.split("\n.field-label {", 1)[1].split("}", 1)[0]
         self.assertIn("position: relative", label_rule)
@@ -1286,6 +1289,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # hover 态若不带 translateX 会在悬停瞬间跳回左对齐
         hover_rule = styles.split("[data-tooltip]:hover::after,", 1)[1].split("}", 1)[0]
         self.assertIn("translateX(-50%)", hover_rule)
+        # 悬停约 2s 才浮现：鼠标扫过卡片不该一路弹气泡
+        self.assertIn("transition-delay: 2s", hover_rule)
+        # 延迟只加在浮现那一侧，收起要立刻——base 规则不能带 delay
+        self.assertNotIn("transition-delay", base_rule)
 
         # 贴边的几个反而要回到左/右对齐，否则居中会溢出
         self.assertIn(".raw-toggle:not(.raw-translate):not(.adv-variety)::after", styles)
@@ -1418,12 +1425,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("(slot % 2) * (imageNodeWidth + 48)", editor)
         # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖
         self.assertEqual(editor.count("node.meta?.retagSteps || undefined"), 1)
-        # 模型与高级参数跟随上一张卡片（rememberPromptDefaults）；张数不跟随
+        # 画幅/画师/模型跟随上一张卡片；张数与高级参数不跟随
         self.assertIn("rememberPromptDefaults({ model: value })", editor)
-        self.assertIn("rememberPromptDefaults({ [advDefaultKey]: Number(slider.value) })", editor)
-        self.assertIn("rememberPromptDefaults({ advVariety: variety.checked })", editor)
         self.assertIn("model: adv.model || state.config.defaultModel", editor)
         self.assertNotIn("count: adv.count", editor)
+        # 高级参数写的是 meta.steps 这一层，而优先级是 meta.steps >
+        # meta.retagSteps > 默认值——跟随会永久盖住反推读到的原图参数，
+        # 出现"读到 28 步、滑条却是上一张的 20"。新卡片必须留空 meta。
+        self.assertIn("meta: {},", editor)
+        for key in ("advSteps", "advScale", "advCfgRescale", "advVariety"):
+            self.assertNotIn(key, editor)
         # 选项行两行布局：画幅+画师 / 模型+张数
         self.assertIn('makeSelectField("画幅"', editor)
         self.assertIn("options.append(ratioField, artistField, modelField, countField)", editor)

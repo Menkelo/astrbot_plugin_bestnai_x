@@ -583,9 +583,8 @@ class CanvasStoreTest(unittest.TestCase):
                 "ratio": "3:2",
                 "artist": "watercolor",
                 "model": "nai-diffusion-5-full",
+                # 高级参数不再跟随，这几个键即使传上来也不该被存下
                 "advSteps": 24,
-                "advScale": 5.5,
-                "advCfgRescale": 0.2,
                 "advVariety": True,
             }
         )
@@ -595,12 +594,11 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(saved["lastCanvasId"], first["id"])
         self.assertEqual(saved["ratio"], "3:2")
         self.assertEqual(saved["artist"], "watercolor")
-        # 模型与高级参数跟随默认值同样持久化
+        # 模型跟随默认值同样持久化
         self.assertEqual(saved["model"], "nai-diffusion-5-full")
-        self.assertEqual(saved["advSteps"], 24)
-        self.assertEqual(saved["advScale"], 5.5)
-        self.assertEqual(saved["advCfgRescale"], 0.2)
-        self.assertTrue(saved["advVariety"])
+        # 跟随高级参数会永久盖住反推读到的原图参数，这套偏好已经整体移除
+        for key in ("advSteps", "advScale", "advCfgRescale", "advVariety"):
+            self.assertNotIn(key, saved)
 
         reopened.trash_canvas(first["id"])
         self.assertEqual(reopened.load_preferences()["lastCanvasId"], "")
