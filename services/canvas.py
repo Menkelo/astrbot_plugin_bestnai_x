@@ -159,6 +159,29 @@ def _sanitize_retag_tag_groups(value: Any) -> Dict[str, List[str]]:
     return groups
 
 
+def _sanitize_retag_drop_tags(value: Any) -> List[str]:
+    """用户在原图标签卡里单独划掉的标签。
+
+    这些标签必须落盘：不存的话刷新一次画布，划掉的标签就全部复活了。
+    去重口径与 _sanitize_retag_tag_groups 一致（casefold），长度与条数
+    同样受限，避免畸形工作区把存档撑大。
+    """
+    if not isinstance(value, list):
+        return []
+    result: List[str] = []
+    seen: Set[str] = set()
+    for raw_tag in value:
+        if len(result) >= MAX_RETAG_TAGS_TOTAL:
+            break
+        tag = _short_text(raw_tag, MAX_RETAG_TAG_LENGTH).strip(" ,;\n\t")
+        key = tag.casefold()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        result.append(tag)
+    return result
+
+
 def _sanitize_retag_layer_modes(value: Any) -> Dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -724,6 +747,9 @@ class CanvasStore:
                     raw_meta.get("retagCfgRescale"), 0, 0, 100
                 ),
                 "retagNoiseSchedule": _short_text(raw_meta.get("retagNoiseSchedule"), 32),
+                "retagSampler": _short_text(raw_meta.get("retagSampler"), 48),
+                # 勾选原始提示词后仍要翻译中文：raw 只关画师/质量词，不再连翻译一起关
+                "rawTranslate": bool(raw_meta.get("rawTranslate", False)),
                 # 节点高级参数：steps/scale/cfgRescale 仅在设置过时落盘
                 # （见下方循环），缺省物化成 0 会被前端当成"手写值 0"
                 "varietyBoost": bool(raw_meta.get("varietyBoost", False)),
@@ -756,6 +782,9 @@ class CanvasStore:
             retag_layer_modes = _sanitize_retag_layer_modes(raw_meta.get("retagLayerModes"))
             if retag_layer_modes:
                 meta["retagLayerModes"] = retag_layer_modes
+            retag_drop_tags = _sanitize_retag_drop_tags(raw_meta.get("retagDropTags"))
+            if retag_drop_tags:
+                meta["retagDropTags"] = retag_drop_tags
             # V4+ 多角色参数：结构化透传给生图网关的分区生成
             char_prompts = _sanitize_char_prompts(raw_meta.get("retagCharPrompts"))
             if char_prompts:

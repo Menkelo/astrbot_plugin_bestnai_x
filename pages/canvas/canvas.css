@@ -1198,6 +1198,18 @@ select:focus-visible {
   gap: 12px;
 }
 
+/* 「已沿用原图参数」提示行：采样器/噪声计划没有控件，只能靠这行让用户看见 */
+.adv-source-note {
+  margin: 0;
+  color: var(--faint);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.adv-source-note[hidden] {
+  display: none;
+}
+
 .adv-field {
   display: grid;
   min-width: 0;

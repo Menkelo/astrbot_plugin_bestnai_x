@@ -1403,8 +1403,33 @@ function renderPromptNode(node) {
   const raw = document.createElement("input");
   raw.type = "checkbox";
   raw.checked = !!node.raw;
+
+  // 原始提示词模式默认连中文翻译一起关掉。对写中文描述的人来说那等于 raw
+  // 不可用，所以给一个只放开翻译的逃生口——画师串和质量词仍然不加。
+  const rawTranslateLabel = document.createElement("label");
+  rawTranslateLabel.className = "raw-toggle raw-translate";
+  rawTranslateLabel.dataset.tooltip = "原始提示词模式下仍然把中文翻译成 NAI tags；画师预设和质量词依旧不会追加。";
+  const rawTranslate = document.createElement("input");
+  rawTranslate.type = "checkbox";
+  rawTranslate.checked = !!node.meta?.rawTranslate;
+  rawTranslate.addEventListener("change", () => {
+    node.meta = { ...(node.meta || {}), rawTranslate: rawTranslate.checked };
+    clearDebugTrace(node);
+    scheduleSave();
+    recordOperation("切换原始提示词翻译", rawTranslate.checked ? "开启" : "关闭");
+  });
+  rawTranslate.addEventListener("click", (event) => {
+    if (event.detail > 0) rawTranslate.blur();
+  });
+  rawTranslateLabel.append(rawTranslate, document.createTextNode("翻译"));
+  const syncRawTranslate = () => {
+    rawTranslateLabel.hidden = !raw.checked;
+  };
+  syncRawTranslate();
+
   raw.addEventListener("change", () => {
     node.raw = raw.checked;
+    syncRawTranslate();
     clearDebugTrace(node);
     scheduleSave();
     recordOperation("切换原始提示词", raw.checked ? "开启" : "关闭");
@@ -1431,7 +1456,7 @@ function renderPromptNode(node) {
     runPromptNode(node.id);
   });
   commands.append(generate);
-  footer.append(rawLabel, commands);
+  footer.append(rawLabel, rawTranslateLabel, commands);
 
   const status = document.createElement("div");
   status.className = `node-status${node.error ? " error" : ""}`;
@@ -1787,6 +1812,26 @@ function makeAdvancedParamsCard(node, nodeElement) {
     field.append(head, slider);
     return field;
   };
+  // 命中原图内嵌参数时，把"到底沿用了什么"直接写出来。步数/引导/Rescale 的
+  // 滑条已经落到原图值上，但采样器和噪声计划没有对应控件，不写出来用户根本
+  // 看不出反推有没有把参数带过来。
+  const sourceNote = document.createElement("p");
+  sourceNote.className = "adv-source-note";
+  const sourceParts = [
+    ["retagSteps", "步数"],
+    ["retagScale", "引导"],
+    ["retagCfgRescale", "Rescale"],
+    ["retagSampler", "采样器"],
+    ["retagNoiseSchedule", "噪声"],
+  ]
+    .map(([key, label]) => (node.meta?.[key] ? `${label} ${node.meta[key]}` : ""))
+    .filter(Boolean);
+  sourceNote.textContent = sourceParts.length
+    ? `已沿用原图参数：${sourceParts.join(" · ")}`
+    : "";
+  sourceNote.hidden = !sourceParts.length;
+  sourceNote.title = "反推命中原图内嵌参数时自动沿用；拖动滑条即可覆盖，↺ 回落原图值";
+
   const advRow = document.createElement("div");
   advRow.className = "adv-row";
   advRow.append(
@@ -1853,7 +1898,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
     scheduleSave();
   });
 
-  body.append(advRow, varietyLabel);
+  body.append(sourceNote, advRow, varietyLabel);
   refreshSummary();
   setOpen(node.meta?.advParamsExpanded === true);
   card.append(toggle, body);
@@ -3455,10 +3500,14 @@ async function generateFromNode(id, {
     renderAll();
     return;
   }
-  const translationSource = node.raw
+  // \u4e0e\u540e\u7aef `not raw_mode or raw_translate` \u4e00\u81f4\u3002\u5355\u72ec\u52fe\u4e86\u7ffb\u8bd1\u65f6\u72b6\u6001\u6587\u6848\u4e5f\u8981
+  // \u8ddf\u7740\u8d70\u7ffb\u8bd1\u5206\u652f\uff0c\u5426\u5219\u754c\u9762\u663e\u793a"\u6b63\u5728\u751f\u6210\u56fe\u7247"\u800c\u540e\u53f0\u5176\u5b9e\u5728\u7b49\u7ffb\u8bd1\u63a5\u53e3\u3002
+  const rawTranslateOn = !!node.raw && !!node.meta?.rawTranslate;
+  const translationSource = (node.raw && !rawTranslateOn)
     ? ""
     : (retagged ? basePrompt : workingPrompt);
-  const willTranslate = !node.raw && /[\u4e00-\u9fff]/.test(translationSource);
+  const willTranslate = (!node.raw || rawTranslateOn)
+    && /[\u4e00-\u9fff]/.test(translationSource);
   const canReuseTranslation = willTranslate
     && node.meta?.translationSource === translationSource
     && !!node.meta?.translationResult;
@@ -3484,6 +3533,7 @@ async function generateFromNode(id, {
       scale: node.meta?.scale || node.meta?.retagScale || undefined,
       cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined,
       noise_schedule: node.meta?.retagNoiseSchedule || undefined,
+      sampler: node.meta?.retagSampler || undefined,
       varietyPlus: !!node.meta?.varietyBoost,
       retagPrompt: requestRetagPrompt,
       retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
@@ -3494,6 +3544,8 @@ async function generateFromNode(id, {
       retagDropCategories: retagLayerCategories.drop,
       retagDropTags: retagDroppedTags(node),
       raw: !!node.raw,
+      // 只有 raw 打开时这个开关才有意义，关掉 raw 就不该把它带出去
+      rawTranslate: rawTranslateOn,
       translationSource,
       cachedTranslationSource: node.meta?.translationSource || "",
       cachedTranslation: node.meta?.translationResult || "",
@@ -3686,6 +3738,10 @@ function clearRetagCache(node) {
     retagScale: _retagScale,
     retagCfgRescale: _retagCfgRescale,
     retagNoiseSchedule: _retagNoiseSchedule,
+    retagSampler: _retagSampler,
+    // 划掉的标签是针对某一张原图的；换图后再套用只会误伤新图的标签。
+    // 落盘之后它不会随刷新自动消失，所以断开时必须显式清掉。
+    retagDropTags: _retagDropTags,
     translatedPrompt: _translatedPrompt,
     translationSource: _translationSource,
     translationResult: _translationResult,
@@ -3807,6 +3863,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     scale: boundedMetaNumber(meta.retagScale, 0.1, 100),
     cfgRescale: boundedMetaNumber(meta.retagCfgRescale, 0, 100),
     noiseSchedule: String(meta.retagNoiseSchedule || "").trim(),
+    sampler: String(meta.retagSampler || "").trim(),
   };
 }
 
@@ -3908,6 +3965,9 @@ async function retagFromNode(
         : 0,
       retagNoiseSchedule: result.fromMetadata
         ? String(result?.noiseSchedule || "").trim()
+        : "",
+      retagSampler: result.fromMetadata
+        ? String(result?.sampler || "").trim()
         : "",
       retagLayerExpanded: node.meta?.retagLayerExpanded === true,
       translatedPrompt: retagPrompt,

@@ -523,6 +523,7 @@ class BestNAIPlugin(Star):
                     "scale": source_info.get("scale"),
                     "cfgRescale": source_info.get("cfg_rescale"),
                     "noiseSchedule": str(source_info.get("noise_schedule") or ""),
+                    "sampler": str(source_info.get("sampler") or ""),
                     "fromMetadata": from_metadata,
                     "fromCanvasCache": from_canvas_cache,
                 },
@@ -687,6 +688,10 @@ class BestNAIPlugin(Star):
         ratio = str(payload.get("ratio") or self.default_ratio).strip()
         artist_name = str(payload.get("artist") or "").strip()
         raw_mode = bool(payload.get("raw", False))
+        # 勾了原始提示词还想翻译中文时的逃生口。raw 的本意是"别给我加画师串和
+        # 质量词、别做同类替换"，把中文翻译一起关掉是顺带的副作用——对写中文
+        # 描述的人来说等于 raw 不可用。这个开关只放开翻译，其余 raw 语义不变。
+        raw_translate = bool(payload.get("rawTranslate", False))
 
         if not prompt and not retag_prompt:
             raise ValueError("请输入提示词")
@@ -726,8 +731,11 @@ class BestNAIPlugin(Star):
                 },
             )
 
-        # Raw canvas mode is literal: do not call the translator or Danbooru.
-        if has_chinese(clean_prompt) and not raw_mode:
+        # Raw canvas mode is literal: do not call the translator or Danbooru,
+        # unless the node explicitly opted back into translation.
+        if has_chinese(clean_prompt) and (not raw_mode or raw_translate):
+            if raw_mode:
+                trace.note("原始提示词模式", "已单独开启翻译")
             translation_source, untranslated_suffix, translated_source = (
                 resolve_translation_cache(
                     clean_prompt,
@@ -787,8 +795,10 @@ class BestNAIPlugin(Star):
         # continues through the category-aware merge below.
         if retag_prompt:
             if raw_mode:
+                # 用 working_prompt 而不是 clean_prompt：开了 raw 翻译时它就是
+                # 译文，没开时两者相等，行为不变。
                 working_prompt = ", ".join(
-                    part for part in (clean_prompt, retag_prompt) if part
+                    part for part in (working_prompt, retag_prompt) if part
                 )
                 trace.note("原始提示词图层", working_prompt)
             else:
@@ -880,15 +890,19 @@ class BestNAIPlugin(Star):
             cfg_rescale = gen_config.cfg_rescale
         cfg_rescale = min(max(cfg_rescale, 0.0), 1.0)
         noise_schedule = str(payload.get("noise_schedule") or "").strip()
+        # 采样器同样来自原图内嵌参数。NAI 元数据里一直有它，之前解析完就丢了，
+        # 于是"沿用原图参数"独独漏掉采样器这一项。
+        source_sampler = str(payload.get("sampler") or "").strip()
         applied_source_params = {
             key: payload[key]
-            for key in ("steps", "scale", "cfg_rescale", "noise_schedule")
+            for key in ("steps", "scale", "cfg_rescale", "noise_schedule", "sampler")
             if payload.get(key)
         }
         gen_config = replace(
             gen_config,
             cfg_rescale=cfg_rescale,
             noise_schedule=noise_schedule or gen_config.noise_schedule,
+            sampler=source_sampler or gen_config.sampler,
         )
         if applied_source_params:
             trace.note("沿用原图采样参数", applied_source_params)

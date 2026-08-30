@@ -383,6 +383,71 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(len(meta["retagTagTranslations"]), 320)
         self.assertEqual(meta["retagTagTranslations"]["tag_0"], "标签 0")
 
+    def test_source_overrides_survive_round_trip(self) -> None:
+        # 这三项都是"改完刷新就白改"的重灾区：划掉的标签、raw 下的翻译开关、
+        # 反推带回来的采样器。不落盘的话用户每次刷新都要重来一遍。
+        workspace = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_overrides",
+                        "type": "prompt",
+                        "meta": {
+                            "retagDropTags": [
+                                "  blue_hair ,",
+                                "Blue_Hair",
+                                "",
+                                "white_dress",
+                                "z" * 500,
+                            ],
+                            "rawTranslate": True,
+                            "retagSampler": "k_euler_ancestral",
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+        meta = workspace["nodes"][0]["meta"]
+
+        # 去重按 casefold，顺序保留，空串丢掉，超长截断而不是整条丢掉
+        self.assertEqual(
+            meta["retagDropTags"][:2],
+            ["blue_hair", "white_dress"],
+        )
+        self.assertEqual(len(meta["retagDropTags"]), 3)
+        self.assertEqual(len(meta["retagDropTags"][2]), 160)
+        self.assertTrue(meta["rawTranslate"])
+        self.assertEqual(meta["retagSampler"], "k_euler_ancestral")
+
+    def test_source_overrides_are_bounded_and_typed(self) -> None:
+        workspace = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_bounds",
+                        "type": "prompt",
+                        "meta": {
+                            "retagDropTags": [f"tag_{index}" for index in range(400)],
+                            "rawTranslate": "yes",
+                        },
+                    },
+                    {
+                        "id": "prompt_bad_types",
+                        "type": "prompt",
+                        "meta": {"retagDropTags": "not_a_list"},
+                    },
+                ],
+                "connections": [],
+            }
+        )
+
+        first = workspace["nodes"][0]["meta"]
+        self.assertEqual(len(first["retagDropTags"]), 320)
+        self.assertIs(first["rawTranslate"], True)
+        # 非法类型不能炸掉整个工作区，静默丢弃即可
+        self.assertNotIn("retagDropTags", workspace["nodes"][1]["meta"])
+
     def test_debug_trace_survives_round_trip_and_is_bounded(self) -> None:
         long_value = "x" * 5000
         payload = {

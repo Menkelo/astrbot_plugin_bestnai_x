@@ -878,8 +878,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.2.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.2.0"', constants)
+        self.assertIn("version: 4.3.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.3.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1101,25 +1101,42 @@ class CanvasPageBridgeTest(unittest.TestCase):
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         # 命中内嵌参数时缓存原图采样参数，生成时随载荷回传
-        for key in ("retagSteps", "retagScale", "retagCfgRescale", "retagNoiseSchedule"):
+        for key in (
+            "retagSteps",
+            "retagScale",
+            "retagCfgRescale",
+            "retagNoiseSchedule",
+            "retagSampler",
+        ):
             self.assertIn(f"{key}: result.fromMetadata", editor)
         self.assertIn(
             "cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined",
             editor,
         )
         self.assertIn("noise_schedule: node.meta?.retagNoiseSchedule || undefined", editor)
+        self.assertIn("sampler: node.meta?.retagSampler || undefined", editor)
         # 断开重连时这些缓存必须一并清除
         for key in (
             "retagSteps",
             "retagScale",
             "retagCfgRescale",
             "retagNoiseSchedule",
+            "retagSampler",
+            "retagDropTags",
             "retagCharPrompts",
         ):
             self.assertIn(f"{key}: _{key}", editor.split("function clearRetagCache", 1)[1].split("function clearTranslationCache", 1)[0])
         # 后端把回传参数写进生图配置并在调试栏注明来源
-        self.assertIn('for key in ("steps", "scale", "cfg_rescale", "noise_schedule")', main_source)
+        self.assertIn(
+            'for key in ("steps", "scale", "cfg_rescale", "noise_schedule", "sampler")',
+            main_source,
+        )
+        self.assertIn("sampler=source_sampler or gen_config.sampler", main_source)
         self.assertIn("沿用原图采样参数", main_source)
+        # 采样器/噪声计划没有控件，只能靠这行提示让用户看见沿用了什么
+        self.assertIn("adv-source-note", editor)
+        self.assertIn("已沿用原图参数", editor)
+        self.assertIn(".adv-source-note", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
 
     def test_generation_status_matches_translation_state(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1128,7 +1145,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 不再有 raw/V5 的免翻译特例
         self.assertNotIn("function currentModelSupportsCjk", editor)
         self.assertIn(
-            "const willTranslate = !node.raw && /[\\u4e00-\\u9fff]/.test(translationSource)",
+            "const willTranslate = (!node.raw || rawTranslateOn)\n"
+            "    && /[\\u4e00-\\u9fff]/.test(translationSource)",
             editor,
         )
         self.assertLess(
@@ -1136,6 +1154,27 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor.index("正在翻译并生成图片"),
         )
         self.assertNotIn("正在生成图片（原始提示词）", editor)
+
+    def test_raw_mode_can_opt_back_into_translation(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+        store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
+
+        # 原始提示词默认连中文翻译一起关掉，"翻译"子开关只放开翻译这一件事
+        self.assertIn("rawTranslateOn = !!node.raw && !!node.meta?.rawTranslate", editor)
+        self.assertIn("rawTranslate: rawTranslateOn", editor)
+        # 子开关只在 raw 勾上时露出
+        self.assertIn("rawTranslateLabel.hidden = !raw.checked", editor)
+        # 后端条件必须与前端同构，否则状态文案会和实际行为对不上
+        self.assertIn(
+            "if has_chinese(clean_prompt) and (not raw_mode or raw_translate):",
+            main_source,
+        )
+        self.assertIn('raw_translate = bool(payload.get("rawTranslate", False))', main_source)
+        # 开了翻译后，raw 图层要拼译文而不是原始中文
+        self.assertIn("part for part in (working_prompt, retag_prompt) if part", main_source)
+        # 开关要落盘，否则刷新后又变回不翻译
+        self.assertIn('"rawTranslate": bool(raw_meta.get("rawTranslate", False))', store)
 
     def test_asset_stack_covers_never_render_srcless_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1264,6 +1303,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('payload.get("retagDropTags")', main)
         self.assertIn("drop_tags=retag_drop_tags", main)
         self.assertIn('"retagDropTags": retag_drop_tags', main)
+
+        # 还要落盘：不存的话刷新一次画布，划掉的标签就全部复活了
+        store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
+        self.assertIn("def _sanitize_retag_drop_tags(value: Any) -> List[str]:", store)
+        self.assertIn('_sanitize_retag_drop_tags(raw_meta.get("retagDropTags"))', store)
+        self.assertIn('meta["retagDropTags"] = retag_drop_tags', store)
 
     def test_source_tags_card_offers_copy_and_restore(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
