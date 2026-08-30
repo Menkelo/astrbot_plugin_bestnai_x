@@ -988,6 +988,7 @@ select:focus-visible {
   color: var(--text);
   cursor: pointer;
   font-size: 11px;
+  text-align: left;
   text-overflow: ellipsis;
   transition: border-color .15s var(--ease), background .15s var(--ease), box-shadow .15s var(--ease);
   /* 去掉原生箭头；各系统画法不一，和卡片风格对不上 */
@@ -1014,6 +1015,9 @@ select:focus-visible {
   border-radius: 12px;
   background: var(--card-solid);
   box-shadow: 0 18px 42px rgba(15, 23, 42, .18);
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, .22) transparent;
 }
 
 .node-select-menu[hidden] {
@@ -1050,6 +1054,33 @@ select:focus-visible {
 .node-select-option:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
+}
+
+.node-select-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.node-select-menu::-webkit-scrollbar-track {
+  margin: 5px 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.node-select-menu::-webkit-scrollbar-thumb {
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, .22);
+  background-clip: padding-box;
+}
+
+.node-select-menu:hover {
+  scrollbar-color: rgba(71, 85, 105, .46) transparent;
+}
+
+.node-select-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, .58);
+  background-clip: padding-box;
 }
 
 .node-select-check {

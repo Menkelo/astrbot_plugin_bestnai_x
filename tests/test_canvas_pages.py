@@ -880,8 +880,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.2"', constants)
+        self.assertIn("version: 4.4.3", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.3"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1236,7 +1236,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
 
         self.assertIn("const OPERATION_VISIBLE_LIMIT = 9;", editor)
-        self.assertIn("state.operationLog.slice(-OPERATION_VISIBLE_LIMIT)", editor)
+        self.assertIn("const IMPORTANT_OPERATION_ACTIONS = new Set([", editor)
+        self.assertIn("function isImportantOperation(entry)", editor)
+        self.assertIn("importantOperationEntries().slice(-OPERATION_VISIBLE_LIMIT)", editor)
+        self.assertIn('head.textContent = "操作记录";', editor)
 
     def test_raw_generated_images_carry_a_badge(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1258,6 +1261,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
     def test_node_selects_are_not_browser_default(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         select_rule = styles.split("\n.node-select {", 1)[1].split("}", 1)[0]
         self.assertIn("appearance: none", select_rule)
@@ -1276,6 +1280,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("position: relative", label_rule)
         # 右侧要给箭头让出空间，否则长选项会压到箭头上
         self.assertIn("padding: 0 26px 0 9px", select_rule)
+        self.assertIn("text-align: left", select_rule)
         # 原生列表无法统一样式，字段使用 body 上的单例浮层，并支持键盘和外部点击关闭
         self.assertIn("const selectMenu = {", editor)
         self.assertIn('menu.className = "node-select-menu"', editor)
@@ -1284,6 +1289,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('if (event.key === "Escape" && isOpen)', editor)
         self.assertIn('if (!target?.closest(".node-select, .node-select-menu")) closeSelectMenu()', editor)
         self.assertIn(".node-select-menu {", styles)
+        menu_rule = styles.split(".node-select-menu {", 1)[1].split("}", 1)[0]
+        self.assertIn("scrollbar-width: thin", menu_rule)
+        self.assertIn("scrollbar-color: rgba(100, 116, 139, .22) transparent", menu_rule)
+        self.assertIn('"label": f"{width}×{height} · {name}"', main_source)
 
     def test_raw_toggle_tooltips_stay_inside_the_card(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1637,6 +1646,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )[0]
         self.assertIn("els.debugBar.hidden = false;", render)
         self.assertIn('`操作记录 · ${latestText}`', render)
+        self.assertIn("const latest = [...state.operationLog].reverse().find(isImportantOperation);", render)
         self.assertIn("const OPERATION_LOG_KEY", editor)
         self.assertIn("persistOperationLog()", editor)
         self.assertIn("function alignDebugBar()", editor)

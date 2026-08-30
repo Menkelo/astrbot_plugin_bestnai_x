@@ -98,6 +98,49 @@ const ASSET_LIBRARY_PREFS_KEY = "bestnaiCanvasAssetLibraryPrefs";
 const ASSET_RECENT_LIMIT = 24;
 const OPERATION_LOG_LIMIT = 240;
 const OPERATION_VISIBLE_LIMIT = 9;
+const IMPORTANT_OPERATION_ACTIONS = new Set([
+  "记录器已清空",
+  "切换项目",
+  "创建项目",
+  "创建项目失败",
+  "删除项目",
+  "删除项目失败",
+  "撤销",
+  "重做",
+  "添加节点",
+  "删除节点",
+  "复制节点",
+  "连接节点",
+  "删除连线",
+  "生成图片",
+  "反推并生成",
+  "生成完成",
+  "生成失败",
+  "部分生成失败",
+  "反推原图",
+  "反推完成",
+  "反推失败",
+  "自动反推跳过",
+  "上传图片",
+  "上传图片失败",
+  "下载图片",
+  "下载图片失败",
+  "导入工作区",
+  "导入工作区失败",
+  "导出工作区",
+  "导出工作区失败",
+  "清空画布",
+  "删除素材",
+  "删除素材失败",
+  "放入画布",
+  "放入画布失败",
+  "批量放入画布",
+  "批量放入画布失败",
+  "收录素材",
+  "收录素材失败",
+  "压缩素材",
+  "压缩素材失败",
+]);
 
 function normalizeAssetIdList(value, limit = ASSET_RECENT_LIMIT) {
   if (!Array.isArray(value)) return [];
@@ -314,6 +357,14 @@ function recordOperation(action, detail = "", level = "info") {
   }
   persistOperationLog();
   if (els.debugBar) renderDebugBar();
+}
+
+function isImportantOperation(entry) {
+  return entry?.level !== "info" || IMPORTANT_OPERATION_ACTIONS.has(entry?.action);
+}
+
+function importantOperationEntries() {
+  return state.operationLog.filter(isImportantOperation);
 }
 
 function clearOperationLog() {
@@ -2415,12 +2466,12 @@ function makeOperationLogPanel() {
 
   const head = document.createElement("div");
   head.className = "operation-log-head";
-  head.textContent = `操作记录 · ${state.operationLog.length}`;
+  head.textContent = "操作记录";
   section.appendChild(head);
 
   const list = document.createElement("div");
   list.className = "operation-log-list";
-  const entries = state.operationLog.slice(-OPERATION_VISIBLE_LIMIT).reverse();
+  const entries = importantOperationEntries().slice(-OPERATION_VISIBLE_LIMIT).reverse();
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "operation-log-empty";
@@ -2502,7 +2553,7 @@ function renderDebugBar() {
   const conflictCount = mergeDetails
     ? debugMergeValues(mergeDetails.removed).length
     : 0;
-  const latest = state.operationLog[state.operationLog.length - 1];
+  const latest = [...state.operationLog].reverse().find(isImportantOperation);
   const latestText = latest
     ? `${latest.action}${latest.detail ? ` · ${latest.detail}` : ""}`
     : "就绪";

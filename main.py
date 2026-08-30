@@ -242,7 +242,7 @@ class BestNAIPlugin(Star):
             ratios.append(
                 {
                     "value": name,
-                    "label": f"{name} · {width}×{height}",
+                    "label": f"{width}×{height} · {name}",
                     "width": width,
                     "height": height,
                 }
