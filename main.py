@@ -2298,11 +2298,13 @@ class BestNAIPlugin(Star):
     async def _handle_nai_command(
         self,
         event: AstrMessageEvent,
+        command_name: str,
         raw_mode: bool = False,
         model: str = "",
-        command_name: str = "",
     ) -> AsyncGenerator:
-        command_name = command_name or ("nai0" if raw_mode else "nai")
+        # command_name 必须由调用方显式给出，不能有默认值：剥前缀的正则是
+        # `nai(?:\s+|$)`，用 "nai" 去剥 "nai5 可爱 1girl" 匹配不上、原样返回，
+        # 于是画师预设名匹配到的是 "nai5"。这个坑踩过一次，别再留默认值。
         if not model:
             model = (
                 MODEL_V45_FULL
@@ -2578,7 +2580,7 @@ class BestNAIPlugin(Star):
     async def cmd_nai(self, event: AstrMessageEvent) -> AsyncGenerator:
         """NAI 生图（4.5 模型）。用法：/nai 提示词；/nai + 图片 反推图片提示词后生图；/nai @某人 使用头像反推生图。"""
         async for result in self._handle_nai_command(
-            event, raw_mode=False, model=MODEL_V45_FULL
+            event, raw_mode=False, model=MODEL_V45_FULL, command_name="nai"
         ):
             yield result
 
@@ -2586,7 +2588,7 @@ class BestNAIPlugin(Star):
     async def cmd_nai5(self, event: AstrMessageEvent) -> AsyncGenerator:
         """NAI 生图（V5 模型）。用法：/nai5 提示词；支持中文自然语言提示。"""
         async for result in self._handle_nai_command(
-            event, raw_mode=False, model=MODEL_V5_FULL
+            event, raw_mode=False, model=MODEL_V5_FULL, command_name="nai5"
         ):
             yield result
 

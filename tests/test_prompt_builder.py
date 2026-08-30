@@ -21,6 +21,7 @@ if str(workspace_dir) not in sys.path:
 from astrbot_plugin_bestnai_x.models.config import (  # noqa: E402
     GenerationConfig,
     PluginConfig,
+    SafetyConfig,
     model_supports_cjk,
 )
 from astrbot_plugin_bestnai_x.services.prompt_builder import (  # noqa: E402
@@ -31,6 +32,9 @@ from dataclasses import replace  # noqa: E402
 
 
 class FakePluginConfig:
+    def __init__(self, prompt_block_enabled: bool = True) -> None:
+        self.safety = SafetyConfig(prompt_block_enabled=prompt_block_enabled)
+
     def get_generation_config_for_version(self, version: str) -> GenerationConfig:
         return GenerationConfig(negative_prompt="custom negative")
 
@@ -38,6 +42,13 @@ class FakePluginConfig:
 class PromptBuilderTest(unittest.TestCase):
     def setUp(self) -> None:
         self.builder = PromptBuilder(FakePluginConfig(), lambda _: (832, 1216))
+
+    @staticmethod
+    def _builder_with_filter_off() -> PromptBuilder:
+        return PromptBuilder(
+            FakePluginConfig(prompt_block_enabled=False),
+            lambda _: (832, 1216),
+        )
 
     def test_canvas_can_skip_qq_safe_negative_tags(self) -> None:
         config = self.builder.build_generation_config(
@@ -47,10 +58,25 @@ class PromptBuilderTest(unittest.TestCase):
 
         self.assertEqual(config.negative_prompt, "custom negative")
 
-    def test_qq_path_keeps_safe_negative_tags_by_default(self) -> None:
+    def test_qq_path_keeps_safe_negative_tags_while_the_filter_is_on(self) -> None:
         config = self.builder.build_generation_config("2:3")
 
         self.assertIn("custom negative", config.negative_prompt)
+        self.assertIn("nsfw", config.negative_prompt)
+
+    def test_qq_path_drops_safe_negative_tags_when_the_filter_is_off(self) -> None:
+        # 关掉「提示词敏感词过滤」后，插件不该再往负面提示词里塞词——
+        # 以前这里无视开关固定追加，用户没有任何办法关掉
+        config = self._builder_with_filter_off().build_generation_config("2:3")
+
+        self.assertEqual(config.negative_prompt, "custom negative")
+
+    def test_an_explicit_flag_still_wins_over_the_switch(self) -> None:
+        config = self._builder_with_filter_off().build_generation_config(
+            "2:3",
+            apply_safe_negative=True,
+        )
+
         self.assertIn("nsfw", config.negative_prompt)
 
 

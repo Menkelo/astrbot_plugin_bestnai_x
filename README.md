@@ -121,7 +121,7 @@ pip install aiohttp pillow
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `quality_prompt` | string | `best quality, amazing quality, very aesthetic, absurdres` | 质量提示词，自动追加到最终正面提示词末尾，留空则不追加。发送前会自动清理非 ASCII 字符 |
-| `negative_prompt` | string | `lowres, bad anatomy, bad hands, text, error, missing fingers` | 全局生效的负面提示词。代码会固定追加 QQ 安全负面词。发送前会自动清理非 ASCII 字符 |
+| `negative_prompt` | string | `lowres, bad anatomy, bad hands, text, error, missing fingers` | 全局生效的负面提示词。开启 `prompt_block_enabled` 时，QQ 路径会额外追加内置安全负面词。发送前会自动清理非 ASCII 字符 |
 | `artist_presets` | list | 内置 5 个示例预设 | 画师预设列表，每项格式为 `预设名:画师提示词` |
 
 **内置画师预设示例**：
@@ -164,7 +164,7 @@ pip install aiohttp pillow
 |--------|------|--------|------|
 | `enabled` | bool | `false` | 启用发送前图片安全审核。需要视觉审核时可手动开启；开启后生成图片会先审核，安全才发送，审核接口报错/超时时放行 |
 | `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商 |
-| `prompt_block_enabled` | bool | `true` | 启用提示词敏感词过滤。开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成 |
+| `prompt_block_enabled` | bool | `true` | 提示词侧 QQ 防护总开关，同时控制两件事：正向提示词的 NSFW 关键词移除，以及负面提示词追加内置安全负面词。关闭后两者都失效 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤的额外检测词；内置高风险词始终生效，完全关闭请使用 `prompt_block_enabled` |
 
 > **Danbooru Tag 检索**已内嵌，翻译中文提示词时自动启用，无需配置。
@@ -284,8 +284,12 @@ pip install aiohttp pillow
    - **只有审核模型明确返回 `safe=false` 时才拦截**；审核供应商未配置、接口报错、超时、SSL 错误、结果解析失败、不支持的供应商类型均**放行**，避免误伤正常图片。
    - 拦截时回复固定文案：`未能通过安全检测，已拦截`。
 
-3. **负面提示词固定追加 QQ 安全负面词**
-   - 无论用户如何配置负面提示词，代码都会在发送前固定追加 `rating:explicit, rating:questionable, nsfw, nude, underwear, suggestive, ...` 等安全负面词，从模型层面压低出图风险。
+3. **负面提示词追加 QQ 安全负面词**（同样受 `prompt_block_enabled` 控制）
+   - 开关开启时，QQ 路径会在发送前向负面提示词追加 `rating:explicit, rating:questionable, nsfw, nude, underwear, suggestive, ...` 等安全负面词，从模型层面压低出图风险。已存在的词不会重复追加。
+   - 关闭 `prompt_block_enabled` 后不再追加，只发用户配置的 `negative_prompt`。
+   - 画布路径始终不追加：它不经过 QQ，不适用 QQ 的防封规则。
+
+> 第 1 条和第 3 条共用 `prompt_block_enabled` 一个开关——两者都是提示词侧的防护，一个从正向提示词删词、一个往负面提示词加词。关掉它意味着插件完全不再改动你的提示词，出 NSFW 内容与封号的风险都会明显上升。
 
 ---
 

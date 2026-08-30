@@ -101,7 +101,7 @@
       "negative_prompt": {
         "description": "负面提示词",
         "type": "string",
-        "hint": "全局生效的负面提示词，插件会在代码中固定追加 QQ 安全负面词。",
+        "hint": "全局生效的负面提示词。开启「提示词敏感词过滤」时，插件会在 QQ 路径额外追加内置的安全负面词；关闭该开关后只发这里填的内容。画布路径始终不追加。",
         "default": "lowres, bad anatomy, bad hands, text, error, missing fingers"
       },
       "artist_presets": {
@@ -193,7 +193,7 @@
         "description": "启用提示词敏感词过滤",
         "type": "bool",
         "default": true,
-        "hint": "开启后，用户提示词命中明显 NSFW 关键词会自动移除，并继续生成"
+        "hint": "提示词侧的 QQ 防护总开关，管两件事：用户提示词命中明显 NSFW 关键词会自动移除并继续生成；同时向负面提示词追加内置安全负面词。关闭后两者都不再生效，出 NSFW 内容的概率会明显上升。画布路径不受此开关影响，始终不追加安全负面词。"
       },
       "prompt_block_words": {
         "description": "提示词敏感词列表",
