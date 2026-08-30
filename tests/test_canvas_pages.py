@@ -488,8 +488,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("-webkit-user-select: none;", tag_grid)
         self.assertIn("user-select: none;", tag_grid)
         self.assertNotIn("user-select: text;", tag_grid)
-        self.assertNotIn(".raw-toggle:focus-within::after", styles)
-        self.assertIn(".raw-toggle:has(input:focus-visible)::after", styles)
+        # 气泡的键盘触发必须走 :has(input:focus-visible)——:focus-within 在鼠标
+        # 点击时也会命中，点一下复选框气泡就赖着不走
+        self.assertNotIn(":focus-within::after", styles)
+        self.assertIn(":has(input:focus-visible)::after", styles)
         self.assertIn('raw.addEventListener("click", (event) => {', editor)
         self.assertIn("if (event.detail > 0) raw.blur();", editor)
 
@@ -878,8 +880,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.3.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.3.2"', constants)
+        self.assertIn("version: 4.4.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.4.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1205,19 +1207,101 @@ class CanvasPageBridgeTest(unittest.TestCase):
             refresh_body.index("cacheRenderedIcons"),
         )
 
+    def test_retag_success_repaints_so_sliders_follow_the_source(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        # 反推刚往 node.meta 写完原图采样参数，不重绘高级参数卡就不会重建，
+        # 滑条一直停在旧值上——数据到了、界面没动。开头和 catch 都有重绘，
+        # 唯独成功分支漏了；自动反推是 fire-and-forget，没有调用方兜底。
+        retag_body = editor.split("async function retagFromNode", 1)[1].split(
+            "\n}\n", 1
+        )[0]
+        # 起点必须锚在写完 node.meta 之后。从函数开头算的话，开头那句
+        # renderAll（显示"反推中"）也会落进来，删掉这里的修复测试照样通过。
+        success_block = retag_body.split('recordRunDebug(node, "retag"', 1)[1].split(
+            "succeeded = true", 1
+        )[0]
+        self.assertIn("renderAll();", success_block)
+        self.assertLess(
+            success_block.index("renderAll();"),
+            success_block.index("scheduleSave();"),
+        )
+        # 自动反推确实没有调用方重绘，所以上面那条不能省
+        self.assertIn(
+            "void retagFromNode(destination, false, { automatic: true })",
+            editor,
+        )
+
+    def test_operation_log_shows_only_recent_entries(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+
+        self.assertIn("const OPERATION_VISIBLE_LIMIT = 9;", editor)
+        self.assertIn("state.operationLog.slice(-OPERATION_VISIBLE_LIMIT)", editor)
+
+    def test_raw_generated_images_carry_a_badge(self) -> None:
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+        store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
+
+        # 出图节点此前不记 raw，无从判断这张是不是原始提示词生成的
+        self.assertIn("raw: !!node.raw,", editor)
+        self.assertIn('"raw": bool(raw_meta.get("raw", False))', store)
+        # 与画师角标互斥：raw 不追加画师，服务端也就不回 artist
+        self.assertIn("} else if (node.meta?.raw) {", editor)
+        self.assertIn('rawBadge.className = "image-artist-badge image-raw-badge"', editor)
+        self.assertIn(".image-raw-badge {", styles)
+        # 这类角标是 pointer-events: none，原生 title 根本触发不了，别照抄
+        self.assertNotIn("rawBadge.title", editor)
+
+    def test_node_selects_are_not_browser_default(self) -> None:
+        styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
+
+        select_rule = styles.split("\n.node-select {", 1)[1].split("}", 1)[0]
+        self.assertIn("appearance: none", select_rule)
+        self.assertIn("-webkit-appearance: none", select_rule)
+        # 去掉原生箭头后必须自己补一个，否则看不出这是下拉框
+        arrow_rule = styles.split(".field-label::after {", 1)[1].split("}", 1)[0]
+        self.assertIn("mask:", arrow_rule)
+        self.assertIn("pointer-events: none", arrow_rule)
+        # 箭头颜色走变量而不是写死在 SVG 里
+        self.assertIn("background: var(--faint)", arrow_rule)
+        # 伪元素要有定位锚点
+        label_rule = styles.split("\n.field-label {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: relative", label_rule)
+        # 右侧要给箭头让出空间，否则长选项会压到箭头上
+        self.assertIn("padding: 0 26px 0 9px", select_rule)
+
     def test_raw_toggle_tooltips_stay_inside_the_card(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
-        # 「翻译」被 space-between 推到 footer 中段，沿用 left:0 会让气泡顶出
-        # 卡片右边；改成以自身为中心展开并收窄到卡片最窄宽度（220px）放得下
-        translate_rule = styles.split(".raw-translate::after", 1)[1].split("}", 1)[0]
-        self.assertIn("left: 50%", translate_rule)
-        self.assertIn("width: 200px", translate_rule)
-        self.assertIn("translateX(-50%)", translate_rule)
+        # 气泡统一挂在属性选择器上，任何元素加 data-tooltip 都是同一套外观和
+        # 触发时机；原先只有 .raw-toggle 能用，高级参数卡只能退回原生 title
+        base_rule = styles.split("[data-tooltip]::after {", 1)[1].split("}", 1)[0]
+        self.assertIn("content: attr(data-tooltip)", base_rule)
+        # 默认居中：卡片里的窄元素（三列滑条）左对齐会直接顶出边界
+        self.assertIn("left: 50%", base_rule)
+        self.assertIn("width: 200px", base_rule)
+        self.assertIn("translateX(-50%)", base_rule)
         # hover 态若不带 translateX 会在悬停瞬间跳回左对齐
-        hover_rule = styles.split(".raw-translate:hover::after", 1)[1].split("}", 1)[0]
+        hover_rule = styles.split("[data-tooltip]:hover::after,", 1)[1].split("}", 1)[0]
         self.assertIn("translateX(-50%)", hover_rule)
+
+        # 贴边的几个反而要回到左/右对齐，否则居中会溢出
+        self.assertIn(".raw-toggle:not(.raw-translate):not(.adv-variety)::after", styles)
+        self.assertIn(".adv-variety::after", styles)
+        self.assertIn(":is(.adv-caption, .adv-reset)::after", styles)
+
+        # 高级参数卡的 body 必须解除滚动裁剪，否则向上弹出的气泡会被切掉
+        adv_body_rule = styles.split(
+            ".adv-card .retag-layer-body:not([hidden]) {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("overflow: visible", adv_body_rule)
+        self.assertIn("max-height: none", adv_body_rule)
+
+        # 说明挂在标题上而不是整个 field：field 包着 ↺，两层都带气泡会同时弹出
+        self.assertIn("caption.dataset.tooltip = tooltip", editor)
+        self.assertNotIn("field.title = tooltip", editor)
 
         # raw 的说明不能再声称「按原始英文 tags 生成」——现在中文可以翻译
         raw_tooltip = editor.split("rawLabel.dataset.tooltip = ", 1)[1].split("\n", 1)[0]
@@ -1296,12 +1380,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("advParamsExpanded: open", editor)
         self.assertIn("advParamsExpanded: false", editor)
         self.assertNotIn('input.type = "number"', editor)
-        # 不再放正文说明，解释只保留悬停 title
+        # 不再放正文说明，解释只保留悬停气泡（与提示词卡同一套 data-tooltip）
         adv_body = editor.split("function makeAdvancedParamsCard", 1)[1].split(
             "function makeRetagLayerCard", 1
         )[0]
         self.assertNotIn("retag-layer-help", adv_body)
-        self.assertIn("toggle.title =", adv_body)
+        self.assertIn("toggle.dataset.tooltip =", adv_body)
+        # 原生 title 要悬停约一秒才出来，和提示词卡的秒开气泡对不上，不该再混用
+        self.assertNotIn(".title = ", adv_body)
         # 折叠点击不被卡片 pointerdown 的 DOM 移动吞掉
         self.assertIn(
             'toggle.addEventListener("pointerdown", (event) => event.stopPropagation());',

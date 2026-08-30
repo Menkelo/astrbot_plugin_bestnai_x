@@ -737,6 +737,9 @@ class CanvasStore:
                 "retagLayerExpanded": bool(raw_meta.get("retagLayerExpanded", False)),
                 "seed": normalize_nai_seed(raw_meta.get("seed")) or 0,
                 "retagged": bool(raw_meta.get("retagged", False)),
+                # 图片节点：这张图是不是原始提示词生成的，决定右上角挂哪个角标。
+                # 不落盘的话刷新一次画布，角标就全没了。
+                "raw": bool(raw_meta.get("raw", False)),
                 "userResized": bool(raw_meta.get("userResized", False)),
                 # 用户手动选过画幅后，首次链接图片的自动对齐不再生效
                 "ratioManual": bool(raw_meta.get("ratioManual", False)),

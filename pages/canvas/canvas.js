@@ -97,7 +97,7 @@ const RECORDER_OPEN_KEY = "bestnaiCanvasRecorderOpen";
 const ASSET_LIBRARY_PREFS_KEY = "bestnaiCanvasAssetLibraryPrefs";
 const ASSET_RECENT_LIMIT = 24;
 const OPERATION_LOG_LIMIT = 240;
-const OPERATION_VISIBLE_LIMIT = 100;
+const OPERATION_VISIBLE_LIMIT = 9;
 
 function normalizeAssetIdList(value, limit = ASSET_RECENT_LIMIT) {
   if (!Array.isArray(value)) return [];
@@ -1749,7 +1749,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   toggle.type = "button";
   toggle.className = "retag-layer-toggle";
   toggle.setAttribute("aria-expanded", "false");
-  toggle.title = "步数/引导/Rescale 留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 抑制色彩过曝；Variety+ 提升构图多样性。";
+  toggle.dataset.tooltip = "步数/引导/Rescale 留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 抑制色彩过曝；Variety+ 提升构图多样性。";
   const title = document.createElement("span");
   title.className = "retag-layer-title";
   title.append(icon("sliders-horizontal"), document.createTextNode("高级参数"));
@@ -1792,19 +1792,23 @@ function makeAdvancedParamsCard(node, nodeElement) {
     const advDefaultKey = advDefaultKeys[key] || key;
     const field = document.createElement("div");
     field.className = "adv-field";
-    field.title = tooltip;
 
     const head = document.createElement("div");
     head.className = "adv-field-head";
     const caption = document.createElement("span");
+    caption.className = "adv-caption";
     caption.textContent = label;
+    // 说明挂在标题两个字上，不挂整个 field：field 包着 ↺ 按钮，两层都带
+    // 气泡的话悬停 ↺ 会同时弹出两个（原生 title 时代是后者盖前者，看不出来）。
+    caption.dataset.tooltip = tooltip;
+    caption.tabIndex = 0;
     const value = document.createElement("span");
     value.className = "adv-value";
     const reset = document.createElement("button");
     reset.type = "button";
     reset.className = "adv-reset";
     reset.textContent = "↺";
-    reset.title = "清除手动设置，回落原图参数/默认值";
+    reset.dataset.tooltip = "清除手动设置，回落原图参数/默认值";
     head.append(caption, value, reset);
 
     const slider = document.createElement("input");
@@ -1869,7 +1873,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
     ? `已沿用原图参数：${sourceParts.join(" · ")}`
     : "";
   sourceNote.hidden = !sourceParts.length;
-  sourceNote.title = "反推命中原图内嵌参数时自动沿用；拖动滑条即可覆盖，↺ 回落原图值";
+  sourceNote.dataset.tooltip = "反推命中原图内嵌参数时自动沿用；拖动滑条即可覆盖，↺ 回落原图值";
 
   const advRow = document.createElement("div");
   advRow.className = "adv-row";
@@ -2600,6 +2604,13 @@ function renderImageNode(node) {
     artistBadge.textContent = imageArtist;
     artistBadge.title = `画师预设：${imageArtist}`;
     frame.appendChild(artistBadge);
+  } else if (node.meta?.raw) {
+    // 与画师角标互斥：raw 不追加画师预设，服务端也就不会回 artist。
+    // 不挂 title——这类角标是 pointer-events: none，原生提示根本触发不了。
+    const rawBadge = document.createElement("span");
+    rawBadge.className = "image-artist-badge image-raw-badge";
+    rawBadge.textContent = "原始提示词";
+    frame.appendChild(rawBadge);
   }
   frame.addEventListener("click", () => openImageViewer(node));
   frame.addEventListener("keydown", (event) => {
@@ -3680,6 +3691,9 @@ async function generateFromNode(id, {
             artist: result.meta?.artist || "",
             ratio: result.meta?.ratio || node.ratio,
             retagged,
+            // 出图后要能一眼看出这张是不是原始提示词生成的。raw 不追加画师，
+            // 服务端也就不会回 artist，右上角正好空着可以放这个角标。
+            raw: !!node.raw,
             width: sourceWidth,
             height: sourceHeight,
             finalPrompt: result.meta?.finalPrompt || "",
@@ -4045,6 +4059,10 @@ async function retagFromNode(
           ? "已复用画布保存的 NovelAI 参数"
           : (cachedRetag ? "已复用反推结果" : "原图 tags 已提取"),
     );
+    // 反推刚往 node.meta 里写完原图采样参数，不重绘的话高级参数卡不会重建，
+    // 滑条就一直停在旧值上——数据到了、界面没动。开头和 catch 分支都有重绘，
+    // 唯独这里漏了；自动反推是 fire-and-forget，也没有调用方兜底。
+    renderAll();
     scheduleSave();
     succeeded = true;
     recordOperation("反推完成", result.fromMetadata ? "读取内嵌参数" : "提取 tags 完成", "success");

@@ -811,6 +811,14 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+/* 原始提示词出图的角标，占画师角标同一个位置（两者互斥：raw 不追加画师）。
+   换个配色，免得一眼看去以为是画师名。 */
+.image-raw-badge {
+  border-color: rgba(37, 99, 235, .25);
+  background: rgba(37, 99, 235, .1);
+  color: var(--prompt);
+}
+
 .node-action {
   display: grid;
   width: 28px;
@@ -940,6 +948,7 @@ select:focus-visible {
 }
 
 .field-label {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -950,16 +959,57 @@ select:focus-visible {
   text-transform: uppercase;
 }
 
+/* 自定义下拉箭头。原生箭头各系统长得都不一样，和卡片其余部分格格不入。
+   用 mask 上色而不是把颜色写进 SVG，这样箭头跟着 CSS 变量走。
+   pointer-events: none 把点击交还给底下的 select。 */
+.field-label::after {
+  position: absolute;
+  right: 10px;
+  bottom: 14px;
+  width: 9px;
+  height: 6px;
+  background: var(--faint);
+  content: "";
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  pointer-events: none;
+  transition: background .15s var(--ease);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+}
+
+.field-label:hover::after {
+  background: var(--muted);
+}
+
 .node-select {
   width: 100%;
   height: 34px;
-  padding: 0 9px;
+  /* 右侧留给自定义箭头（.field-label::after） */
+  padding: 0 26px 0 9px;
   border: 1px solid var(--line);
   border-radius: 10px;
   outline: none;
   background: var(--card-solid);
   color: var(--text);
+  cursor: pointer;
   font-size: 11px;
+  text-overflow: ellipsis;
+  transition: border-color .15s var(--ease), background .15s var(--ease), box-shadow .15s var(--ease);
+  /* 去掉原生箭头；各系统画法不一，和卡片风格对不上 */
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
+}
+
+.node-select:hover {
+  border-color: var(--line-2);
+  background: var(--soft);
+}
+
+/* 展开的选项列表由系统绘制，样式化能力有限；这两条在 Chromium 上能生效，
+   在其他内核上会被忽略，属于兜底而非保证。 */
+.node-select option {
+  background: var(--card-solid);
+  color: var(--text);
 }
 
 .node-footer {
@@ -993,12 +1043,20 @@ select:focus-visible {
   accent-color: var(--strong);
 }
 
-.raw-toggle::after {
+/* 统一的说明气泡。原先只挂在 .raw-toggle 上，高级参数卡那边只能退回原生
+   title——原生 title 要悬停约一秒才出来、外观还是系统样式，和这套秒开的
+   气泡对不上。改挂到属性选择器后，任何元素加 data-tooltip 都是同一套。
+   气泡默认居中展开：卡片内的窄元素（三列滑条）左对齐会直接顶出边界。 */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
   position: absolute;
   z-index: 80;
   bottom: calc(100% + 9px);
-  left: 0;
-  width: 244px;
+  left: 50%;
+  width: 200px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1011,29 +1069,74 @@ select:focus-visible {
   line-height: 1.5;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(3px);
+  transform: translateX(-50%) translateY(3px);
   transition: opacity .15s var(--ease), transform .15s var(--ease);
   white-space: normal;
 }
 
-.raw-toggle:hover::after,
-.raw-toggle:has(input:focus-visible)::after {
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after,
+[data-tooltip]:has(input:focus-visible)::after {
   opacity: 1;
-  transform: translateY(0);
-}
-
-/* 「翻译」被 space-between 推到 footer 中段，沿用 left:0 会让 244px 的气泡
-   直接顶出卡片右边。改成以自身为中心展开并收窄：卡片最窄 220px，200px
-   的气泡两侧仍各有 10px 余量，拉宽卡片只会更宽松。 */
-.raw-translate::after {
-  left: 50%;
-  width: 200px;
-  transform: translateX(-50%) translateY(3px);
-}
-
-.raw-translate:hover::after,
-.raw-translate:has(input:focus-visible)::after {
   transform: translateX(-50%) translateY(0);
+}
+
+/* 「原始提示词」在 footer 最左，居中展开会向左溢出，这一个仍走左对齐。 */
+.raw-toggle:not(.raw-translate):not(.adv-variety)::after {
+  left: 0;
+  width: 244px;
+  transform: translateX(0) translateY(3px);
+}
+
+.raw-toggle:not(.raw-translate):not(.adv-variety):hover::after,
+.raw-toggle:not(.raw-translate):not(.adv-variety):has(input:focus-visible)::after {
+  transform: translateX(0) translateY(0);
+}
+
+/* 三列滑条：首列左对齐、末列右对齐，中间保持居中，三个气泡都落在卡片内。
+   节点宽 310px、内容区约 280px，200px 的气泡居中放得下，但首末两列的
+   中心太靠边，居中会溢出。caption 和 ↺ 同列同规则，避免各算各的。 */
+.adv-row > .adv-field:first-child :is(.adv-caption, .adv-reset)::after {
+  left: 0;
+  transform: translateX(0) translateY(3px);
+}
+
+.adv-row > .adv-field:first-child :is(.adv-caption, .adv-reset):hover::after,
+.adv-row > .adv-field:first-child :is(.adv-caption, .adv-reset):focus-visible::after {
+  transform: translateX(0) translateY(0);
+}
+
+.adv-row > .adv-field:last-child :is(.adv-caption, .adv-reset)::after {
+  right: 0;
+  left: auto;
+  transform: translateX(0) translateY(3px);
+}
+
+.adv-row > .adv-field:last-child :is(.adv-caption, .adv-reset):hover::after,
+.adv-row > .adv-field:last-child :is(.adv-caption, .adv-reset):focus-visible::after {
+  transform: translateX(0) translateY(0);
+}
+
+/* 卡片头文案长，200px 会拉成十来行；它本身有整卡宽度，244px 居中放得下 */
+.retag-layer-toggle[data-tooltip]::after {
+  width: 244px;
+}
+
+/* Variety+ 是 inline-flex，宽度只有几个字，贴在卡片左侧，居中会向左溢出 */
+.adv-variety::after {
+  left: 0;
+  transform: translateX(0) translateY(3px);
+}
+
+.adv-variety:hover::after,
+.adv-variety:has(input:focus-visible)::after {
+  transform: translateX(0) translateY(0);
+}
+
+/* 挂了气泡的说明文字给个提示光标，否则看不出可以悬停 */
+.adv-caption[data-tooltip],
+.adv-source-note[data-tooltip] {
+  cursor: help;
 }
 
 .node-commands {
@@ -1205,6 +1308,11 @@ select:focus-visible {
 .adv-card .retag-layer-body:not([hidden]) {
   display: grid;
   gap: 10px;
+  /* 内容是固定的三条滑条 + 说明行 + Variety+，本来就不会溢出，不需要滚动；
+     而基类的 overflow-y: auto 会把向上弹出的说明气泡整个裁掉。真正需要
+     滚动的是原图标签卡（标签可能上百条），那张卡继续用基类。 */
+  max-height: none;
+  overflow: visible;
 }
 
 .adv-row {
