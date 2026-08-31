@@ -2719,12 +2719,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       markerByIndex.set(index, marker);
     });
     characterPanel.insertBefore(preview, characterPanel.querySelector(".retag-character-row"));
-    if (!charPrompts.length) {
-      const emptyCharacters = document.createElement("p");
-      emptyCharacters.className = "retag-character-empty";
-      emptyCharacters.textContent = "暂无角色";
-      characterPanel.appendChild(emptyCharacters);
-    }
     // 固定内部顺序：画布在最上，角色编辑居中，按钮和操作提示在最下。
     characterPanel.append(characterOptions, layoutTools, previewHelp);
     syncCharacterPreview();

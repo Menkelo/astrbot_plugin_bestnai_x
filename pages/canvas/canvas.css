@@ -1571,7 +1571,7 @@ select:focus-visible {
   right: auto;
   bottom: 0;
   left: calc(100% + 10px);
-  width: min(320px, calc(100vw - 24px));
+  width: min(100%, calc(100vw - 24px));
   max-height: min(520px, 70vh);
   padding: 8px;
   overflow-y: auto;
@@ -1901,17 +1901,6 @@ select:focus-visible {
 .retag-character-field textarea:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
-}
-
-.retag-character-empty {
-  margin: 8px 0 0;
-  padding: 12px 8px;
-  border: 1px dashed #bfdbfe;
-  border-radius: 9px;
-  color: var(--faint);
-  font-size: 8.5px;
-  line-height: 1.5;
-  text-align: center;
 }
 
 .retag-layer-row {
