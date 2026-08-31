@@ -860,6 +860,7 @@ select:focus-visible {
   width: 310px;
   min-width: 320px;
   min-height: 430px;
+  max-width: 520px;
   flex-direction: column;
 }
 
