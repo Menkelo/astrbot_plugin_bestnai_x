@@ -109,6 +109,17 @@ MIN_SCALE = 1.0
 MAX_SCALE = 10.0
 
 
+def _unsupported_sampler_error(error: GenerationError) -> bool:
+    """Whether a provider rejected only the sampler value.
+
+    Relays differ in sampler support and often return this as a plain 400
+    message.  The canvas should still generate with the configured default
+    instead of exposing a permanent ``Unsupported sampler`` failure.
+    """
+    message = str(getattr(error, "message", error) or "").lower()
+    return "unsupported sampler" in message or "sampler is not supported" in message
+
+
 # NovelAI 4.5 / V5 compatible canvas presets. Every dimension is a 64 multiple
 # and stays below the plugin's ~1.1 MP safety limit.
 CANVAS_RATIO_PRESETS: Dict[str, Tuple[int, int]] = {
@@ -1008,31 +1019,61 @@ class BestNAIPlugin(Star):
         with trace.stage("生图"):
             async with self._generation_semaphore:
                 api_url, api_key = self._provider_credentials_for_model(current_model)
-                try:
-                    result = await self.generator.generate(
-                        final_prompt,
-                        gen_config,
-                        seed=payload.get("seed"),
-                        api_url=api_url,
-                        api_key=api_key,
-                    )
-                except GenerationError as exc:
-                    # 网关若不认识 characters 参数会以 400 拒绝；
-                    # 去掉角色参数重试一次，宁可丢分区也不要整次失败。
-                    if not (gen_config.characters and exc.status_code == 400):
+                # Relays do not expose a common sampler capability endpoint.
+                # Retry once with the configured default when a source image's
+                # sampler is unknown to the selected relay, then retain the
+                # existing one-time character-field fallback.
+                sampler_fallback_used = False
+                character_fallback_used = False
+                while True:
+                    try:
+                        result = await self.generator.generate(
+                            final_prompt,
+                            gen_config,
+                            seed=payload.get("seed"),
+                            api_url=api_url,
+                            api_key=api_key,
+                        )
+                        break
+                    except GenerationError as exc:
+                        if not sampler_fallback_used and _unsupported_sampler_error(exc):
+                            configured_sampler = str(
+                                self.plugin_config.generation.sampler
+                                or "k_euler_ancestral"
+                            ).strip()
+                            fallback_sampler = (
+                                configured_sampler
+                                if configured_sampler != gen_config.sampler
+                                else "k_euler_ancestral"
+                            )
+                            if fallback_sampler != gen_config.sampler:
+                                sampler_fallback_used = True
+                                logger.warning(
+                                    "[BestNAI/Canvas] 网关不支持采样器 %s，回退到 %s",
+                                    gen_config.sampler,
+                                    fallback_sampler,
+                                )
+                                trace.note(
+                                    "采样器回退",
+                                    f"网关不支持 {gen_config.sampler}，已改用 {fallback_sampler}",
+                                )
+                                gen_config = replace(gen_config, sampler=fallback_sampler)
+                                continue
+                        # 网关若不认识 characters 参数会以 400 拒绝；
+                        # 去掉角色参数重试一次，宁可丢分区也不要整次失败。
+                        if (
+                            not character_fallback_used
+                            and gen_config.characters
+                            and exc.status_code == 400
+                        ):
+                            character_fallback_used = True
+                            logger.warning(
+                                "[BestNAI/Canvas] 生图网关拒绝角色参数（400），已去除 characters 重试"
+                            )
+                            trace.note("角色参数回退", f"网关返回 400：{exc.message}")
+                            gen_config = replace(gen_config, characters=[], use_coords=False)
+                            continue
                         raise
-                    logger.warning(
-                        "[BestNAI/Canvas] 生图网关拒绝角色参数（400），已去除 characters 重试"
-                    )
-                    trace.note("角色参数回退", f"网关返回 400：{exc.message}")
-                    gen_config = replace(gen_config, characters=[], use_coords=False)
-                    result = await self.generator.generate(
-                        final_prompt,
-                        gen_config,
-                        seed=payload.get("seed"),
-                        api_url=api_url,
-                        api_key=api_key,
-                    )
 
         trace.note("返回种子", result.seed)
         trace.note("返回图片数", len(result.images))
@@ -2313,13 +2354,35 @@ class BestNAIPlugin(Star):
 
             async with self._generation_semaphore:
                 api_url, api_key = self._provider_credentials_for_model(current_model)
-                result = await self.generator.generate(
-                    final_prompt,
-                    gen_config,
-                    seed=seed,
-                    api_url=api_url,
-                    api_key=api_key,
-                )
+                try:
+                    result = await self.generator.generate(
+                        final_prompt,
+                        gen_config,
+                        seed=seed,
+                        api_url=api_url,
+                        api_key=api_key,
+                    )
+                except GenerationError as exc:
+                    if not _unsupported_sampler_error(exc):
+                        raise
+                    fallback_sampler = str(
+                        self.plugin_config.generation.sampler
+                        or "k_euler_ancestral"
+                    ).strip()
+                    if fallback_sampler == gen_config.sampler:
+                        raise
+                    logger.warning(
+                        "[BestNAI] 网关不支持采样器 %s，回退到 %s",
+                        gen_config.sampler,
+                        fallback_sampler,
+                    )
+                    result = await self.generator.generate(
+                        final_prompt,
+                        replace(gen_config, sampler=fallback_sampler),
+                        seed=seed,
+                        api_url=api_url,
+                        api_key=api_key,
+                    )
 
             images = result.images
             safe_images: List[Tuple[str, bytes]] = []

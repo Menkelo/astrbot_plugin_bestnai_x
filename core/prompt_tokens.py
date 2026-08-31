@@ -31,6 +31,7 @@ def split_prompt_tokens(prompt: str) -> List[str]:
     tokens: List[str] = []
     buffer: List[str] = []
     weighted = False
+    weighted_start = -1
     bracket_stack: List[str] = []
     quote = ""
     index = 0
@@ -49,6 +50,7 @@ def split_prompt_tokens(prompt: str) -> List[str]:
                 buffer.extend(value)
                 index += len(value)
                 weighted = True
+                weighted_start = index
                 continue
 
         if weighted:
@@ -56,7 +58,24 @@ def split_prompt_tokens(prompt: str) -> List[str]:
                 buffer.extend("::")
                 index += 2
                 weighted = False
+                weighted_start = -1
                 continue
+            # Some metadata writers emit consecutive weighted prefixes without
+            # closing the previous group (``0.6::artist, 0.2::character``).
+            # Treat the next numeric prefix as an implicit boundary so one
+            # malformed group cannot swallow the remainder of the prompt.
+            if index > weighted_start and (index == 0 or text[index - 1] in ",; \n\t"):
+                nested = _WEIGHT_PREFIX_RE.match(text[index:])
+                if nested:
+                    value = "".join(buffer).rstrip(" ,;\n\t")
+                    if value:
+                        if not value.endswith("::"):
+                            value = f"{value} ::"
+                        tokens.append(value)
+                    buffer.clear()
+                    weighted = False
+                    weighted_start = -1
+                    continue
             buffer.append(text[index])
             index += 1
             continue
@@ -87,6 +106,15 @@ def split_prompt_tokens(prompt: str) -> List[str]:
             buffer.append(char)
             index += 1
             continue
+
+        # A missing comma after a closed weighted group is another common
+        # export quirk: ``-1::background:: -3::lineart``.  End the plain
+        # segment before the next weight prefix rather than merging it.
+        if buffer and (index == 0 or text[index - 1] in " \t\n"):
+            next_weight = _WEIGHT_PREFIX_RE.match(text[index:])
+            if next_weight:
+                flush()
+                continue
 
         if char in ",;\n" and not bracket_stack:
             flush()

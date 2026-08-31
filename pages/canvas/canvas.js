@@ -1929,7 +1929,6 @@ function makeAdvancedParamsCard(node, nodeElement) {
   toggle.type = "button";
   toggle.className = "retag-layer-toggle";
   toggle.setAttribute("aria-expanded", "false");
-  toggle.dataset.tooltip = "步数/引导/Rescale 留空时依次回落：反推命中的原图参数 → 插件默认值。步数 ≤28 Opus 免费；引导过高会过饱和；Rescale 抑制色彩过曝；Variety+ 提升构图多样性。";
   const title = document.createElement("span");
   title.className = "retag-layer-title";
   title.append(icon("sliders-horizontal"), document.createTextNode("高级参数"));
@@ -2257,12 +2256,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     characterPanel.className = "retag-character-panel";
     const characterHead = document.createElement("div");
     characterHead.className = "retag-character-head";
-    const characterTitle = document.createElement("strong");
-    characterTitle.textContent = "角色模块";
     const characterNote = document.createElement("span");
     characterNote.textContent = "V4+";
     characterNote.title = "控制 NovelAI V4+ 的角色提示词与结构化位置";
-    characterHead.append(characterTitle, characterNote);
+    characterHead.append(characterNote);
 
     const characterOptions = document.createElement("div");
     characterOptions.className = "retag-character-options";
@@ -2584,13 +2581,11 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       });
       layoutTools.appendChild(button);
     });
-    characterOptions.appendChild(layoutTools);
-
     const preview = document.createElement("div");
     preview.className = "retag-character-preview";
     const previewHelp = document.createElement("p");
     previewHelp.className = "retag-character-preview-help";
-    previewHelp.textContent = "点击编号编辑角色；拖动编号调整位置，改动后自动开启按坐标分区。";
+    previewHelp.textContent = "双击画布添加角色；点击编号编辑，拖动圆点调整位置。";
     const previewSurface = document.createElement("div");
     previewSurface.className = "retag-character-preview-surface";
     const ratioText = String(
@@ -2694,6 +2689,8 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       markerByIndex.set(index, marker);
     });
     characterPanel.insertBefore(preview, characterPanel.querySelector(".retag-character-row"));
+    // 快捷布局放在角色编辑器之后，避免占据顶部的主要预览空间。
+    characterPanel.appendChild(layoutTools);
     if (!charPrompts.length) {
       const emptyCharacters = document.createElement("p");
       emptyCharacters.className = "retag-character-empty";
@@ -5363,6 +5360,7 @@ function splitImageViewerPromptTokens(prompt) {
   const tokens = [];
   let buffer = "";
   let weighted = false;
+  let weightedStart = -1;
   let quote = "";
   const bracketStack = [];
   let index = 0;
@@ -5380,6 +5378,7 @@ function splitImageViewerPromptTokens(prompt) {
         buffer += weightPrefix[0];
         index += weightPrefix[0].length;
         weighted = true;
+        weightedStart = index;
         continue;
       }
     }
@@ -5389,7 +5388,19 @@ function splitImageViewerPromptTokens(prompt) {
         buffer += "::";
         index += 2;
         weighted = false;
+        weightedStart = -1;
         continue;
+      }
+      if (index > weightedStart && (index === 0 || ",; \n\t".includes(text[index - 1]))) {
+        const nested = /^-?\d+(?:\.\d+)?::/.exec(text.slice(index));
+        if (nested) {
+          const value = buffer.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+          if (value) tokens.push(value.endsWith("::") ? value : `${value} ::`);
+          buffer = "";
+          weighted = false;
+          weightedStart = -1;
+          continue;
+        }
       }
       buffer += text[index];
       index += 1;
@@ -5421,6 +5432,13 @@ function splitImageViewerPromptTokens(prompt) {
       index += 1;
       continue;
     }
+    if (buffer && (index === 0 || " \t\n".includes(text[index - 1]))) {
+      const nextWeight = /^-?\d+(?:\.\d+)?::/.exec(text.slice(index));
+      if (nextWeight) {
+        flush();
+        continue;
+      }
+    }
     if (",;\n".includes(character) && !bracketStack.length) {
       flush();
       index += 1;
@@ -5449,6 +5467,7 @@ function imageViewerControlTagKey(value) {
     .toLocaleLowerCase()
     .replace(/[\[\]{}()]+/g, "")
     .replace(/\s+/g, " ")
+    .replace(/_/g, " ")
     .trim();
 }
 
@@ -5475,11 +5494,9 @@ function imageViewerTagIsControl(token, configuredKeys) {
   const lowered = String(token || "").trim().toLocaleLowerCase();
   const plain = imageViewerControlTagKey(token);
   return (
-    lowered.includes("artist:")
-    || /\bartist(?:_|\s)/.test(lowered)
+    /^(?:\[+|\{+)?artist\s*:/.test(lowered)
     || configuredKeys.has(plain)
     || IMAGE_VIEWER_CONTROL_TAGS.has(plain)
-    || ["quality", "aesthetic", "absurdres"].some((phrase) => plain.includes(phrase))
     || /^(?:rating|score)\s*[:_]/.test(plain)
   );
 }
@@ -5487,15 +5504,13 @@ function imageViewerTagIsControl(token, configuredKeys) {
 function stripImageViewerControlTags(tags, extraControlPrompts = []) {
   const configuredKeys = imageViewerConfiguredControlKeys(extraControlPrompts);
   const kept = [];
-  const seen = new Set();
   splitImageViewerPromptTokens(tags).forEach((segment) => {
     const { weight, atoms, weighted } = imageViewerWeightedTokenParts(segment);
     const filtered = [];
     atoms.forEach((rawToken) => {
       const token = String(rawToken || "").trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
       const key = imageViewerControlTagKey(token);
-      if (!token || !key || imageViewerTagIsControl(token, configuredKeys) || seen.has(key)) return;
-      seen.add(key);
+      if (!token || !key || imageViewerTagIsControl(token, configuredKeys)) return;
       filtered.push(token);
     });
     if (!filtered.length) return;

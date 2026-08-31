@@ -1495,13 +1495,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('reset.textContent = "↺"', editor)
         self.assertIn("advParamsExpanded: open", editor)
         self.assertIn("advParamsExpanded: false", editor)
-        # 不再放正文说明，解释只保留悬停气泡（与提示词卡同一套 data-tooltip）
+        # 高级参数标题不再覆盖卡片内容；说明由各字段自身的短提示承载。
         adv_body = editor.split("function makeAdvancedParamsCard", 1)[1].split(
             "function makeRetagLayerCard", 1
         )[0]
         self.assertNotIn('input.type = "number"', adv_body)
         self.assertNotIn("retag-layer-help", adv_body)
-        self.assertIn("toggle.dataset.tooltip =", adv_body)
+        self.assertNotIn("toggle.dataset.tooltip =", adv_body)
         # 原生 title 要悬停约一秒才出来，和提示词卡的秒开气泡对不上，不该再混用
         self.assertNotIn(".title = ", adv_body)
         # 折叠点击不被卡片 pointerdown 的 DOM 移动吞掉

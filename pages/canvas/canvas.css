@@ -1573,7 +1573,6 @@ select:focus-visible {
   flex: 1 1 auto;
 }
 
-.retag-character-add,
 .retag-character-delete {
   display: inline-grid;
   flex: 0 0 auto;
@@ -1583,24 +1582,6 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.retag-character-add {
-  width: 28px;
-  height: 28px;
-  margin-right: 7px;
-  border-radius: 8px;
-  color: #2563eb;
-}
-
-.retag-character-add:hover:not(:disabled) {
-  background: #dbeafe;
-}
-
-.retag-character-add:disabled {
-  cursor: not-allowed;
-  opacity: .35;
-}
-
-.retag-character-add svg,
 .retag-character-delete svg {
   width: 13px;
   height: 13px;
@@ -2263,7 +2244,12 @@ select:focus-visible {
 }
 
 .image-viewer.layout-side .image-viewer-tag-grid {
-  max-height: min(54vh, 420px);
+  /* The details panel already has a viewport-bounded height. Let tags use
+     the remaining space instead of creating a short nested scrollbar with a
+     large empty area below it. */
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
 }
 
 .image-viewer-details-toggle {
