@@ -1865,16 +1865,18 @@ select:focus-visible {
 
 .retag-character-row-head {
   margin-bottom: 6px;
+  font-size: 11px;
 }
 
 .retag-character-enabled {
   color: var(--text);
+  font-size: 11px;
 }
 
 .retag-character-center-summary {
   color: var(--faint);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 8px;
+  font-size: 9.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1887,7 +1889,7 @@ select:focus-visible {
 
 .retag-character-field > span {
   color: var(--faint);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -1903,8 +1905,9 @@ select:focus-visible {
   background: var(--soft-2);
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 8.5px;
-  line-height: 1.35;
+  /* Match the prompt card's main textarea typography. */
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .retag-character-field textarea:focus {
