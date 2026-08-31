@@ -1571,6 +1571,7 @@ select:focus-visible {
 }
 
 .retag-character-card {
+  container-type: inline-size;
   border-radius: var(--card-radius);
   box-shadow: none;
 }
@@ -1624,9 +1625,13 @@ select:focus-visible {
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
+  margin: 0;
+  padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
+  line-height: 0;
+  appearance: none;
 }
 
 .retag-character-delete-actions {
@@ -1643,10 +1648,15 @@ select:focus-visible {
   width: 22px;
   height: 22px;
   place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
   background: transparent;
   color: #16a34a;
   cursor: pointer;
+  line-height: 0;
+  appearance: none;
 }
 
 .retag-character-delete-confirm[hidden] {
@@ -1696,7 +1706,7 @@ select:focus-visible {
   position: relative;
   display: grid;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: min(100cqw, 320px);
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1891,7 +1901,7 @@ select:focus-visible {
   margin-top: 7px;
   padding: 7px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   background: var(--card-solid);
 }
 
