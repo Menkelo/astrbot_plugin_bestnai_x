@@ -1618,12 +1618,22 @@ select:focus-visible {
 
 .retag-character-preview-surface {
   position: relative;
+  display: grid;
   width: 100%;
-  min-height: 100px;
-  max-height: min(46vh, 420px);
+  aspect-ratio: 1 / 1;
+  place-items: center;
   overflow: hidden;
   border: 1px solid #bfdbfe;
   border-radius: 9px;
+  background: #94a3b8;
+  touch-action: none;
+}
+
+.retag-character-crop-frame {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .72);
   background: #cbd5e1;
   cursor: crosshair;
   touch-action: none;

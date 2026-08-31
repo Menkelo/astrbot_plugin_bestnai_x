@@ -2596,12 +2596,24 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
           : "2:3"),
     );
     const ratioMatch = ratioText.match(/(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)/);
-    previewSurface.style.aspectRatio = ratioMatch
-      ? `${ratioMatch[1]} / ${ratioMatch[2]}`
-      : "2 / 3";
+    const ratioWidth = ratioMatch ? Number(ratioMatch[1]) : 1;
+    const ratioHeight = ratioMatch ? Number(ratioMatch[2]) : 1;
+    const targetRatio = ratioWidth > 0 && ratioHeight > 0 ? ratioWidth / ratioHeight : 1;
+    previewSurface.style.aspectRatio = "1 / 1";
+    const cropFrame = document.createElement("div");
+    cropFrame.className = "retag-character-crop-frame";
+    cropFrame.dataset.ratio = ratioMatch ? `${ratioMatch[1]}:${ratioMatch[2]}` : "1:1";
+    if (targetRatio >= 1) {
+      cropFrame.style.width = "100%";
+      cropFrame.style.height = `${100 / targetRatio}%`;
+    } else {
+      cropFrame.style.width = `${targetRatio * 100}%`;
+      cropFrame.style.height = "100%";
+    }
     const markerLayer = document.createElement("div");
     markerLayer.className = "retag-character-marker-layer";
-    previewSurface.appendChild(markerLayer);
+    cropFrame.appendChild(markerLayer);
+    previewSurface.appendChild(cropFrame);
     preview.append(previewSurface);
 
     const syncCharacterPreview = () => {
@@ -2622,10 +2634,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     };
 
     // 空白画布双击直接在点击位置创建角色，竖图也不需要先找标题栏按钮。
-    previewSurface.addEventListener("dblclick", (event) => {
+    cropFrame.addEventListener("dblclick", (event) => {
       if (event.target.closest(".retag-character-marker")) return;
       if (charPrompts.length >= MAX_CHAR_PROMPTS) return;
-      const rect = previewSurface.getBoundingClientRect();
+      const rect = cropFrame.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       event.preventDefault();
       event.stopPropagation();
@@ -2654,14 +2666,14 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         const startX = event.clientX;
         const startY = event.clientY;
         let moved = false;
-        try { previewSurface.setPointerCapture(pointerId); } catch (_) { /* ignore */ }
+        try { cropFrame.setPointerCapture(pointerId); } catch (_) { /* ignore */ }
         const updateFromPointer = (moveEvent) => {
           if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 4) return;
           if (!moved) {
             moved = true;
             pushHistory();
           }
-          const rect = previewSurface.getBoundingClientRect();
+          const rect = cropFrame.getBoundingClientRect();
           if (!rect.width || !rect.height) return;
           const center = {
             x: clamp((moveEvent.clientX - rect.left) / rect.width, 0, 1),
@@ -2673,18 +2685,18 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
           refreshSummary();
         };
         const stopDrag = () => {
-          previewSurface.removeEventListener("pointermove", updateFromPointer);
-          previewSurface.removeEventListener("pointercancel", stopDrag);
-          try { previewSurface.releasePointerCapture(pointerId); } catch (_) { /* ignore */ }
+          cropFrame.removeEventListener("pointermove", updateFromPointer);
+          cropFrame.removeEventListener("pointercancel", stopDrag);
+          try { cropFrame.releasePointerCapture(pointerId); } catch (_) { /* ignore */ }
           if (moved) scheduleSave();
         };
         const finish = () => {
           if (!moved) selectCharacter(index, true);
           stopDrag();
         };
-        previewSurface.addEventListener("pointermove", updateFromPointer);
-        previewSurface.addEventListener("pointerup", finish, { once: true });
-        previewSurface.addEventListener("pointercancel", stopDrag);
+        cropFrame.addEventListener("pointermove", updateFromPointer);
+        cropFrame.addEventListener("pointerup", finish, { once: true });
+        cropFrame.addEventListener("pointercancel", stopDrag);
       });
       markerLayer.appendChild(marker);
       markerByIndex.set(index, marker);
