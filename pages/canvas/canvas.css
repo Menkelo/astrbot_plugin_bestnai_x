@@ -1085,7 +1085,7 @@ select:focus-visible {
   min-height: 30px;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   padding: 0 8px;
   border-radius: 8px;
   background: transparent;
@@ -1355,7 +1355,7 @@ select:focus-visible {
   left: 0;
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 22px;
   background: rgba(255, 255, 255, .97);
   box-shadow: 0 15px 36px rgba(15, 23, 42, .14);
   color: var(--text);
@@ -1389,7 +1389,7 @@ select:focus-visible {
 }
 
 .retag-layer-card.open .retag-layer-toggle {
-  border-radius: 15px 15px 0 0;
+  border-radius: 21px 21px 0 0;
 }
 
 .retag-layer-toggle:hover {
@@ -1576,7 +1576,7 @@ select:focus-visible {
   width: 100%;
   margin: 0;
   padding: 10px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: color-mix(in srgb, #eff6ff 72%, transparent);
   font-size: 11px;
@@ -1590,7 +1590,7 @@ select:focus-visible {
 }
 
 .retag-character-card {
-  border-radius: 12px;
+  border-radius: 22px;
   box-shadow: none;
 }
 
@@ -1622,11 +1622,11 @@ select:focus-visible {
 }
 
 .retag-character-card.open .retag-layer-toggle {
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 21px 21px;
 }
 
 .retag-character-card:not(.open) .retag-layer-toggle {
-  border-radius: 12px;
+  border-radius: 21px;
 }
 
 .retag-character-card-head {
@@ -1646,6 +1646,33 @@ select:focus-visible {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.retag-character-delete-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.retag-character-delete-confirm {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  background: transparent;
+  color: #16a34a;
+  cursor: pointer;
+}
+
+.retag-character-delete-confirm:hover {
+  background: #dcfce7;
+}
+
+.retag-character-delete-confirm svg {
+  width: 13px;
+  height: 13px;
 }
 
 .retag-character-delete svg {
@@ -1683,7 +1710,7 @@ select:focus-visible {
   aspect-ratio: 1 / 1;
   place-items: center;
   overflow: hidden;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: #94a3b8;
   touch-action: none;
@@ -1880,7 +1907,7 @@ select:focus-visible {
 
 .retag-character-row.is-active {
   display: block;
-  border-color: #93c5fd;
+  border-color: #16a34a;
   box-shadow: none;
 }
 
@@ -1929,7 +1956,7 @@ select:focus-visible {
   outline: none;
   background: var(--soft-2);
   color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: inherit;
   /* Match the prompt card's main textarea typography. */
   font-size: 11px;
   line-height: 1.5;

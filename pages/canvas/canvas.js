@@ -2467,12 +2467,41 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       deleteButton.className = "retag-character-delete";
       deleteButton.title = `删除角色 ${index + 1}`;
       deleteButton.setAttribute("aria-label", `删除角色 ${index + 1}`);
-      deleteButton.appendChild(icon("trash-2"));
-      deleteButton.addEventListener("click", (event) => {
+      const deleteConfirm = document.createElement("button");
+      deleteConfirm.type = "button";
+      deleteConfirm.className = "retag-character-delete-confirm";
+      deleteConfirm.title = `确认删除角色 ${index + 1}`;
+      deleteConfirm.setAttribute("aria-label", `确认删除角色 ${index + 1}`);
+      deleteConfirm.appendChild(icon("check"));
+      deleteConfirm.hidden = true;
+      let deletePending = false;
+      const resetDeleteConfirmation = () => {
+        deletePending = false;
+        deleteConfirm.hidden = true;
+        deleteButton.replaceChildren(icon("trash-2"));
+        deleteButton.title = `删除角色 ${index + 1}`;
+        deleteButton.setAttribute("aria-label", `删除角色 ${index + 1}`);
+      };
+      deleteConfirm.addEventListener("click", (event) => {
         event.stopPropagation();
         removeCharacter(index);
       });
-      rowHead.append(enabledLabel, centerSummary, deleteButton);
+      deleteButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (deletePending) {
+          resetDeleteConfirmation();
+          return;
+        }
+        deletePending = true;
+        deleteConfirm.hidden = false;
+        deleteButton.replaceChildren(icon("x"));
+        deleteButton.title = "取消删除";
+        deleteButton.setAttribute("aria-label", "取消删除");
+      });
+      const deleteActions = document.createElement("span");
+      deleteActions.className = "retag-character-delete-actions";
+      deleteActions.append(deleteConfirm, deleteButton);
+      rowHead.append(enabledLabel, centerSummary, deleteActions);
       characterRow.appendChild(rowHead);
       characterRows.set(index, characterRow);
 
