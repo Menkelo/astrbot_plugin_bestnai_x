@@ -275,7 +275,7 @@ const state = {
 
 const MAX_HISTORY = 40;
 const PROMPT_MIN_WIDTH = 320;
-const PROMPT_MAX_WIDTH = 520;
+const PROMPT_MAX_WIDTH = 480;
 const PROMPT_MIN_HEIGHT = 430;
 const PROMPT_MAX_HEIGHT = 800;
 function debugModeEnabled() {
