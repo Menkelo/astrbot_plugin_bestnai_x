@@ -265,8 +265,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
             'body.addEventListener("wheel", (event) => {',
             retag_body,
         )
-        self.assertIn("body.scrollHeight > body.clientHeight + 1", retag_body)
-        self.assertIn("if (body.scrollHeight > body.clientHeight + 1) event.stopPropagation();", retag_body)
+        self.assertIn("scrollContainerConsumesWheel(body, event)", retag_body)
+        self.assertIn("function scrollContainerConsumesWheel", editor)
         self.assertIn("function collapseRetagLayers()", editor)
         self.assertIn(
             "void retagFromNode(destination, false, { automatic: true });",
@@ -890,7 +890,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.3", metadata)
+        self.assertIn("version: 4.5.4", metadata)
         self.assertIn('PLUGIN_VERSION = "4.4.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
@@ -1026,9 +1026,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         wheel_owner = editor.split("function nodeEditorOwnsWheel", 1)[1].split(
             'els.viewport.addEventListener("wheel"', 1
         )[0]
-        self.assertIn(".prompt-text", wheel_owner)
-        self.assertIn(".note-text", wheel_owner)
-        self.assertIn('.closest(".node.selected")', wheel_owner)
+        self.assertIn("textarea, input, select", wheel_owner)
+        self.assertIn("document.activeElement === editor", wheel_owner)
+        self.assertNotIn('.closest(".node.selected")', wheel_owner)
         # 高级参数卡和原图标签卡不占用滚轮；选中提示词卡时它们的滚轮继续缩放画布
         self.assertNotIn(".retag-layer-card", wheel_owner)
         self.assertEqual(editor.count('body.addEventListener("wheel"'), 1)
@@ -1109,15 +1109,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
         self.assertIn("const incomingCharPrompts = normalizeCharPromptEntries(result?.charPrompts)", editor)
-        self.assertIn("retagUseOrder: result?.charUseOrder !== false", editor)
+        self.assertIn("? result?.charUseOrder !== false", editor)
         self.assertIn("charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts)", editor)
         self.assertIn("charUseOrder: meta.retagUseOrder !== false", editor)
         self.assertIn(
-            "retagCharPrompts: retagged ? activeRetagCharPromptEntries(node) : []",
+            "retagCharPrompts: activeRetagCharPromptEntries(node)",
             editor,
         )
+        self.assertNotIn("retagCharPrompts: retagged ?", editor)
         self.assertIn(
-            "retagUseOrder: retagged ? node.meta?.retagUseOrder !== false : true",
+            "retagUseOrder: node.meta?.retagUseOrder !== false",
             editor,
         )
         self.assertIn("function normalizeCharCenter", editor)
@@ -1126,18 +1127,34 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("retagCharPromptsOriginal", editor)
         self.assertIn("retagUseCoordsOriginal", editor)
         self.assertIn("retagUseOrderOriginal", editor)
-        self.assertIn("角色参数", editor)
+        self.assertIn("角色模块", editor)
         self.assertIn("按坐标分区", editor)
         self.assertIn("恢复原图参数", editor)
-        self.assertIn("input.step = \"0.001\"", editor)
         self.assertIn("retagCharacterCard", editor)
-        self.assertIn("stack.appendChild(retagCharacterCard)", editor)
+        self.assertIn("roleStack.appendChild(retagCharacterCard)", editor)
+        self.assertIn('roleStack.className = "node-role-stack"', editor)
+        self.assertIn('retagLayerResult && "card" in retagLayerResult', editor)
+        retag_builder_head = editor.split("function makeRetagLayerCard", 1)[1].split(
+            "const card = document.createElement", 1
+        )[0]
+        self.assertNotIn("if (!sourceImage) return null", retag_builder_head)
         self.assertIn("retag-character-preview-surface", editor)
         self.assertIn("setPointerCapture(pointerId)", editor)
+        self.assertIn("document.createTextNode(\"角色模块\")", editor)
+        self.assertIn("添加角色", editor)
+        self.assertIn("删除角色", editor)
+        self.assertIn('makeTextField("负面"', editor)
+        self.assertIn("随机位置", editor)
+        self.assertIn("randomCharacterCenter", editor)
+        self.assertIn("const addCharacter = () =>", editor)
+        self.assertIn("const removeCharacter = (index) =>", editor)
+        self.assertNotIn('input.type = "number"', editor.split("function makeRetagLayerCard", 1)[1])
         self.assertIn("均匀横向", editor)
         self.assertIn("三人构图", editor)
         self.assertIn("四人构图", editor)
         self.assertIn("retagCharacterExpanded", editor)
+        self.assertIn("Math.hypot(moveEvent.clientX - startX", editor)
+        self.assertIn("selectCharacter(index, true)", editor)
         self.assertIn("if (center) {", editor)
         self.assertIn("const position = String(item.position || \"\").trim().toUpperCase();", editor)
         self.assertIn('if "retagUseCoords" in payload', main_source)
@@ -1197,14 +1214,21 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "retagNoiseSchedule",
             "retagSampler",
             "retagDropTags",
+        ):
+            self.assertIn(f"{key}: _{key}", editor.split("function clearRetagCache", 1)[1].split("function clearTranslationCache", 1)[0])
+        clear_retag = editor.split("function clearRetagCache", 1)[1].split(
+            "function clearTranslationCache", 1
+        )[0]
+        for key in (
             "retagCharPrompts",
             "retagCharPromptsOriginal",
             "retagCharDisabled",
+            "retagUseCoords",
             "retagUseOrder",
             "retagUseCoordsOriginal",
             "retagUseOrderOriginal",
         ):
-            self.assertIn(f"{key}: _{key}", editor.split("function clearRetagCache", 1)[1].split("function clearTranslationCache", 1)[0])
+            self.assertNotIn(f"{key}: _{key}", clear_retag)
         # 后端把回传参数写进生图配置并在调试栏注明来源
         self.assertIn(
             'for key in ("steps", "scale", "cfg_rescale", "noise_schedule", "sampler")',
@@ -1502,6 +1526,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".retag-layer-body::-webkit-scrollbar", styles)
         self.assertIn(".retag-layer-body::-webkit-scrollbar-thumb", styles)
         self.assertIn("scrollbar-color: rgba(100, 116, 139, .22) transparent", styles)
+        self.assertIn(".node-role-stack", styles)
+        role_stack = styles.split(".node-role-stack {", 1)[1].split("}", 1)[0]
+        self.assertIn("bottom: calc(100% + 11px);", role_stack)
+        self.assertIn("background: #cbd5e1;", styles)
+        self.assertNotIn("retag-character-preview-surface > img", styles)
         # 提示词卡片默认尺寸放大
         self.assertIn("width: 380,", editor)
         self.assertIn("height: 430,", editor)

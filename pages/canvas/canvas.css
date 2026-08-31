@@ -948,6 +948,25 @@ select:focus-visible {
   display: none;
 }
 
+.node-role-stack {
+  position: absolute;
+  z-index: 8;
+  bottom: calc(100% + 11px);
+  left: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+}
+
+.node-role-stack .retag-layer-card {
+  position: static;
+  width: 100%;
+}
+
+.node-role-stack .retag-layer-card::before {
+  display: none;
+}
+
 .field-label {
   position: relative;
   display: flex;
@@ -1535,6 +1554,61 @@ select:focus-visible {
   max-height: min(620px, 68vh);
 }
 
+.retag-character-card-head {
+  display: flex;
+  align-items: center;
+}
+
+.retag-character-card-head > .retag-layer-toggle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.retag-character-add,
+.retag-character-delete {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.retag-character-add {
+  width: 28px;
+  height: 28px;
+  margin-right: 7px;
+  border-radius: 8px;
+  color: #2563eb;
+}
+
+.retag-character-add:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.retag-character-add:disabled {
+  cursor: not-allowed;
+  opacity: .35;
+}
+
+.retag-character-add svg,
+.retag-character-delete svg {
+  width: 13px;
+  height: 13px;
+}
+
+.retag-character-delete {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--faint);
+}
+
+.retag-character-delete:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .retag-character-preview {
   margin-bottom: 8px;
 }
@@ -1553,27 +1627,9 @@ select:focus-visible {
   overflow: hidden;
   border: 1px solid #bfdbfe;
   border-radius: 9px;
-  background: #dbeafe;
+  background: #cbd5e1;
   cursor: crosshair;
   touch-action: none;
-}
-
-.retag-character-preview-surface.is-empty {
-  display: grid;
-  min-height: 130px;
-  place-items: center;
-  color: #60a5fa;
-  font-size: 9px;
-  font-weight: 800;
-}
-
-.retag-character-preview-surface > img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-  user-select: none;
 }
 
 .retag-character-marker-layer {
@@ -1614,6 +1670,12 @@ select:focus-visible {
 .retag-character-marker.is-disabled {
   background: #64748b;
   opacity: .58;
+}
+
+.retag-character-marker.is-active {
+  background: #0f172a;
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
 }
 
 .retag-character-layouts {
@@ -1721,11 +1783,18 @@ select:focus-visible {
 }
 
 .retag-character-row {
+  display: none;
   margin-top: 7px;
   padding: 7px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--card-solid);
+}
+
+.retag-character-row.is-active {
+  display: block;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(147, 197, 253, .18);
 }
 
 .retag-character-row.is-disabled {
@@ -1754,8 +1823,7 @@ select:focus-visible {
   margin-top: 5px;
 }
 
-.retag-character-field > span,
-.retag-character-coordinate > span {
+.retag-character-field > span {
   color: var(--faint);
   font-size: 8px;
   font-weight: 800;
@@ -1777,43 +1845,20 @@ select:focus-visible {
   line-height: 1.35;
 }
 
-.retag-character-field textarea:focus,
-.retag-character-coordinate input:focus {
+.retag-character-field textarea:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
 }
 
-.retag-character-coordinates {
-  display: flex;
-  align-items: end;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.retag-character-coordinate {
-  display: grid;
-  width: 64px;
-  gap: 3px;
-}
-
-.retag-character-coordinate input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 4px 5px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  outline: none;
-  background: var(--soft-2);
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 8.5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.retag-character-coordinate-hint {
-  padding-bottom: 5px;
+.retag-character-empty {
+  margin: 8px 0 0;
+  padding: 12px 8px;
+  border: 1px dashed #bfdbfe;
+  border-radius: 9px;
   color: var(--faint);
-  font-size: 8px;
+  font-size: 8.5px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .retag-layer-row {

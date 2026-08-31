@@ -405,6 +405,39 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertTrue(meta["retagUseOrderOriginal"])
         self.assertTrue(meta["retagCharacterExpanded"])
 
+    def test_workspace_preserves_new_blank_character_until_it_is_edited(self) -> None:
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_manual_char",
+                        "type": "prompt",
+                        "prompt": "2girls",
+                        "meta": {
+                            "retagCharPrompts": [
+                                {
+                                    "prompt": "",
+                                    "negative_prompt": "",
+                                    "center": {"x": 0.5, "y": 0.5},
+                                }
+                            ],
+                            "retagUseCoords": True,
+                            "retagUseOrder": True,
+                            "retagCharacterExpanded": True,
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+
+        meta = sanitized["nodes"][0]["meta"]
+        self.assertEqual(meta["retagCharPrompts"][0]["prompt"], "")
+        self.assertEqual(
+            meta["retagCharPrompts"][0]["center"], {"x": 0.5, "y": 0.5}
+        )
+        self.assertTrue(meta["retagCharacterExpanded"])
+
     def test_workspace_clamps_out_of_range_source_sampling_params(self) -> None:
         sanitized = self.store.sanitize_workspace(
             {

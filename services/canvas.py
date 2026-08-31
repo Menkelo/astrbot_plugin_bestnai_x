@@ -223,7 +223,11 @@ def _sanitize_char_indexes(value: Any) -> List[int]:
     return sorted(result)
 
 
-def _sanitize_char_prompts(value: Any) -> List[Dict[str, Any]]:
+def _sanitize_char_prompts(
+    value: Any,
+    *,
+    keep_empty: bool = False,
+) -> List[Dict[str, Any]]:
     """工作区里缓存的多角色参数，边界与 core/char_prompts 保持一致。"""
     if not isinstance(value, list):
         return []
@@ -239,7 +243,25 @@ def _sanitize_char_prompts(value: Any) -> List[Dict[str, Any]]:
                 break
         prompt = _short_text(prompt, MAX_CHAR_PROMPT_LENGTH).strip()
         if not prompt:
-            continue
+            if not keep_empty:
+                continue
+            pending_center = normalize_char_center(raw_entry.get("center"))
+            if pending_center is None and isinstance(raw_entry.get("centers"), list):
+                pending_center = next(
+                    (
+                        center
+                        for candidate in raw_entry["centers"]
+                        if (center := normalize_char_center(candidate)) is not None
+                    ),
+                    None,
+                )
+            if pending_center is None:
+                pending_center = normalize_char_center(
+                    {"x": raw_entry.get("x"), "y": raw_entry.get("y")}
+                )
+            pending_position = str(raw_entry.get("position") or "").strip().upper()
+            if pending_center is None and not _CHAR_POSITION_RE.fullmatch(pending_position):
+                continue
         negative_prompt = ""
         for key in ("negative_prompt", "negative", "uc"):
             candidate = raw_entry.get(key)
@@ -825,7 +847,10 @@ class CanvasStore:
             if retag_drop_tags:
                 meta["retagDropTags"] = retag_drop_tags
             # V4+ 多角色参数：结构化透传给生图网关的分区生成
-            char_prompts = _sanitize_char_prompts(raw_meta.get("retagCharPrompts"))
+            char_prompts = _sanitize_char_prompts(
+                raw_meta.get("retagCharPrompts"),
+                keep_empty=True,
+            )
             if char_prompts:
                 meta["retagCharPrompts"] = char_prompts
                 disabled_char_indexes = _sanitize_char_indexes(
@@ -843,7 +868,8 @@ class CanvasStore:
                     raw_meta.get("retagCharacterExpanded", False)
                 )
                 original_char_prompts = _sanitize_char_prompts(
-                    raw_meta.get("retagCharPromptsOriginal")
+                    raw_meta.get("retagCharPromptsOriginal"),
+                    keep_empty=True,
                 )
                 if original_char_prompts:
                     meta["retagCharPromptsOriginal"] = original_char_prompts
@@ -859,6 +885,10 @@ class CanvasStore:
                             raw_meta.get("retagUseOrder", True),
                         )
                     )
+            else:
+                meta["retagCharacterExpanded"] = bool(
+                    raw_meta.get("retagCharacterExpanded", False)
+                )
 
             node = {
                 "id": node_id,
