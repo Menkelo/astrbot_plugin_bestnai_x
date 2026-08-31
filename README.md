@@ -166,7 +166,7 @@ pip install aiohttp pillow
 | `prompt_block_enabled` | bool | `true` | QQ 防护总开关。检测到敏感词时保留原始提示词并自动对本轮发送图片做本地马赛克混淆；关闭后不再检测或混淆图片 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤的额外检测词；内置高风险词始终生效，完全关闭请使用 `prompt_block_enabled` |
 
-> 图片混淆使用本地 Pillow 处理，不需要视觉审核提供商，也不会把图片上传到“小番茄混淆”或其他外部网站。混淆只作用于发送副本，视觉审核配置中的旧字段仍可读取，但已不再参与主流程。
+> 图片混淆使用本地 Pillow 按 Gilbert Curve 处理，不需要视觉审核提供商，也不会把图片上传到“小番茄混淆”或其他外部网站。混淆只作用于发送副本，视觉审核配置中的旧字段仍可读取，但已不再参与主流程。
 
 > **Danbooru Tag 检索**已内嵌，翻译中文提示词时自动启用，无需配置。
 > 检索服务由第三方提供：[sakizuki/danboorusearch](https://huggingface.co/spaces/sakizuki/danboorusearch)（`https://sakizuki-danboorusearch.hf.space`），
@@ -222,7 +222,7 @@ pip install aiohttp pillow
    优先调用提供商 API Base 的 `/chat/completions`（完整 NAI payload）
         └─ Chat 路由不存在时回退 `/images/generations`（仅基础字段）
         ▼
-   命中敏感词？──► 发送前本地马赛克混淆
+   命中敏感词？──► 发送前本地 Gilbert Curve 混淆
         ▼
    发送图片
 ```
@@ -278,7 +278,7 @@ pip install aiohttp pillow
    - 内置高风险词始终生效；`prompt_block_words` 用于追加自定义检测词。命中时只记录触发状态，不改写正向提示词。
    - 空格、下划线和连字符按同一种分隔方式检测，可过滤 `oral sex`、`oral_sex`、`oral-sex` 等 Danbooru 变体；零宽字符与 `rating:explicit` 命名空间也无法绕过。
 2. **命中后的图片混淆**（同样受 `prompt_block_enabled` 控制）
-   - 只要本轮提示词检测命中敏感词，生成完成后会在发送前对图片副本做本地马赛克混淆。
+   - 只要本轮提示词检测命中敏感词，生成完成后会在发送前对图片副本做本地 Gilbert Curve 混淆（JPEG 质量 1.0）。
    - 混淆失败时不会发送未混淆的原图，而是返回错误，避免敏感图片直接泄露。
 
 > 第 1、2 条共用 `prompt_block_enabled` 一个开关：检测正向提示词并混淆发送图片。提示词和负面提示词均保持用户原文，关闭开关意味着插件完全不再检测或改动图片。
