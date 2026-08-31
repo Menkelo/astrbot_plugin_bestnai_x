@@ -890,8 +890,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.4", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.4.9"', constants)
+        self.assertIn("version: 4.5.5", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.5.5"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

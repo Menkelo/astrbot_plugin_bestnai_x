@@ -967,6 +967,11 @@ select:focus-visible {
   display: none;
 }
 
+/* 角色模块贴近操作记录的轻量浮层，不再给节点周边增加投影。 */
+.node-role-stack .retag-character-card {
+  box-shadow: none;
+}
+
 .field-label {
   position: relative;
   display: flex;
@@ -1405,7 +1410,7 @@ select:focus-visible {
 }
 
 .retag-layer-body {
-  max-height: min(380px, 48vh);
+  max-height: min(620px, calc(100vh - 140px));
   padding: 9px;
   overflow-y: auto;
   border-top: 1px solid var(--line);
@@ -1551,7 +1556,11 @@ select:focus-visible {
 }
 
 .retag-character-card .retag-layer-body {
-  max-height: min(620px, 68vh);
+  max-height: min(620px, calc(100vh - 120px));
+}
+
+.retag-character-card {
+  box-shadow: none;
 }
 
 .retag-character-card-head {
@@ -1624,6 +1633,7 @@ select:focus-visible {
   position: relative;
   width: 100%;
   min-height: 100px;
+  max-height: min(46vh, 420px);
   overflow: hidden;
   border: 1px solid #bfdbfe;
   border-radius: 9px;

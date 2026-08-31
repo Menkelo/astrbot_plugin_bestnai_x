@@ -204,6 +204,8 @@ const state = {
     retagControlPrompts: [],
     defaultRatio: "2:3",
     defaultArtist: "",
+    defaultSampler: "k_euler_ancestral",
+    samplers: [],
     retagEnabled: false,
     retagConfigured: false,
   },
@@ -1415,6 +1417,8 @@ function renderPromptNode(node) {
     rememberPromptDefaults({ ratio: value });
     scheduleSave();
     recordOperation("修改画幅", `${node.title || "提示词节点"} · ${value || "默认"}`);
+    // 角色预览的画幅来自节点本身；立即重绘才能让竖/横画幅同步更新。
+    renderAll();
   });
   const artistOptions = canvasArtistOptions();
   const artistField = makeSelectField("画师", artistOptions, node.artist, (value) => {
@@ -1956,6 +1960,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
       `引导 ${effectiveValue("scale", "retagScale", 7)}`,
       `Rescale ${effectiveValue("cfgRescale", "retagCfgRescale", 0)}`,
     ];
+    const sampler = effectiveValue("sampler", "retagSampler", state.config.defaultSampler || "k_euler_ancestral");
+    if (sampler) parts.push(String(sampler));
     if (varietySupported && node.meta?.varietyBoost) parts.push("Variety+");
     summary.textContent = parts.join(" · ");
   };
@@ -2097,6 +2103,41 @@ function makeAdvancedParamsCard(node, nodeElement) {
   });
   varietyLabel.append(variety, document.createTextNode("Variety+"));
 
+  const configuredSamplers = Array.isArray(state.config.samplers) ? state.config.samplers.slice() : [];
+  const samplerItems = configuredSamplers.length
+    ? configuredSamplers
+    : [
+      "k_euler_ancestral", "k_euler", "k_dpmpp_2s_ancestral",
+      "k_dpmpp_2m_sde", "k_dpmpp_2m_sde_exponential",
+      "k_dpmpp_2m_sde_karras", "k_dpmpp_sde", "k_dpmpp_sde_karras",
+      "ddim", "ddim_v2", "k_lms", "k_heun", "k_dpm_2", "k_dpm_2_ancestral",
+    ].map((value) => ({ value, label: value }));
+  samplerItems.unshift({ value: "", label: "跟随原图 / 默认" });
+  const effectiveSampler = String(
+    effectiveValue("sampler", "retagSampler", state.config.defaultSampler || "k_euler_ancestral") || "",
+  );
+  if (effectiveSampler && !samplerItems.some((item) => String(item.value) === effectiveSampler)) {
+    samplerItems.push({ value: effectiveSampler, label: `${effectiveSampler}（原图）` });
+  }
+  const samplerField = makeSelectField(
+    "采样器",
+    samplerItems,
+    String(node.meta?.sampler || ""),
+    (value) => {
+      const nextSampler = String(value || "").trim();
+      if (nextSampler) {
+        node.meta = { ...(node.meta || {}), sampler: nextSampler };
+      } else if (node.meta?.sampler) {
+        const { sampler: _sampler, ...meta } = node.meta;
+        node.meta = meta;
+      }
+      refreshSummary();
+      clearDebugTrace(node);
+      scheduleSave();
+    },
+  );
+  samplerField.classList.add("adv-sampler-field");
+
   const setOpen = (open) => {
     card.classList.toggle("open", open);
     body.hidden = !open;
@@ -2110,7 +2151,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
     scheduleSave();
   });
 
-  body.append(sourceNote, advRow, varietyLabel);
+  body.append(sourceNote, advRow, samplerField, varietyLabel);
   refreshSummary();
   setOpen(node.meta?.advParamsExpanded === true);
   card.append(toggle, body);
@@ -2123,6 +2164,15 @@ function scrollContainerConsumesWheel(container, event) {
   if (event.deltaY < 0) return container.scrollTop > 0;
   if (event.deltaY > 0) return container.scrollTop < maxScroll - 1;
   return false;
+}
+
+function fitLayerBodyToViewport(card, body) {
+  if (!card || !body || body.hidden) return;
+  const top = card.getBoundingClientRect().top;
+  const available = window.innerHeight - top - 16;
+  // Keep a useful minimum while allowing the card to consume all genuinely
+  // available space instead of forcing the old fixed 380px scrollbar.
+  body.style.maxHeight = `${Math.max(160, Math.min(620, available))}px`;
 }
 
 function makeRetagLayerCard(node, sourceImage, nodeElement) {
@@ -2331,7 +2381,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         editor.prompt.setSelectionRange(editor.prompt.value.length, editor.prompt.value.length);
       }
     };
-    const addCharacter = () => {
+    const addCharacterAt = (center = null) => {
       if (charPrompts.length >= MAX_CHAR_PROMPTS) return;
       pushHistory();
       if (!Array.isArray(node.meta?.retagCharPromptsOriginal)) {
@@ -2346,7 +2396,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         prompt: "",
         negative_prompt: "",
         position: "",
-        center: randomCharacterCenter(charPrompts.map((item) => editableCharCenter(item))),
+        center: center || randomCharacterCenter(charPrompts.map((item) => editableCharCenter(item))),
       });
       node.meta = {
         ...(node.meta || {}),
@@ -2359,6 +2409,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       scheduleSave();
       renderAll();
     };
+    const addCharacter = () => addCharacterAt(null);
     const removeCharacter = (index) => {
       if (!charPrompts[index]) return;
       pushHistory();
@@ -2543,9 +2594,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const previewSurface = document.createElement("div");
     previewSurface.className = "retag-character-preview-surface";
     const ratioText = String(
-      sourceImage?.meta?.width && sourceImage?.meta?.height
-        ? `${sourceImage.meta.width}:${sourceImage.meta.height}`
-        : node.ratio || "2:3",
+      node.ratio
+        || (sourceImage?.meta?.width && sourceImage?.meta?.height
+          ? `${sourceImage.meta.width}:${sourceImage.meta.height}`
+          : "2:3"),
     );
     const ratioMatch = ratioText.match(/(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)/);
     previewSurface.style.aspectRatio = ratioMatch
@@ -2572,6 +2624,20 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         if (summary) summary.textContent = `(${center.x.toFixed(3)}, ${center.y.toFixed(3)})`;
       });
     };
+
+    // 空白画布双击直接在点击位置创建角色，竖图也不需要先找标题栏按钮。
+    previewSurface.addEventListener("dblclick", (event) => {
+      if (event.target.closest(".retag-character-marker")) return;
+      if (charPrompts.length >= MAX_CHAR_PROMPTS) return;
+      const rect = previewSurface.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      event.preventDefault();
+      event.stopPropagation();
+      addCharacterAt({
+        x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+        y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+      });
+    });
 
     charPrompts.forEach((_, index) => {
       const marker = document.createElement("button");
@@ -2631,7 +2697,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     if (!charPrompts.length) {
       const emptyCharacters = document.createElement("p");
       emptyCharacters.className = "retag-character-empty";
-      emptyCharacters.textContent = "暂无角色，点击标题栏的添加按钮创建角色。";
+      emptyCharacters.textContent = "暂无角色，双击上方画布添加角色。";
       characterPanel.appendChild(emptyCharacters);
     }
     syncCharacterPreview();
@@ -2662,21 +2728,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     characterSummary = document.createElement("span");
     characterSummary.className = "retag-layer-summary";
     const characterChevron = icon("chevron-down", "retag-layer-chevron");
-    const addCharacterButton = document.createElement("button");
-    addCharacterButton.type = "button";
-    addCharacterButton.className = "retag-character-add";
-    addCharacterButton.title = "添加角色";
-    addCharacterButton.setAttribute("aria-label", "添加角色");
-    addCharacterButton.appendChild(icon("user-plus"));
-    addCharacterButton.disabled = charPrompts.length >= MAX_CHAR_PROMPTS;
-    addCharacterButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      addCharacter();
-    });
     characterToggle.append(characterToggleTitle, characterSummary, characterChevron);
     const characterCardHead = document.createElement("div");
     characterCardHead.className = "retag-character-card-head";
-    characterCardHead.append(characterToggle, addCharacterButton);
+    characterCardHead.append(characterToggle);
     const characterBody = document.createElement("div");
     characterBody.className = "retag-layer-body retag-character-body";
     characterBody.hidden = true;
@@ -2825,6 +2880,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     card.classList.toggle("open", open);
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
+    if (open) requestAnimationFrame(() => fitLayerBodyToViewport(card, body));
   };
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -4509,7 +4565,9 @@ async function generateFromNode(id, {
       scale: node.meta?.scale || node.meta?.retagScale || undefined,
       cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined,
       noise_schedule: node.meta?.retagNoiseSchedule || undefined,
-      sampler: node.meta?.retagSampler || undefined,
+      // 手动高级参数优先于反推命中的原图采样器。
+      sampler: node.meta?.sampler || node.meta?.retagSampler || undefined,
+      // Legacy source contract (kept for old integrations): sampler: node.meta?.retagSampler || undefined
       varietyPlus: !!node.meta?.varietyBoost,
       retagPrompt: requestRetagPrompt,
       retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
@@ -7245,6 +7303,9 @@ window.addEventListener("resize", () => {
   setSelectionContextMenu(false);
   alignToastRegion();
   scheduleOverlayAlignment();
+  document.querySelectorAll(".retag-layer-card:not(.retag-character-card)").forEach((card) => {
+    fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"));
+  });
   if (!els.imageViewer.hidden) {
     applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
     scheduleImageViewerFrameSync();

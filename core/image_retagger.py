@@ -47,6 +47,10 @@ _CONTROL_TAGS = {
     "rating:questionable",
     "rating:explicit",
 }
+_CONTROL_TAG_KEYS = {
+    re.sub(r"\s+", " ", value.replace("_", " ")).strip()
+    for value in _CONTROL_TAGS
+}
 
 
 def _clean_tags(text: str) -> str:
@@ -182,7 +186,6 @@ def strip_control_tags(
     cleaned = _clean_tags(text)
     extra_keys = _extra_control_tag_keys(extra_control_tags)
     kept = []
-    seen = set()
     for token_segment in split_prompt_tokens(cleaned):
         weight, atoms, weighted = weighted_token_parts(token_segment)
         filtered_atoms = []
@@ -192,17 +195,15 @@ def strip_control_tags(
                 continue
             lowered = token.lower()
             plain = _tag_key(token)
-            if "artist:" in lowered or re.search(r"\bartist(?:_|\s)", lowered):
+            # Only an explicit artist control is removed.  Matching any token
+            # containing ``artist`` or ``quality`` used to erase legitimate
+            # visual tags such as ``artist_style``/``quality_stamp``.
+            if re.match(r"^(?:\[+|\{+)?artist\s*:", lowered):
                 continue
-            if plain in extra_keys or plain in _CONTROL_TAGS or any(
-                phrase in plain for phrase in ("quality", "aesthetic", "absurdres")
-            ):
+            if plain in extra_keys or plain.replace("_", " ") in _CONTROL_TAG_KEYS:
                 continue
             if re.match(r"^(?:rating|score)\s*[:_]", plain):
                 continue
-            if plain in seen:
-                continue
-            seen.add(plain)
             filtered_atoms.append(token)
         if not filtered_atoms:
             continue

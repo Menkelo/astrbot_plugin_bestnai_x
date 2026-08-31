@@ -9,6 +9,25 @@ MODEL_V45_FULL = "nai-diffusion-4-5-full"
 MODEL_V5_FULL = "nai-diffusion-5-full"
 SUPPORTED_MODELS = (MODEL_V45_FULL, MODEL_V5_FULL)
 
+# NovelAI samplers accepted by current V4+/V5 endpoints.  Keep this list in
+# one place so the config schema, canvas selector and API payload stay aligned.
+SUPPORTED_SAMPLERS = (
+    "k_euler_ancestral",
+    "k_euler",
+    "k_dpmpp_2s_ancestral",
+    "k_dpmpp_2m_sde",
+    "k_dpmpp_2m_sde_exponential",
+    "k_dpmpp_2m_sde_karras",
+    "k_dpmpp_sde",
+    "k_dpmpp_sde_karras",
+    "ddim",
+    "ddim_v2",
+    "k_lms",
+    "k_heun",
+    "k_dpm_2",
+    "k_dpm_2_ancestral",
+)
+
 FIXED_MODEL = MODEL_V45_FULL
 DEFAULT_QUALITY_STRING = "best quality, amazing quality, very aesthetic, absurdres"
 

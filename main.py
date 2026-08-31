@@ -50,6 +50,7 @@ from .image_store import send_image_best_effort
 from .models.config import (
     MODEL_V45_FULL,
     MODEL_V5_FULL,
+    SUPPORTED_SAMPLERS,
     GenerationConfig,
     PluginConfig,
     model_supports_cjk,
@@ -269,6 +270,11 @@ class BestNAIPlugin(Star):
             "defaultModel": MODEL_V45_FULL,
             "defaultRatio": self._normalize_ratio_label(self.default_ratio),
             "defaultArtist": self._get_default_artist_display_name(),
+            "defaultSampler": self.plugin_config.generation.sampler,
+            "samplers": [
+                {"value": value, "label": value}
+                for value in SUPPORTED_SAMPLERS
+            ],
             "ratios": ratios,
             "artists": artists,
             "retagControlPrompts": self.plugin_config.get_retag_control_prompts(),

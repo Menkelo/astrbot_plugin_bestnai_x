@@ -113,7 +113,7 @@ pip install aiohttp pillow
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `char_structured` | — | 固定开启 | 结构化角色参数透传已固定开启（无开关）：反推多角色原图时把 `char_captions` 作为 `characters` 参数发给网关做分区生成，网关拒绝（400）时自动去除角色参数重试 |
-| `sampler` | string | `k_euler_ancestral` | 采样器。可选：`k_euler_ancestral`（推荐默认，随机性较强，二次元效果稳定）、`k_euler`（更稳定干净，随机性较低）、`k_dpmpp_2s_ancestral`（细节和质感较好，随机性较强，但部分代理可能不支持） |
+| `sampler` | string | `k_euler_ancestral` | 采样器。支持 `k_euler_ancestral`、`k_euler`、`k_dpmpp_2s_ancestral`、`k_dpmpp_2m_sde`、`k_dpmpp_2m_sde_exponential`、`k_dpmpp_2m_sde_karras`、`k_dpmpp_sde`、`k_dpmpp_sde_karras`、`ddim`、`ddim_v2`、`k_lms`、`k_heun`、`k_dpm_2`、`k_dpm_2_ancestral`。画布高级参数中也可按节点自主切换。 |
 | `default_ratio` | string | `2:3 (832×1216)` | 默认比例，当提示词未指定比例时使用。可选：`16:9 (1216×704)`、`9:16 (704×1216)`、`4:3 (1024×768)`、`3:4 (768×1024)`、`3:2 (1216×832)`、`2:3 (832×1216)`、`1:1 (1024×1024)`、`5:4 (960×768)`、`4:5 (768×960)`、`7:4 (1344×768)`、`4:7 (768×1344)`、`12:5 (1536×640)`、`5:12 (640×1536)`、`21:9 (1344×576)`、`9:21 (576×1344)` |
 | `max_concurrency` | int | `1` | 生图并发限制。同一时刻最多同时进行的生图任务数，超出时新的生图请求会排队等待。默认 1（串行） |
 

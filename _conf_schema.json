@@ -44,12 +44,23 @@
       "sampler": {
         "description": "采样器",
         "type": "string",
-        "hint": "k_euler_ancestral：推荐默认，随机性较强，二次元效果稳定；k_euler：更稳定干净，随机性较低；k_dpmpp_2s_ancestral：细节和质感较好，随机性较强，但部分代理可能不支持",
+        "hint": "支持 Euler、DPM++ 2S/2M SDE 等 NovelAI V4+/V5 采样器；默认推荐 k_euler_ancestral。若代理不支持所选采样器，接口会返回 Unsupported sampler。",
         "default": "k_euler_ancestral",
         "options": [
           "k_euler_ancestral",
           "k_euler",
-          "k_dpmpp_2s_ancestral"
+          "k_dpmpp_2s_ancestral",
+          "k_dpmpp_2m_sde",
+          "k_dpmpp_2m_sde_exponential",
+          "k_dpmpp_2m_sde_karras",
+          "k_dpmpp_sde",
+          "k_dpmpp_sde_karras",
+          "ddim",
+          "ddim_v2",
+          "k_lms",
+          "k_heun",
+          "k_dpm_2",
+          "k_dpm_2_ancestral"
         ]
       },
       "default_ratio": {
