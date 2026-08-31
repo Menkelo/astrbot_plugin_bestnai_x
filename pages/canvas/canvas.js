@@ -2523,7 +2523,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       });
       characterRow.classList.toggle("is-disabled", !enabled.checked);
 
-      const makeTextField = (labelText, key, value) => {
+      const makeTextField = (labelText, placeholderText, key, value) => {
         const field = document.createElement("label");
         field.className = "retag-character-field";
         const caption = document.createElement("span");
@@ -2532,15 +2532,23 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         input.rows = 4;
         input.maxLength = 2000;
         input.value = String(value || "");
-        input.placeholder = labelText;
+        input.placeholder = placeholderText;
         input.addEventListener("pointerdown", (event) => event.stopPropagation());
         editText(index, key, input);
         field.append(caption, input);
         return field;
       };
 
-      const promptField = makeTextField("正面", "prompt", character.prompt);
-      const negativeField = makeTextField("负面", "negative_prompt", character.negative_prompt);
+      const promptField = makeTextField("正面",
+        "例如：外观、服饰、表情与动作",
+        "prompt",
+        character.prompt,
+      );
+      const negativeField = makeTextField("负面",
+        "填写不希望出现在该角色上的特征",
+        "negative_prompt",
+        character.negative_prompt,
+      );
       characterEditors.set(index, {
         prompt: promptField.querySelector("textarea"),
         negative: negativeField.querySelector("textarea"),

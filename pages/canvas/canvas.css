@@ -20,8 +20,9 @@
   --note: #ca8a04;
   --danger: #dc2626;
   /* 画布卡片统一沿用角色模块卡的倒角。 */
-  --card-radius: 12px;
-  --card-inner-radius: 11px;
+  /* 缩放手柄的 12px 圆弧距卡片边缘 4px，向外同心推导为 16px。 */
+  --card-radius: 16px;
+  --card-inner-radius: 15px;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
 }
@@ -1632,7 +1633,9 @@ select:focus-visible {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  justify-self: end;
   gap: 2px;
+  line-height: 0;
 }
 
 .retag-character-delete-confirm {
@@ -1655,11 +1658,13 @@ select:focus-visible {
 }
 
 .retag-character-delete-confirm svg {
+  display: block;
   width: 13px;
   height: 13px;
 }
 
 .retag-character-delete svg {
+  display: block;
   width: 13px;
   height: 13px;
 }
@@ -1796,10 +1801,11 @@ select:focus-visible {
 }
 
 .retag-character-row-head {
-  display: flex;
+  position: relative;
+  display: grid;
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
@@ -1910,10 +1916,16 @@ select:focus-visible {
 }
 
 .retag-character-center-summary {
+  position: absolute;
+  left: 50%;
   color: var(--faint);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .retag-character-field {
