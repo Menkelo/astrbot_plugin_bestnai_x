@@ -1548,20 +1548,24 @@ select:focus-visible {
 }
 
 .retag-character-panel {
-  margin-bottom: 8px;
-  padding: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 10px;
   border: 1px solid #bfdbfe;
-  border-radius: 11px;
+  border-radius: 12px;
   background: color-mix(in srgb, #eff6ff 72%, transparent);
 }
 
 .retag-character-card .retag-layer-body {
+  padding: 10px;
   max-height: min(620px, calc(100vh - 120px));
   border-top: 0;
   border-bottom: 1px solid var(--line);
 }
 
 .retag-character-card {
+  border-radius: 12px;
   box-shadow: none;
 }
 
@@ -1571,12 +1575,13 @@ select:focus-visible {
   right: auto;
   bottom: 0;
   left: calc(100% + 10px);
-  width: min(100%, calc(100vw - 24px));
+  width: min(280px, calc(100vw - 24px));
+  min-height: 190px;
   max-height: min(520px, 70vh);
   padding: 8px;
   overflow-y: auto;
   border: 1px solid #bfdbfe;
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--card-solid);
   scrollbar-color: rgba(100, 116, 139, .28) transparent;
   scrollbar-width: thin;
@@ -1592,7 +1597,11 @@ select:focus-visible {
 }
 
 .retag-character-card.open .retag-layer-toggle {
-  border-radius: 0 0 15px 15px;
+  border-radius: 0 0 12px 12px;
+}
+
+.retag-character-card:not(.open) .retag-layer-toggle {
+  border-radius: 12px;
 }
 
 .retag-character-card-head {
@@ -1650,7 +1659,7 @@ select:focus-visible {
   place-items: center;
   overflow: hidden;
   border: 1px solid #bfdbfe;
-  border-radius: 9px;
+  border-radius: 12px;
   background: #94a3b8;
   touch-action: none;
 }
@@ -1840,7 +1849,7 @@ select:focus-visible {
   margin-top: 7px;
   padding: 7px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 12px;
   background: var(--card-solid);
 }
 
@@ -1884,12 +1893,12 @@ select:focus-visible {
 
 .retag-character-field textarea {
   width: 100%;
-  min-height: 34px;
+  min-height: 48px;
   box-sizing: border-box;
   resize: vertical;
   padding: 5px 6px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 8px;
   outline: none;
   background: var(--soft-2);
   color: var(--text);

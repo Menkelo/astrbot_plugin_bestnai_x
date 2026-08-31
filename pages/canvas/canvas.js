@@ -2499,7 +2499,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         const caption = document.createElement("span");
         caption.textContent = labelText;
         const input = document.createElement("textarea");
-        input.rows = 2;
+        input.rows = 3;
         input.maxLength = 2000;
         input.value = String(value || "");
         input.placeholder = labelText;
