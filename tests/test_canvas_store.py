@@ -347,6 +347,62 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertTrue(meta["retagUseCoords"])
         self.assertFalse(meta["retagUseOrder"])
 
+    def test_workspace_preserves_character_edits_and_disabled_indexes(self) -> None:
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_1",
+                        "type": "prompt",
+                        "prompt": "3girls",
+                        "meta": {
+                            "retagCharPrompts": [
+                                {
+                                    "prompt": "edited sunna",
+                                    "negative_prompt": "bad hands",
+                                    "center": {"x": 0.202, "y": 0.453},
+                                },
+                                {
+                                    "prompt": "aria",
+                                    "negative_prompt": "",
+                                    "center": {"x": 0.518, "y": 0.424},
+                                },
+                            ],
+                            "retagCharPromptsOriginal": [
+                                {
+                                    "prompt": "original sunna",
+                                    "negative_prompt": "",
+                                    "center": {"x": 0.202, "y": 0.453},
+                                },
+                                {
+                                    "prompt": "original aria",
+                                    "negative_prompt": "",
+                                    "center": {"x": 0.518, "y": 0.424},
+                                },
+                            ],
+                            "retagCharDisabled": [1, 1, 99, -2],
+                            "retagUseCoords": True,
+                            "retagUseOrder": False,
+                            "retagUseCoordsOriginal": False,
+                            "retagUseOrderOriginal": True,
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+
+        meta = sanitized["nodes"][0]["meta"]
+        self.assertEqual(meta["retagCharDisabled"], [1])
+        self.assertEqual(meta["retagCharPrompts"][0]["prompt"], "edited sunna")
+        self.assertEqual(
+            meta["retagCharPromptsOriginal"][0]["prompt"], "original sunna"
+        )
+        self.assertTrue(meta["retagUseCoords"])
+        self.assertFalse(meta["retagUseOrder"])
+        self.assertFalse(meta["retagUseCoordsOriginal"])
+        self.assertTrue(meta["retagUseOrderOriginal"])
+
     def test_workspace_clamps_out_of_range_source_sampling_params(self) -> None:
         sanitized = self.store.sanitize_workspace(
             {

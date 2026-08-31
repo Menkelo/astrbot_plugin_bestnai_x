@@ -1719,6 +1719,47 @@ function normalizeCharPromptEntries(value) {
   return result;
 }
 
+function normalizeRetagCharIndexes(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .map((item) => Number(item))
+      .filter((item) => Number.isInteger(item) && item >= 0 && item < MAX_CHAR_PROMPTS),
+  )].sort((left, right) => left - right);
+}
+
+function retagCharDisabledIndexes(node) {
+  return normalizeRetagCharIndexes(node?.meta?.retagCharDisabled);
+}
+
+function retagCharEnabled(node, index) {
+  return !retagCharDisabledIndexes(node).includes(index);
+}
+
+function activeRetagCharPromptEntries(node) {
+  const disabled = new Set(retagCharDisabledIndexes(node));
+  const rawEntries = Array.isArray(node?.meta?.retagCharPrompts)
+    ? node.meta.retagCharPrompts
+    : [];
+  return rawEntries
+    .filter((_, index) => !disabled.has(index))
+    .map((item) => normalizeCharPromptEntries([item])[0])
+    .filter(Boolean);
+}
+
+function charGridCenter(position) {
+  const match = String(position || "").trim().toUpperCase().match(/^([A-E])([1-5])$/);
+  if (!match) return null;
+  return {
+    x: ("ABCDE".indexOf(match[1]) + 0.5) / 5,
+    y: (Number(match[2]) - 0.5) / 5,
+  };
+}
+
+function editableCharCenter(item) {
+  return charPromptCenter(item) || charGridCenter(item?.position) || { x: 0.5, y: 0.5 };
+}
+
 function bilingualRetagTagText(tag, translations) {
   const name = translations[retagTagLookupKey(tag)] || "";
   return name ? `${tag} / ${name}` : tag;
@@ -2028,12 +2069,13 @@ function makeAdvancedParamsCard(node, nodeElement) {
 
 function makeRetagLayerCard(node, sourceImage, nodeElement) {
   if (!sourceImage) return null;
+  const charPrompts = normalizeCharPromptEntries(node?.meta?.retagCharPrompts);
   const groups = normalizeRetagTagGroups(node?.meta?.retagTagGroups);
   const tagTranslations = normalizeRetagTagTranslations(node?.meta?.retagTagTranslations);
   const entries = RETAG_LAYER_CATEGORY_ORDER
     .filter((category) => Array.isArray(groups[category]) && groups[category].length)
     .map((category) => [category, groups[category]]);
-  if (!entries.length) return null;
+  if (!entries.length && !charPrompts.length) return null;
 
   const card = document.createElement("aside");
   card.className = "retag-layer-card";
@@ -2079,8 +2121,234 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     if (lists.drop.length) parts.push(`移除 ${lists.drop.length}`);
     const droppedTags = retagDroppedTags(node).length;
     if (droppedTags) parts.push(`划掉 ${droppedTags} 条`);
+    if (charPrompts.length) {
+      const activeCount = charPrompts.length - retagCharDisabledIndexes(node).filter(
+        (index) => index < charPrompts.length,
+      ).length;
+      parts.unshift(`${activeCount}/${charPrompts.length} 角色`);
+      if (node.meta?.retagUseCoords) parts.push("按坐标");
+    }
     summary.textContent = parts.join(" · ");
   };
+
+  if (charPrompts.length) {
+    const originalCharPrompts = Array.isArray(node.meta?.retagCharPromptsOriginal)
+      ? normalizeCharPromptEntries(node.meta.retagCharPromptsOriginal)
+      : charPrompts.map((item) => ({ ...item, center: item.center ? { ...item.center } : undefined }));
+    const originalUseCoords = typeof node.meta?.retagUseCoordsOriginal === "boolean"
+      ? node.meta.retagUseCoordsOriginal
+      : !!node.meta?.retagUseCoords;
+    const originalUseOrder = typeof node.meta?.retagUseOrderOriginal === "boolean"
+      ? node.meta.retagUseOrderOriginal
+      : node.meta?.retagUseOrder !== false;
+
+    const characterPanel = document.createElement("section");
+    characterPanel.className = "retag-character-panel";
+    const characterHead = document.createElement("div");
+    characterHead.className = "retag-character-head";
+    const characterTitle = document.createElement("strong");
+    characterTitle.textContent = "角色参数";
+    const characterNote = document.createElement("span");
+    characterNote.textContent = "V4+";
+    characterNote.title = "控制 NovelAI V4+ 的角色提示词与结构化位置";
+    characterHead.append(characterTitle, characterNote);
+
+    const characterOptions = document.createElement("div");
+    characterOptions.className = "retag-character-options";
+
+    const makeCharacterToggle = (labelText, checked, titleText, onChange) => {
+      const label = document.createElement("label");
+      label.className = "retag-character-toggle";
+      label.title = titleText;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = checked;
+      input.addEventListener("change", (event) => {
+        event.stopPropagation();
+        pushHistory();
+        onChange(input.checked);
+        clearDebugTrace(node);
+        refreshSummary();
+        scheduleSave();
+      });
+      label.append(input, document.createTextNode(labelText));
+      return label;
+    };
+
+    characterOptions.append(
+      makeCharacterToggle(
+        "按坐标分区",
+        !!node.meta?.retagUseCoords,
+        "开启后使用每个角色的精确 center 坐标；关闭时由 NovelAI 按出场顺序布局",
+        (checked) => {
+          node.meta = { ...(node.meta || {}), retagUseCoords: checked };
+        },
+      ),
+      makeCharacterToggle(
+        "按出场顺序",
+        node.meta?.retagUseOrder !== false,
+        "控制 NovelAI 是否优先保持角色出场顺序",
+        (checked) => {
+          node.meta = { ...(node.meta || {}), retagUseOrder: checked };
+        },
+      ),
+    );
+
+    const restoreCharacters = document.createElement("button");
+    restoreCharacters.type = "button";
+    restoreCharacters.className = "retag-character-restore";
+    restoreCharacters.textContent = "恢复原图参数";
+    restoreCharacters.title = "恢复原图角色提示词、坐标、启用状态和布局开关";
+    restoreCharacters.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pushHistory();
+      node.meta = {
+        ...(node.meta || {}),
+        retagCharPrompts: originalCharPrompts.map((item) => ({
+          ...item,
+          ...(item.center ? { center: { ...item.center } } : {}),
+        })),
+        retagCharDisabled: [],
+        retagUseCoords: originalUseCoords,
+        retagUseOrder: originalUseOrder,
+        retagLayerExpanded: true,
+      };
+      clearDebugTrace(node);
+      scheduleSave();
+      renderNodes();
+    });
+    characterOptions.appendChild(restoreCharacters);
+    characterPanel.append(characterHead, characterOptions);
+
+    const updateCharacterEntry = (index, patch) => {
+      const current = charPrompts[index];
+      if (!current) return;
+      charPrompts[index] = { ...current, ...patch };
+      node.meta = {
+        ...(node.meta || {}),
+        retagCharPrompts: charPrompts.map((item) => ({
+          ...item,
+          ...(item.center ? { center: { ...item.center } } : {}),
+        })),
+      };
+      clearDebugTrace(node);
+      scheduleSave();
+    };
+
+    const editText = (index, key, input) => {
+      let historyCaptured = false;
+      input.addEventListener("focus", () => {
+        if (!historyCaptured) {
+          pushHistory();
+          historyCaptured = true;
+        }
+      });
+      input.addEventListener("blur", () => {
+        historyCaptured = false;
+      });
+      input.addEventListener("input", () => updateCharacterEntry(index, { [key]: input.value }));
+    };
+
+    charPrompts.forEach((character, index) => {
+      const characterRow = document.createElement("article");
+      characterRow.className = "retag-character-row";
+      const rowHead = document.createElement("div");
+      rowHead.className = "retag-character-row-head";
+      const enabledLabel = document.createElement("label");
+      enabledLabel.className = "retag-character-enabled";
+      const enabled = document.createElement("input");
+      enabled.type = "checkbox";
+      enabled.checked = retagCharEnabled(node, index);
+      enabled.title = "是否把这个角色发送给 NovelAI";
+      const roleName = document.createElement("strong");
+      roleName.textContent = `角色 ${index + 1}`;
+      enabledLabel.append(enabled, roleName);
+      const centerSummary = document.createElement("span");
+      const initialCenter = editableCharCenter(character);
+      centerSummary.textContent = `(${initialCenter.x.toFixed(3)}, ${initialCenter.y.toFixed(3)})`;
+      centerSummary.className = "retag-character-center-summary";
+      rowHead.append(enabledLabel, centerSummary);
+      characterRow.appendChild(rowHead);
+
+      enabled.addEventListener("change", (event) => {
+        event.stopPropagation();
+        pushHistory();
+        const disabled = new Set(retagCharDisabledIndexes(node));
+        if (enabled.checked) disabled.delete(index);
+        else disabled.add(index);
+        node.meta = {
+          ...(node.meta || {}),
+          retagCharDisabled: [...disabled].sort((left, right) => left - right),
+        };
+        characterRow.classList.toggle("is-disabled", !enabled.checked);
+        clearDebugTrace(node);
+        refreshSummary();
+        scheduleSave();
+      });
+      characterRow.classList.toggle("is-disabled", !enabled.checked);
+
+      const makeTextField = (labelText, key, value) => {
+        const field = document.createElement("label");
+        field.className = "retag-character-field";
+        const caption = document.createElement("span");
+        caption.textContent = labelText;
+        const input = document.createElement("textarea");
+        input.rows = 2;
+        input.maxLength = 2000;
+        input.value = String(value || "");
+        input.placeholder = labelText;
+        input.addEventListener("pointerdown", (event) => event.stopPropagation());
+        editText(index, key, input);
+        field.append(caption, input);
+        return field;
+      };
+
+      const promptField = makeTextField("正面", "prompt", character.prompt);
+      const negativeField = makeTextField("角色负面", "negative_prompt", character.negative_prompt);
+      characterRow.append(promptField, negativeField);
+
+      const coordinates = document.createElement("div");
+      coordinates.className = "retag-character-coordinates";
+      ["x", "y"].forEach((axis) => {
+        const field = document.createElement("label");
+        field.className = "retag-character-coordinate";
+        const caption = document.createElement("span");
+        caption.textContent = axis.toUpperCase();
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.max = "1";
+        input.step = "0.001";
+        input.inputMode = "decimal";
+        input.value = editableCharCenter(character)[axis].toFixed(3);
+        input.addEventListener("pointerdown", (event) => event.stopPropagation());
+        input.addEventListener("change", () => {
+          const value = Number(input.value);
+          if (!Number.isFinite(value) || value < 0 || value > 1) {
+            input.value = editableCharCenter(charPrompts[index])[axis].toFixed(3);
+            return;
+          }
+          pushHistory();
+          const nextCenter = editableCharCenter(charPrompts[index]);
+          nextCenter[axis] = value;
+          updateCharacterEntry(index, { center: nextCenter, position: "" });
+          node.meta = { ...(node.meta || {}), retagUseCoords: true };
+          centerSummary.textContent = `(${nextCenter.x.toFixed(3)}, ${nextCenter.y.toFixed(3)})`;
+          refreshSummary();
+          scheduleSave();
+        });
+        field.append(caption, input);
+        coordinates.appendChild(field);
+      });
+      const coordinateHint = document.createElement("span");
+      coordinateHint.className = "retag-character-coordinate-hint";
+      coordinateHint.textContent = "0–1";
+      coordinates.appendChild(coordinateHint);
+      characterRow.appendChild(coordinates);
+      characterPanel.appendChild(characterRow);
+    });
+    body.appendChild(characterPanel);
+  }
 
   const tools = document.createElement("div");
   tools.className = "retag-layer-tools";
@@ -3909,7 +4177,7 @@ async function generateFromNode(id, {
       cachedTranslationCharacter: node.meta?.translationCharacter || "",
       cachedTranslationSeries: node.meta?.translationSeries || "",
       debug: debugModeEnabled(),
-      retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : [],
+      retagCharPrompts: retagged ? activeRetagCharPromptEntries(node) : [],
       retagUseCoords: retagged ? !!node.meta?.retagUseCoords : false,
       // Old workspaces do not have retagUseOrder; NovelAI's default is true.
       // Do not turn a missing legacy value into false via !!undefined.
@@ -4096,8 +4364,12 @@ function clearRetagCache(node) {
     retagLayerExpanded: _retagLayerExpanded,
     advParamsExpanded: _advParamsExpanded,
     retagCharPrompts: _retagCharPrompts,
+    retagCharPromptsOriginal: _retagCharPromptsOriginal,
+    retagCharDisabled: _retagCharDisabled,
     retagUseCoords: _retagUseCoords,
     retagUseOrder: _retagUseOrder,
+    retagUseCoordsOriginal: _retagUseCoordsOriginal,
+    retagUseOrderOriginal: _retagUseOrderOriginal,
     retagSteps: _retagSteps,
     retagScale: _retagScale,
     retagCfgRescale: _retagCfgRescale,
@@ -4305,6 +4577,16 @@ async function retagFromNode(
     const retagPrompt = String(result?.prompt || "").trim();
     if (!retagPrompt) throw new Error("反推服务未返回提示词");
     const recoveredSeed = normalizeNaiSeed(result?.seed);
+    const incomingCharPrompts = normalizeCharPromptEntries(result?.charPrompts);
+    const originalCharPrompts = Array.isArray(node.meta?.retagCharPromptsOriginal)
+      ? normalizeCharPromptEntries(node.meta.retagCharPromptsOriginal)
+      : incomingCharPrompts;
+    const originalUseCoords = typeof node.meta?.retagUseCoordsOriginal === "boolean"
+      ? node.meta.retagUseCoordsOriginal
+      : !!result?.charUseCoords;
+    const originalUseOrder = typeof node.meta?.retagUseOrderOriginal === "boolean"
+      ? node.meta.retagUseOrderOriginal
+      : result?.charUseOrder !== false;
 
     pushHistory();
     node.meta = {
@@ -4325,9 +4607,13 @@ async function retagFromNode(
       retagTagGroups: normalizeRetagTagGroups(result?.tagGroups),
       retagTagTranslations: normalizeRetagTagTranslations(result?.tagTranslations),
       // V4+ 内嵌参数里的多角色提示词，结构化透传给生图网关
-      retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts),
+      retagCharPrompts: incomingCharPrompts,
+      retagCharPromptsOriginal: originalCharPrompts,
+      retagCharDisabled: normalizeRetagCharIndexes(node.meta?.retagCharDisabled),
       retagUseCoords: !!result?.charUseCoords,
       retagUseOrder: result?.charUseOrder !== false,
+      retagUseCoordsOriginal: originalUseCoords,
+      retagUseOrderOriginal: originalUseOrder,
       // 采样参数直接来自对原图文件的元数据解析，和 prompt 从哪来无关。
       // fromMetadata 只说明"prompt 是内嵌的"，命中画布缓存时它是 false，
       // 可图片里的 steps/sampler 依然有效——拿它当门禁等于整批丢掉。

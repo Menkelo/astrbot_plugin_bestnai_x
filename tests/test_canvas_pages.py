@@ -890,7 +890,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.1", metadata)
+        self.assertIn("version: 4.5.2", metadata)
         self.assertIn('PLUGIN_VERSION = "4.4.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
@@ -1108,12 +1108,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
-        self.assertIn("retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts)", editor)
+        self.assertIn("const incomingCharPrompts = normalizeCharPromptEntries(result?.charPrompts)", editor)
         self.assertIn("retagUseOrder: result?.charUseOrder !== false", editor)
         self.assertIn("charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts)", editor)
         self.assertIn("charUseOrder: meta.retagUseOrder !== false", editor)
         self.assertIn(
-            "retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : []",
+            "retagCharPrompts: retagged ? activeRetagCharPromptEntries(node) : []",
             editor,
         )
         self.assertIn(
@@ -1121,6 +1121,15 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         self.assertIn("function normalizeCharCenter", editor)
+        self.assertIn("function activeRetagCharPromptEntries", editor)
+        self.assertIn("retagCharDisabled: []", editor)
+        self.assertIn("retagCharPromptsOriginal", editor)
+        self.assertIn("retagUseCoordsOriginal", editor)
+        self.assertIn("retagUseOrderOriginal", editor)
+        self.assertIn("角色参数", editor)
+        self.assertIn("按坐标分区", editor)
+        self.assertIn("恢复原图参数", editor)
+        self.assertIn("input.step = \"0.001\"", editor)
         self.assertIn("if (center) {", editor)
         self.assertIn("const position = String(item.position || \"\").trim().toUpperCase();", editor)
         self.assertIn('if "retagUseCoords" in payload', main_source)
@@ -1181,7 +1190,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "retagSampler",
             "retagDropTags",
             "retagCharPrompts",
+            "retagCharPromptsOriginal",
+            "retagCharDisabled",
             "retagUseOrder",
+            "retagUseCoordsOriginal",
+            "retagUseOrderOriginal",
         ):
             self.assertIn(f"{key}: _{key}", editor.split("function clearRetagCache", 1)[1].split("function clearTranslationCache", 1)[0])
         # 后端把回传参数写进生图配置并在调试栏注明来源
@@ -1450,11 +1463,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('reset.textContent = "↺"', editor)
         self.assertIn("advParamsExpanded: open", editor)
         self.assertIn("advParamsExpanded: false", editor)
-        self.assertNotIn('input.type = "number"', editor)
         # 不再放正文说明，解释只保留悬停气泡（与提示词卡同一套 data-tooltip）
         adv_body = editor.split("function makeAdvancedParamsCard", 1)[1].split(
             "function makeRetagLayerCard", 1
         )[0]
+        self.assertNotIn('input.type = "number"', adv_body)
         self.assertNotIn("retag-layer-help", adv_body)
         self.assertIn("toggle.dataset.tooltip =", adv_body)
         # 原生 title 要悬停约一秒才出来，和提示词卡的秒开气泡对不上，不该再混用

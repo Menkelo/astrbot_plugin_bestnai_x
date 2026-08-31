@@ -406,13 +406,20 @@ class ImageGenerator:
                     headers=headers,
                     json=payload,
                 ) as resp:
+                    logger.info(
+                        "[BestNAI] official_response "
+                        f"status={resp.status}, "
+                        f"content_type={resp.headers.get('Content-Type', '')}, "
+                        f"content_length={resp.headers.get('Content-Length', '')}, "
+                        f"transfer_encoding={resp.headers.get('Transfer-Encoding', '')}"
+                    )
                     if resp.status < 200 or resp.status >= 300:
                         message = self._extract_error_message_from_text(
                             await resp.text()
                         )
                         self._raise_for_status(resp.status, message)
 
-                    return await resp.read()
+                    return await self._read_binary_body(resp)
 
         except GenerationError:
             raise
@@ -428,6 +435,60 @@ class ImageGenerator:
 
         except Exception as e:
             raise GenerationError(f"请求生图接口失败：{e}") from e
+
+    @staticmethod
+    def _binary_body_is_complete(body: bytes) -> bool:
+        """判断官方响应是否已经包含完整的图片文件。
+
+        某些反向代理会把完整 ZIP/图片发送出来，却不及时结束 HTTP 流；
+        ``ClientResponse.read()`` 会因此一直等到总超时。识别文件尾后即可
+        安全返回，避免把已生成的图片误报成超时。
+        """
+        if not body:
+            return False
+
+        # NovelAI 官方正常返回 ZIP。EOCD 的最后两个字节记录 ZIP 注释长度，
+        # 因此可以确认整个归档已经收齐，而不是仅凭 ZIP 魔数提前返回。
+        if body.startswith(b"PK"):
+            marker = body.rfind(b"PK\x05\x06")
+            if marker < 0 or len(body) < marker + 22:
+                return False
+            comment_length = int.from_bytes(
+                body[marker + 20 : marker + 22], "little"
+            )
+            return len(body) >= marker + 22 + comment_length
+
+        # 兼容第三方官方协议实现返回裸图片的情况。
+        if body.startswith(b"\x89PNG\r\n\x1a\n"):
+            return b"\x00\x00\x00\x00IEND\xaeB`\x82" in body
+
+        if body.startswith(b"\xff\xd8"):
+            return body.rfind(b"\xff\xd9") > 1
+
+        if len(body) >= 12 and body.startswith(b"RIFF") and body[8:12] == b"WEBP":
+            declared_length = int.from_bytes(body[4:8], "little") + 8
+            return len(body) >= declared_length
+
+        return False
+
+    async def _read_binary_body(self, resp: Any) -> bytes:
+        """增量读取响应，在完整图片到达时不等待连接 EOF。"""
+        body = bytearray()
+
+        while True:
+            chunk = await resp.content.readany()
+            if not chunk:
+                break
+
+            body.extend(chunk)
+            snapshot = bytes(body)
+            if self._binary_body_is_complete(snapshot):
+                logger.info(
+                    f"[BestNAI] official_response_body_complete bytes={len(snapshot)}"
+                )
+                return snapshot
+
+        return bytes(body)
 
     async def _post_json(
         self,

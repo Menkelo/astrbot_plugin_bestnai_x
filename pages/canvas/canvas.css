@@ -1488,6 +1488,175 @@ select:focus-visible {
   line-height: 1.55;
 }
 
+.retag-character-panel {
+  margin-bottom: 8px;
+  padding: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 11px;
+  background: color-mix(in srgb, #eff6ff 72%, transparent);
+}
+
+.retag-character-head,
+.retag-character-row-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.retag-character-head {
+  margin-bottom: 7px;
+  color: #1d4ed8;
+  font-size: 9.5px;
+}
+
+.retag-character-head span {
+  color: #60a5fa;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.retag-character-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.retag-character-toggle,
+.retag-character-enabled {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 8.5px;
+  font-weight: 800;
+}
+
+.retag-character-toggle input,
+.retag-character-enabled input {
+  margin: 0;
+  accent-color: #2563eb;
+}
+
+.retag-character-restore {
+  height: 22px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: var(--card-solid);
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 8.5px;
+  font-weight: 800;
+}
+
+.retag-character-restore:hover {
+  border-color: #60a5fa;
+  background: #dbeafe;
+}
+
+.retag-character-row {
+  margin-top: 7px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card-solid);
+}
+
+.retag-character-row.is-disabled {
+  opacity: .58;
+}
+
+.retag-character-row-head {
+  margin-bottom: 6px;
+}
+
+.retag-character-enabled {
+  color: var(--text);
+}
+
+.retag-character-center-summary {
+  color: var(--faint);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.retag-character-field {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.retag-character-field > span,
+.retag-character-coordinate > span {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.retag-character-field textarea {
+  width: 100%;
+  min-height: 34px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: none;
+  background: var(--soft-2);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 8.5px;
+  line-height: 1.35;
+}
+
+.retag-character-field textarea:focus,
+.retag-character-coordinate input:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
+}
+
+.retag-character-coordinates {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.retag-character-coordinate {
+  display: grid;
+  width: 64px;
+  gap: 3px;
+}
+
+.retag-character-coordinate input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  background: var(--soft-2);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.retag-character-coordinate-hint {
+  padding-bottom: 5px;
+  color: var(--faint);
+  font-size: 8px;
+}
+
 .retag-layer-row {
   padding: 8px;
   border: 1px solid var(--line);

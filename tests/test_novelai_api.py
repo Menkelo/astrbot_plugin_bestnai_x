@@ -376,6 +376,34 @@ class OfficialEndpointTest(unittest.TestCase):
 
 
 class OfficialModeWiringTest(unittest.TestCase):
+    def test_binary_body_completion_detects_complete_zip_without_eof(self) -> None:
+        data = _zip_of({"image_0.png": b"png-bytes"})
+
+        self.assertTrue(ImageGenerator._binary_body_is_complete(data))
+        self.assertFalse(ImageGenerator._binary_body_is_complete(data[:-1]))
+
+    def test_binary_reader_returns_after_complete_zip_before_stream_eof(self) -> None:
+        data = _zip_of({"image_0.png": b"png-bytes"})
+
+        class Stream:
+            def __init__(self, chunks: list[bytes]) -> None:
+                self.chunks = chunks
+
+            async def readany(self) -> bytes:
+                # A real proxy can leave the connection open after this point.
+                if not self.chunks:
+                    raise AssertionError("reader waited for EOF after complete ZIP")
+                return self.chunks.pop(0)
+
+        class Response:
+            def __init__(self, chunks: list[bytes]) -> None:
+                self.content = Stream(chunks)
+
+        response = Response([data[:17], data[17:]])
+        result = asyncio.run(ImageGenerator(PluginConfig())._read_binary_body(response))
+
+        self.assertEqual(result, data)
+
     def test_generate_dispatches_to_the_official_path_only(self) -> None:
         config = PluginConfig(
             use_official_api=True,

@@ -203,6 +203,26 @@ MAX_CHAR_PROMPT_LENGTH = 2000
 _CHAR_POSITION_RE = re.compile(r"^[A-E][1-5]$")
 
 
+def _sanitize_char_indexes(value: Any) -> List[int]:
+    if not isinstance(value, list):
+        return []
+    result = set()
+    for raw_index in value:
+        if isinstance(raw_index, bool):
+            continue
+        try:
+            index = float(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if (
+            math.isfinite(index)
+            and index.is_integer()
+            and 0 <= index < MAX_CHAR_PROMPTS_STORED
+        ):
+            result.add(int(index))
+    return sorted(result)
+
+
 def _sanitize_char_prompts(value: Any) -> List[Dict[str, Any]]:
     """工作区里缓存的多角色参数，边界与 core/char_prompts 保持一致。"""
     if not isinstance(value, list):
@@ -808,8 +828,34 @@ class CanvasStore:
             char_prompts = _sanitize_char_prompts(raw_meta.get("retagCharPrompts"))
             if char_prompts:
                 meta["retagCharPrompts"] = char_prompts
+                disabled_char_indexes = _sanitize_char_indexes(
+                    raw_meta.get("retagCharDisabled")
+                )
+                if disabled_char_indexes:
+                    meta["retagCharDisabled"] = [
+                        index
+                        for index in disabled_char_indexes
+                        if index < len(char_prompts)
+                    ]
                 meta["retagUseCoords"] = bool(raw_meta.get("retagUseCoords", False))
                 meta["retagUseOrder"] = bool(raw_meta.get("retagUseOrder", True))
+                original_char_prompts = _sanitize_char_prompts(
+                    raw_meta.get("retagCharPromptsOriginal")
+                )
+                if original_char_prompts:
+                    meta["retagCharPromptsOriginal"] = original_char_prompts
+                    meta["retagUseCoordsOriginal"] = bool(
+                        raw_meta.get(
+                            "retagUseCoordsOriginal",
+                            raw_meta.get("retagUseCoords", False),
+                        )
+                    )
+                    meta["retagUseOrderOriginal"] = bool(
+                        raw_meta.get(
+                            "retagUseOrderOriginal",
+                            raw_meta.get("retagUseOrder", True),
+                        )
+                    )
 
             node = {
                 "id": node_id,
