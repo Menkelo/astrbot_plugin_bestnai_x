@@ -295,6 +295,58 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(meta["retagCfgRescale"], 0.34)
         self.assertEqual(meta["retagNoiseSchedule"], "karras")
 
+    def test_workspace_preserves_exact_char_centers_and_order_flag(self) -> None:
+        sanitized = self.store.sanitize_workspace(
+            {
+                "nodes": [
+                    {
+                        "id": "prompt_1",
+                        "type": "prompt",
+                        "x": 0,
+                        "y": 0,
+                        "prompt": "3girls",
+                        "meta": {
+                            "retagCharPrompts": [
+                                {
+                                    "char_caption": "sunna",
+                                    "uc": "bad hands",
+                                    "centers": [{"x": 0.202, "y": 0.453}],
+                                },
+                                {
+                                    "caption": "aria",
+                                    "center": {"x": 0.518, "y": 0.424},
+                                },
+                            ],
+                            "retagUseCoords": True,
+                            "retagUseOrder": False,
+                        },
+                    }
+                ],
+                "connections": [],
+            }
+        )
+
+        meta = sanitized["nodes"][0]["meta"]
+        self.assertEqual(
+            meta["retagCharPrompts"],
+            [
+                {
+                    "prompt": "sunna",
+                    "negative_prompt": "bad hands",
+                    "position": "",
+                    "center": {"x": 0.202, "y": 0.453},
+                },
+                {
+                    "prompt": "aria",
+                    "negative_prompt": "",
+                    "position": "",
+                    "center": {"x": 0.518, "y": 0.424},
+                },
+            ],
+        )
+        self.assertTrue(meta["retagUseCoords"])
+        self.assertFalse(meta["retagUseOrder"])
+
     def test_workspace_clamps_out_of_range_source_sampling_params(self) -> None:
         sanitized = self.store.sanitize_workspace(
             {

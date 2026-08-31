@@ -103,6 +103,7 @@ class NormalizeCharEntriesTest(unittest.TestCase):
                     "prompt": "hatsune miku",
                     "negative_prompt": "bad hands",
                     "position": "B3",
+                    "center": {"x": 0.3, "y": 0.5},
                 },
                 {
                     "prompt": "kagamine rin",
@@ -112,6 +113,48 @@ class NormalizeCharEntriesTest(unittest.TestCase):
                 },
             ],
         )
+
+    def test_preserves_official_centers_and_supported_aliases(self) -> None:
+        entries = normalize_char_entries(
+            [
+                {
+                    "char_caption": "sunna",
+                    "uc": "bad hands",
+                    "centers": [{"x": 0.202, "y": 0.453}],
+                },
+                {
+                    "caption": "aria",
+                    "negative": "blurry",
+                    "center": {"x": 0.518, "y": 0.424},
+                },
+            ]
+        )
+
+        self.assertEqual(
+            entries,
+            [
+                {
+                    "prompt": "sunna",
+                    "negative_prompt": "bad hands",
+                    "position": "B3",
+                    "center": {"x": 0.202, "y": 0.453},
+                },
+                {
+                    "prompt": "aria",
+                    "negative_prompt": "blurry",
+                    "position": "C3",
+                    "center": {"x": 0.518, "y": 0.424},
+                },
+            ],
+        )
+
+    def test_invalid_center_falls_back_to_position_without_leaking_it(self) -> None:
+        entry = normalize_char_entries(
+            [{"prompt": "a", "center": {"x": 2, "y": 0.5}, "position": "D3"}]
+        )[0]
+
+        self.assertNotIn("center", entry)
+        self.assertEqual(entry["position"], "D3")
 
     def test_explicit_position_wins_and_invalid_input_is_dropped(self) -> None:
         entries = normalize_char_entries(

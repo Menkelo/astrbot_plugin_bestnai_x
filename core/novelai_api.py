@@ -19,7 +19,7 @@ import zipfile
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
-from .char_prompts import char_grid_center
+from .char_prompts import char_entry_center, normalize_char_entries
 from ..constants import normalize_nai_seed
 from ..models.config import GenerationConfig, model_supports_variety_boost
 
@@ -63,7 +63,7 @@ def _uc_preset_code(value: Any) -> int:
     return UC_PRESET_CODES.get(str(value or "").strip().lower(), DEFAULT_UC_PRESET_CODE)
 
 
-def _char_captions(entries: List[Dict[str, str]], key: str) -> List[Dict[str, Any]]:
+def _char_captions(entries: List[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
     """构造 ``v4_prompt`` / ``v4_negative_prompt`` 里的角色提示词数组。
 
     正负两边必须**同序等长**：``services/nai_metadata.py`` 读回来时就是按下标
@@ -73,14 +73,80 @@ def _char_captions(entries: List[Dict[str, str]], key: str) -> List[Dict[str, An
     captions: List[Dict[str, Any]] = []
 
     for entry in entries:
-        caption: Dict[str, Any] = {"char_caption": entry.get(key, "")}
-        center = char_grid_center(entry.get("position"))
-        if center is not None:
-            # 注意是复数 centers 且为数组——单角色也要包一层。
-            caption["centers"] = [center]
-        captions.append(caption)
+        # ``normalize_char_entries`` always supplies either the original
+        # NovelAI center or a compatibility fallback. Keep the array present
+        # even when the negative caption is empty: NovelAI aligns both arrays
+        # by index and expects the same shape on both sides.
+        center = char_entry_center(entry) or {"x": 0.5, "y": 0.5}
+        captions.append(
+            {
+                "char_caption": str(entry.get(key) or ""),
+                "centers": [center],
+            }
+        )
 
     return captions
+
+
+def _build_character_fields(
+    prompt: str,
+    negative_prompt: str,
+    entries: List[Dict[str, Any]],
+    use_coords: bool,
+    use_order: bool,
+) -> Dict[str, Any]:
+    """Build the native V4+ character fields from normalized entries."""
+    fields: Dict[str, Any] = {
+        "use_coords": bool(use_coords),
+        "v4_prompt": {
+            "caption": {
+                "base_caption": prompt,
+                "char_captions": _char_captions(entries, "prompt"),
+            },
+            "use_coords": bool(use_coords),
+            "use_order": bool(use_order),
+        },
+        "v4_negative_prompt": {
+            "legacy_uc": False,
+            "caption": {
+                "base_caption": negative_prompt or "",
+                "char_captions": _char_captions(entries, "negative_prompt"),
+            },
+        },
+    }
+
+    if entries:
+        # This is the official companion list. Its order must exactly match
+        # both char_captions arrays; ``enabled`` is a relay-only extension and
+        # is not part of NovelAI's protocol.
+        fields["characterPrompts"] = [
+            {
+                "prompt": str(entry.get("prompt") or ""),
+                "center": char_entry_center(entry) or {"x": 0.5, "y": 0.5},
+                "uc": str(entry.get("negative_prompt") or ""),
+            }
+            for entry in entries
+        ]
+
+    return fields
+
+
+def build_character_payload(
+    prompt: str,
+    negative_prompt: str,
+    raw_entries: Any,
+    use_coords: bool,
+    use_order: bool,
+) -> Dict[str, Any]:
+    """Return native NovelAI V4+ fields for any supported character input."""
+    entries = normalize_char_entries(raw_entries)
+    return _build_character_fields(
+        prompt,
+        negative_prompt,
+        entries,
+        use_coords,
+        use_order,
+    )
 
 
 def build_generate_payload(
@@ -120,48 +186,20 @@ def build_generate_payload(
     if gen_config.variety_boost and model_supports_variety_boost(gen_config.model):
         parameters["skip_cfg_above_sigma"] = VARIETY_PLUS_SIGMA
 
-    entries = [entry for entry in (gen_config.characters or []) if isinstance(entry, dict)]
-
-    # 站位坐标只在 use_coords 为真时生效，否则 NovelAI 按出场顺序排布。
-    # 这个键在 v4_prompt 里是确定的（元数据可证），parameters 层则是照
-    # 官方客户端的形状补的：宁可多发一个键，也不要坐标被静默忽略——
-    # 那是「出图了但站位不对」这种不报错的失败。
-    parameters["use_coords"] = bool(gen_config.use_coords)
-    parameters["use_order"] = bool(gen_config.use_order)
+    entries = normalize_char_entries(gen_config.characters)
 
     # V4+ 的提示词结构。本插件支持的两个模型（4.5-full / 5-full）都是 V4+，
-    # 所以无条件带上。
-    # TODO(待实测): V5 是否沿用 v4_prompt 这个键名尚未证实。若 V5 另有
-    # v5_prompt 之类的结构，症状是「照常出图但多角色分区失效」——不报错，
-    # 只能靠看图发现。
-    parameters["v4_prompt"] = {
-        "caption": {
-            "base_caption": prompt,
-            "char_captions": _char_captions(entries, "prompt"),
-        },
-        "use_coords": bool(gen_config.use_coords),
-        "use_order": bool(gen_config.use_order),
-    }
-    parameters["v4_negative_prompt"] = {
-        "caption": {
-            "base_caption": gen_config.negative_prompt or "",
-            "char_captions": _char_captions(entries, "negative_prompt"),
-        },
-    }
-
-    if entries:
-        # 和 v4_prompt.caption.char_captions 同序双写。两处都要填——前者是
-        # 提示词本身，后者是 NovelAI 排版时读的角色表。
-        parameters["characterPrompts"] = [
-            {
-                "prompt": entry.get("prompt", ""),
-                "uc": entry.get("negative_prompt", ""),
-                "center": char_grid_center(entry.get("position"))
-                or {"x": 0.5, "y": 0.5},
-                "enabled": True,
-            }
-            for entry in entries
-        ]
+    # 所以无条件带上。官方协议的 ``use_order`` 位于 v4_prompt 内，
+    # parameters 顶层只保留 ``use_coords``。
+    parameters.update(
+        _build_character_fields(
+            prompt,
+            gen_config.negative_prompt or "",
+            entries,
+            gen_config.use_coords,
+            gen_config.use_order,
+        )
+    )
 
     return {
         "input": prompt,

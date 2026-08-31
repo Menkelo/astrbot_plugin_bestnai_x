@@ -418,9 +418,9 @@ class BestNAIPlugin(Star):
         source_prompt = embedded_prompt or cached_prompt
         from_metadata = bool(embedded_prompt)
         # V4+ 元数据可能带角色提示词（v4_prompt.caption.char_captions）。
-        # 默认把角色文本并回还原 tags（兼容所有网关、角色形象最稳），
-        # 并在生图前折叠重复的人数标签；开启 char_structured 的网关
-        # 才改为结构化 characters 透传做分区生成。
+        # 角色文本仍并回还原 tags（兼容不支持结构化字段的网关），
+        # 并在生图前折叠重复的人数标签；同时固定透传结构化角色参数，
+        # 由网关支持情况决定是否实际启用分区生成。
         char_prompts = (
             normalize_char_entries(source_info.get("characterPrompts"))
             if from_metadata
@@ -428,6 +428,11 @@ class BestNAIPlugin(Star):
         )
         char_use_coords = bool(
             from_metadata and source_info.get("characterUseCoords") and char_prompts
+        )
+        char_use_order = bool(
+            from_metadata
+            and char_prompts
+            and source_info.get("characterUseOrder", True)
         )
         char_tag_texts = [
             stripped
@@ -485,6 +490,7 @@ class BestNAIPlugin(Star):
                     {
                         "characters": char_prompts,
                         "useCoords": char_use_coords,
+                        "useOrder": char_use_order,
                     },
                 )
             if from_canvas_cache:
@@ -518,6 +524,7 @@ class BestNAIPlugin(Star):
                     "sourcePrompt": source_prompt,
                     "charPrompts": char_prompts,
                     "charUseCoords": char_use_coords,
+                    "charUseOrder": char_use_order,
                     # 原图采样参数：前端缓存后随生图请求回传，缺省用插件配置
                     "steps": source_info.get("steps"),
                     "scale": source_info.get("scale"),
@@ -922,15 +929,20 @@ class BestNAIPlugin(Star):
             use_coords = bool(payload.get("retagUseCoords")) or has_explicit_positions(
                 raw_char_prompts
             )
+            use_order = bool(payload.get("retagUseOrder", True))
             gen_config = replace(
                 gen_config,
                 characters=char_prompts,
                 use_coords=use_coords,
-                use_order=True,
+                use_order=use_order,
             )
             trace.note(
                 "角色参数",
-                {"characters": char_prompts, "useCoords": use_coords},
+                {
+                    "characters": char_prompts,
+                    "useCoords": use_coords,
+                    "useOrder": use_order,
+                },
             )
 
         resolved_artist_name = ""
@@ -2034,6 +2046,9 @@ class BestNAIPlugin(Star):
         user_ratio_prompt: Optional[str] = None,
         seed: Optional[int] = None,
         model: str = "",
+        characters: Optional[List[Dict[str, object]]] = None,
+        use_coords: bool = False,
+        use_order: bool = True,
     ) -> AsyncGenerator:
         # 模型由指令显式决定（/nai=4.5、/nai5=V5、/nai0=面板选择），
         # 缺省沿用主配置
@@ -2170,6 +2185,15 @@ class BestNAIPlugin(Star):
 
             # 模型由指令决定（/nai=4.5、/nai5=V5、/nai0=面板选择）
             gen_config = replace(gen_config, model=current_model)
+
+            character_entries = normalize_char_entries(characters)
+            if character_entries:
+                gen_config = replace(
+                    gen_config,
+                    characters=character_entries,
+                    use_coords=bool(use_coords),
+                    use_order=bool(use_order),
+                )
 
         except Exception as e:
             yield event.plain_result(
@@ -2375,6 +2399,21 @@ class BestNAIPlugin(Star):
                 source_info
             )
             source_prompt = raw_source_prompt if metadata_retag else ""
+            source_char_prompts = (
+                normalize_char_entries(source_info.get("characterPrompts"))
+                if metadata_retag
+                else []
+            )
+            source_char_use_coords = bool(
+                metadata_retag
+                and source_info.get("characterUseCoords")
+                and source_char_prompts
+            )
+            source_char_use_order = bool(
+                metadata_retag
+                and source_char_prompts
+                and source_info.get("characterUseOrder", True)
+            )
 
             if not metadata_retag and not self.plugin_config.image_retag.enabled:
                 yield event.plain_result(
@@ -2447,6 +2486,9 @@ class BestNAIPlugin(Star):
                         "series": source_series,
                         "seed": source_seed,
                         "fromMetadata": True,
+                        "charPrompts": source_char_prompts,
+                        "charUseCoords": source_char_use_coords,
+                        "charUseOrder": source_char_use_order,
                     }
                     logger.info(
                         f"[BestNAI/ImageRetag] QQ 图片读取 NovelAI 内嵌参数：seed={source_seed}"
@@ -2459,6 +2501,21 @@ class BestNAIPlugin(Star):
                 message = strip_error_subject(str(e), "图片反推")
                 yield event.plain_result(f"❌ 图片反推失败：{message or '接口没有返回错误信息'}")
                 return
+
+            retag_char_prompts = normalize_char_entries(
+                retag_result.get("charPrompts")
+                or retag_result.get("characterPrompts")
+            )
+            retag_use_coords = bool(
+                retag_result.get("charUseCoords")
+                or retag_result.get("characterUseCoords")
+            )
+            retag_use_order = bool(
+                retag_result.get(
+                    "charUseOrder",
+                    retag_result.get("characterUseOrder", True),
+                )
+            )
 
             if not retag_prompt:
                 yield event.plain_result("❌ 图片反推结果为空")
@@ -2576,6 +2633,9 @@ class BestNAIPlugin(Star):
                 user_ratio_prompt=prompt,
                 seed=source_seed if metadata_retag else None,
                 model=model,
+                characters=retag_char_prompts,
+                use_coords=retag_use_coords,
+                use_order=retag_use_order,
             ):
                 yield result
 

@@ -71,6 +71,51 @@ def chat_user_payload(gen_config: GenerationConfig) -> dict:
 
 
 class VarietyBoostPayloadTest(unittest.TestCase):
+    def test_chat_payload_keeps_relay_compatibility_and_native_centers(self) -> None:
+        gen_config = replace(
+            GenerationConfig(),
+            negative_prompt="global uc",
+            characters=[
+                {
+                    "char_caption": "sunna",
+                    "uc": "bad hands",
+                    "centers": [{"x": 0.202, "y": 0.453}],
+                },
+                {
+                    "char_caption": "aria",
+                    "centers": [{"x": 0.518, "y": 0.424}],
+                },
+            ],
+            use_coords=True,
+            use_order=False,
+        )
+
+        user_payload = chat_user_payload(gen_config)
+
+        self.assertEqual(
+            user_payload["characters"],
+            [
+                {"prompt": "sunna", "negative_prompt": "bad hands", "position": "B3"},
+                {"prompt": "aria", "negative_prompt": "", "position": "C3"},
+            ],
+        )
+        self.assertIs(user_payload["use_coords"], True)
+        self.assertIs(user_payload["use_order"], False)
+        self.assertEqual(
+            [
+                item["centers"][0]
+                for item in user_payload["v4_prompt"]["caption"]["char_captions"]
+            ],
+            [{"x": 0.202, "y": 0.453}, {"x": 0.518, "y": 0.424}],
+        )
+        self.assertEqual(
+            [
+                item["centers"][0]
+                for item in user_payload["v4_negative_prompt"]["caption"]["char_captions"]
+            ],
+            [{"x": 0.202, "y": 0.453}, {"x": 0.518, "y": 0.424}],
+        )
+
     def test_variety_boost_sends_the_gateway_dialect_field(self) -> None:
         # 已探测：发 variety_boost=true，返回图的元数据里
         # skip_cfg_above_sigma=58.0 —— 网关自己做了这层翻译。

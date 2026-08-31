@@ -14,7 +14,12 @@ from PIL import Image as PILImage
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
-from .novelai_api import build_generate_payload, extract_image_blobs
+from .char_prompts import normalize_char_entries
+from .novelai_api import (
+    build_character_payload,
+    build_generate_payload,
+    extract_image_blobs,
+)
 from ..constants import normalize_nai_seed
 from ..models.config import (
     GenerationConfig,
@@ -253,10 +258,34 @@ class ImageGenerator:
         if gen_config.variety_boost and model_supports_variety_boost(gen_config.model):
             user_payload["variety_boost"] = True
 
-        if gen_config.characters:
-            user_payload["characters"] = gen_config.characters
-            user_payload["use_coords"] = gen_config.use_coords
-            user_payload["use_order"] = gen_config.use_order
+        # Keep the relay's established ``characters`` / ``position`` dialect,
+        # and add the native V4+ fields for relays that expose them directly.
+        # The compatibility list intentionally omits ``center``: older relays
+        # validate its small grid vocabulary, while the exact center remains
+        # available in the native payload below.
+        character_entries = normalize_char_entries(gen_config.characters)
+        if character_entries:
+            user_payload["characters"] = [
+                {
+                    "prompt": entry.get("prompt", ""),
+                    "negative_prompt": entry.get("negative_prompt", ""),
+                    "position": entry.get("position", ""),
+                }
+                for entry in character_entries
+            ]
+            # These two top-level keys are part of the established relay
+            # dialect. The native payload below has its own nested flags.
+            user_payload["use_coords"] = bool(gen_config.use_coords)
+            user_payload["use_order"] = bool(gen_config.use_order)
+            user_payload.update(
+                build_character_payload(
+                    prompt,
+                    gen_config.negative_prompt or "",
+                    character_entries,
+                    gen_config.use_coords,
+                    gen_config.use_order,
+                )
+            )
 
         payload = {
             "model": gen_config.model,
@@ -267,7 +296,8 @@ class ImageGenerator:
                         "You are an image generation endpoint. The JSON object in the user message "
                         "is the authoritative NovelAI generation request. Preserve every field exactly, "
                         "including size, steps, scale, sampler, noise_schedule, seed, negative_prompt, "
-                        "cfg_rescale, variety_boost, and characters. Do not silently replace values "
+                        "cfg_rescale, variety_boost, characters, characterPrompts, v4_prompt, and "
+                        "v4_negative_prompt. Do not silently replace values "
                         "with defaults. Generate one image and return image URL, markdown image, "
                         "data URL, or base64."
                     )

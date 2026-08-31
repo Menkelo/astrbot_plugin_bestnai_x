@@ -207,6 +207,55 @@ class CharacterPayloadTest(unittest.TestCase):
         self.assertEqual(
             parameters["characterPrompts"][0]["center"], {"x": 0.3, "y": 0.5}
         )
+        self.assertEqual(
+            parameters["v4_negative_prompt"]["caption"]["char_captions"][1]["centers"],
+            [{"x": 0.7, "y": 0.5}],
+        )
+
+    def test_official_centers_are_not_quantized_to_grid(self) -> None:
+        raw_entries = [
+            {
+                "char_caption": "sunna_(zenless_zone_zero),upper body",
+                "uc": "bad hands",
+                "centers": [{"x": 0.202, "y": 0.453}],
+            },
+            {
+                "char_caption": "aria_(zenless_zone_zero),upper body",
+                "centers": [{"x": 0.518, "y": 0.424}],
+            },
+            {
+                "char_caption": "nangong_yu,upper body",
+                "centers": [{"x": 0.814, "y": 0.467}],
+            },
+        ]
+        parameters = build_generate_payload(
+            "3girls",
+            replace(BASE, characters=raw_entries, use_coords=True),
+        )["parameters"]
+
+        expected_centers = [
+            {"x": 0.202, "y": 0.453},
+            {"x": 0.518, "y": 0.424},
+            {"x": 0.814, "y": 0.467},
+        ]
+        self.assertEqual(
+            [item["centers"][0] for item in parameters["v4_prompt"]["caption"]["char_captions"]],
+            expected_centers,
+        )
+        self.assertEqual(
+            [item["centers"][0] for item in parameters["v4_negative_prompt"]["caption"]["char_captions"]],
+            expected_centers,
+        )
+        self.assertEqual(
+            [item["center"] for item in parameters["characterPrompts"]],
+            expected_centers,
+        )
+        self.assertEqual(
+            parameters["characterPrompts"][0]["uc"], "bad hands"
+        )
+        self.assertTrue(
+            all("enabled" not in item for item in parameters["characterPrompts"])
+        )
 
     def test_negative_captions_keep_a_placeholder_so_indexes_stay_aligned(self) -> None:
         # 第二个角色没有负面词；跳过它会让后面的角色整体错位
@@ -229,7 +278,7 @@ class CharacterPayloadTest(unittest.TestCase):
         parameters = self._parameters(use_coords=True, use_order=False)
 
         self.assertIs(parameters["use_coords"], True)
-        self.assertIs(parameters["use_order"], False)
+        self.assertNotIn("use_order", parameters)
         self.assertIs(parameters["v4_prompt"]["use_coords"], True)
         self.assertIs(parameters["v4_prompt"]["use_order"], False)
 
@@ -259,9 +308,15 @@ class CharacterPayloadTest(unittest.TestCase):
         self.assertEqual(
             parameters["characterPrompts"][0]["center"], {"x": 0.5, "y": 0.5}
         )
-        self.assertNotIn(
-            "centers", parameters["v4_prompt"]["caption"]["char_captions"][0]
+        self.assertEqual(
+            parameters["v4_prompt"]["caption"]["char_captions"][0]["centers"],
+            [{"x": 0.5, "y": 0.5}],
         )
+        self.assertEqual(
+            parameters["v4_negative_prompt"]["caption"]["char_captions"][0]["centers"],
+            [{"x": 0.5, "y": 0.5}],
+        )
+        self.assertEqual(parameters["v4_negative_prompt"]["legacy_uc"], False)
 
 
 def _zip_of(members: dict[str, bytes]) -> bytes:

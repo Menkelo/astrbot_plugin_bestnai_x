@@ -890,7 +890,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.4.9", metadata)
+        self.assertIn("version: 4.5.0", metadata)
         self.assertIn('PLUGIN_VERSION = "4.4.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
@@ -1086,6 +1086,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('source_info.get("characterPrompts")', main_source)
         self.assertIn('"charPrompts": char_prompts', main_source)
         self.assertIn('"charUseCoords": char_use_coords', main_source)
+        self.assertIn('"charUseOrder": char_use_order', main_source)
+        self.assertIn('"charPrompts": source_char_prompts', main_source)
+        self.assertIn("characters=retag_char_prompts", main_source)
         self.assertIn("原图角色提示词（char_captions）", main_source)
         self.assertIn("结构化透传（固定开启", main_source)
         # 反推合并后必须折叠重复的人数标签，否则模型会多画人
@@ -1105,11 +1108,18 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
         self.assertIn("retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts)", editor)
+        self.assertIn("retagUseOrder: result?.charUseOrder !== false", editor)
         self.assertIn("charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts)", editor)
+        self.assertIn("charUseOrder: meta.retagUseOrder !== false", editor)
         self.assertIn(
             "retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : []",
             editor,
         )
+        self.assertIn(
+            "retagUseOrder: retagged ? node.meta?.retagUseOrder !== false : true",
+            editor,
+        )
+        self.assertIn("function normalizeCharCenter", editor)
 
     def test_canvas_generate_reuses_source_sampling_params(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -1166,6 +1176,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
             "retagSampler",
             "retagDropTags",
             "retagCharPrompts",
+            "retagUseOrder",
         ):
             self.assertIn(f"{key}: _{key}", editor.split("function clearRetagCache", 1)[1].split("function clearTranslationCache", 1)[0])
         # 后端把回传参数写进生图配置并在调试栏注明来源

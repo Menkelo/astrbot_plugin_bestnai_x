@@ -25,6 +25,11 @@ except ImportError:  # pragma: no cover - exercised by standalone ``services`` i
     from constants import normalize_nai_seed
 
 try:
+    from ..core.char_prompts import normalize_char_center
+except ImportError:  # pragma: no cover - legacy flat layout
+    from core.char_prompts import normalize_char_center
+
+try:
     from .nai_metadata import read_image_generation_info
 except ImportError:  # pragma: no cover - legacy flat layout
     from nai_metadata import read_image_generation_info
@@ -198,28 +203,52 @@ MAX_CHAR_PROMPT_LENGTH = 2000
 _CHAR_POSITION_RE = re.compile(r"^[A-E][1-5]$")
 
 
-def _sanitize_char_prompts(value: Any) -> List[Dict[str, str]]:
+def _sanitize_char_prompts(value: Any) -> List[Dict[str, Any]]:
     """工作区里缓存的多角色参数，边界与 core/char_prompts 保持一致。"""
     if not isinstance(value, list):
         return []
-    result: List[Dict[str, str]] = []
+    result: List[Dict[str, Any]] = []
     for raw_entry in value[:MAX_CHAR_PROMPTS_STORED]:
         if not isinstance(raw_entry, dict):
             continue
-        prompt = _short_text(raw_entry.get("prompt"), MAX_CHAR_PROMPT_LENGTH).strip()
+        prompt = ""
+        for key in ("prompt", "caption", "char_caption"):
+            candidate = raw_entry.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                prompt = candidate.strip()
+                break
+        prompt = _short_text(prompt, MAX_CHAR_PROMPT_LENGTH).strip()
         if not prompt:
             continue
+        negative_prompt = ""
+        for key in ("negative_prompt", "negative", "uc"):
+            candidate = raw_entry.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                negative_prompt = candidate.strip()
+                break
         entry = {
             "prompt": prompt,
-            "negative_prompt": _short_text(
-                raw_entry.get("negative_prompt"),
-                MAX_CHAR_PROMPT_LENGTH,
-            ).strip(),
+            "negative_prompt": _short_text(negative_prompt, MAX_CHAR_PROMPT_LENGTH).strip(),
             "position": "",
         }
         position = str(raw_entry.get("position") or "").strip().upper()
         if _CHAR_POSITION_RE.fullmatch(position):
             entry["position"] = position
+
+        center = normalize_char_center(raw_entry.get("center"))
+        if center is None and isinstance(raw_entry.get("centers"), list):
+            for candidate in raw_entry["centers"]:
+                center = normalize_char_center(candidate)
+                if center is not None:
+                    break
+        if center is None:
+            center = normalize_char_center(
+                {"x": raw_entry.get("x"), "y": raw_entry.get("y")}
+            )
+        if center is not None:
+            # Keep the exact NovelAI coordinate. Do not replace it with the
+            # grid center used by the legacy relay protocol.
+            entry["center"] = center
         result.append(entry)
     return result
 
@@ -780,6 +809,7 @@ class CanvasStore:
             if char_prompts:
                 meta["retagCharPrompts"] = char_prompts
                 meta["retagUseCoords"] = bool(raw_meta.get("retagUseCoords", False))
+                meta["retagUseOrder"] = bool(raw_meta.get("retagUseOrder", True))
 
             node = {
                 "id": node_id,

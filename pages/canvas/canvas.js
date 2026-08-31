@@ -1657,18 +1657,57 @@ function normalizeRetagTagTranslations(value) {
 // 与后端 core/char_prompts.normalize_char_entries 的边界保持一致
 const MAX_CHAR_PROMPTS = 16;
 
+function normalizeCharCoordinate(value) {
+  if (typeof value === "boolean" || value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 1 ? number : null;
+}
+
+function normalizeCharCenter(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const x = normalizeCharCoordinate(value.x);
+  const y = normalizeCharCoordinate(value.y);
+  return x === null || y === null ? null : { x, y };
+}
+
+function charPromptCenter(item) {
+  if (!item || typeof item !== "object") return null;
+  let center = normalizeCharCenter(item.center);
+  if (center) return center;
+  if (Array.isArray(item.centers)) {
+    for (const candidate of item.centers) {
+      center = normalizeCharCenter(candidate);
+      if (center) return center;
+    }
+  }
+  return normalizeCharCenter({ x: item.x, y: item.y });
+}
+
+function firstCharPromptText(item, keys) {
+  for (const key of keys) {
+    if (typeof item?.[key] === "string" && item[key].trim()) return item[key].trim();
+  }
+  return "";
+}
+
 function normalizeCharPromptEntries(value) {
   if (!Array.isArray(value)) return [];
   const result = [];
   for (const item of value.slice(0, MAX_CHAR_PROMPTS)) {
     if (!item || typeof item !== "object") continue;
-    const prompt = String(item.prompt ?? item.caption ?? "").trim().slice(0, 2000);
+    const prompt = firstCharPromptText(item, ["prompt", "caption", "char_caption"]).slice(0, 2000);
     if (!prompt) continue;
     const entry = {
       prompt,
-      negative_prompt: String(item.negative_prompt ?? item.negative ?? "").trim().slice(0, 2000),
-      position: String(item.position || "").trim().toUpperCase(),
+      negative_prompt: firstCharPromptText(item, ["negative_prompt", "negative", "uc"]).slice(0, 2000),
+      position: "",
     };
+    const position = String(item.position || "").trim().toUpperCase();
+    if (/^[A-E][1-5]$/.test(position)) entry.position = position;
+    const center = charPromptCenter(item);
+    if (center) entry.center = center;
     result.push(entry);
   }
   return result;
@@ -3866,6 +3905,9 @@ async function generateFromNode(id, {
       debug: debugModeEnabled(),
       retagCharPrompts: retagged ? normalizeCharPromptEntries(node.meta?.retagCharPrompts) : [],
       retagUseCoords: retagged ? !!node.meta?.retagUseCoords : false,
+      // Old workspaces do not have retagUseOrder; NovelAI's default is true.
+      // Do not turn a missing legacy value into false via !!undefined.
+      retagUseOrder: retagged ? node.meta?.retagUseOrder !== false : true,
       // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
       // A seed collected from an image belongs to the retag flow.  If the
       // source connection was removed, a plain prompt generation must not
@@ -4049,6 +4091,7 @@ function clearRetagCache(node) {
     advParamsExpanded: _advParamsExpanded,
     retagCharPrompts: _retagCharPrompts,
     retagUseCoords: _retagUseCoords,
+    retagUseOrder: _retagUseOrder,
     retagSteps: _retagSteps,
     retagScale: _retagScale,
     retagCfgRescale: _retagCfgRescale,
@@ -4179,6 +4222,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
     charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts),
     charUseCoords: !!meta.retagUseCoords,
+    charUseOrder: meta.retagUseOrder !== false,
     steps: clampMetaNumber(meta.retagSteps, ADV_RANGES.steps.min, ADV_RANGES.steps.max),
     scale: clampMetaNumber(meta.retagScale, ADV_RANGES.scale.min, ADV_RANGES.scale.max),
     cfgRescale: clampMetaNumber(
@@ -4277,6 +4321,7 @@ async function retagFromNode(
       // V4+ 内嵌参数里的多角色提示词，结构化透传给生图网关
       retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts),
       retagUseCoords: !!result?.charUseCoords,
+      retagUseOrder: result?.charUseOrder !== false,
       // 采样参数直接来自对原图文件的元数据解析，和 prompt 从哪来无关。
       // fromMetadata 只说明"prompt 是内嵌的"，命中画布缓存时它是 false，
       // 可图片里的 steps/sampler 依然有效——拿它当门禁等于整批丢掉。

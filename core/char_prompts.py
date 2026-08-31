@@ -1,17 +1,14 @@
 """NovelAI 多角色提示词的结构化载荷。
 
-反推命中内嵌参数时读出的角色提示词（char_captions）在这里被规范化成
-生图网关接受的扁平结构：
-
-    characters = [{"prompt": "...", "negative_prompt": "", "position": "C3"}, ...]
-
-``position`` 沿用原版 BestNAI 插件的五列网格记号（A-E 列、1-5 行），
-由 NAI 元数据里的中心点坐标（0~1 小数）就近换算；没有坐标的角色按
-角色数量套用原版插件的默认分配。
+反推命中内嵌参数时读出的角色提示词（``char_captions``）会被规范化成
+插件内部统一的条目。条目保留 NovelAI 原始的 ``center`` 坐标，同时保留
+旧中转网关使用的五列五行 ``position`` 表示：官方协议使用前者，中转协议
+使用后者。这样不会为了兼容旧网关而损失官方元数据里的精确坐标。
 """
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Dict, List
 
@@ -38,6 +35,59 @@ def _clamp01(value: Any) -> float | None:
     if number != number:  # NaN
         return None
     return min(max(number, 0.0), 1.0)
+
+
+def _unit_coordinate(value: Any) -> float | None:
+    """读取一个严格位于 0~1 的坐标；非法值不参与官方载荷。"""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+        return None
+    return number
+
+
+def normalize_char_center(value: Any) -> Dict[str, float] | None:
+    """规范化 NovelAI 的单个 ``center`` 对象，非法坐标返回 ``None``。"""
+    if not isinstance(value, dict):
+        return None
+
+    x = _unit_coordinate(value.get("x"))
+    y = _unit_coordinate(value.get("y"))
+    if x is None or y is None:
+        return None
+    return {"x": x, "y": y}
+
+
+def _entry_center(item: Any) -> Dict[str, float] | None:
+    """从元数据、官方条目或旧缓存条目中取出精确中心点。"""
+    if not isinstance(item, dict):
+        return None
+
+    center = normalize_char_center(item.get("center"))
+    if center is not None:
+        return center
+
+    centers = item.get("centers")
+    if isinstance(centers, list):
+        for candidate in centers:
+            center = normalize_char_center(candidate)
+            if center is not None:
+                return center
+
+    # nai_metadata.py 的内部兼容格式使用平铺的 x/y。
+    return normalize_char_center({"x": item.get("x"), "y": item.get("y")})
+
+
+def _first_text(item: Dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def char_grid_position(x: Any, y: Any) -> str | None:
@@ -73,6 +123,16 @@ def char_grid_center(position: Any) -> Dict[str, float] | None:
     }
 
 
+def char_entry_center(entry: Any) -> Dict[str, float] | None:
+    """返回条目的精确中心，缺失时再由兼容网格站位推导。"""
+    center = _entry_center(entry)
+    if center is not None:
+        return center
+    if isinstance(entry, dict):
+        return char_grid_center(entry.get("position"))
+    return None
+
+
 def default_char_position(index: int, count: int) -> str:
     positions = DEFAULT_POSITIONS.get(count)
     if positions and index < len(positions):
@@ -103,23 +163,28 @@ def has_explicit_positions(raw: Any) -> bool:
     )
 
 
-def normalize_char_entries(raw: Any) -> List[Dict[str, str]]:
-    """校验并规范化角色参数列表；非法输入一律丢弃而不是猜测。"""
+def normalize_char_entries(raw: Any) -> List[Dict[str, Any]]:
+    """校验并规范化角色参数列表，同时保留有效的原始中心坐标。"""
     if not isinstance(raw, list):
         return []
 
-    result: List[Dict[str, str]] = []
-    for index, item in enumerate(raw[:MAX_CHAR_PROMPTS]):
+    # 先筛掉无效角色再计算默认站位，避免一个坏条目改变后续角色的布局。
+    candidates = []
+    for item in raw[:MAX_CHAR_PROMPTS]:
         if not isinstance(item, dict):
             continue
-        prompt = str(item.get("prompt") or item.get("caption") or "").strip()
+        prompt = _first_text(item, ("prompt", "caption", "char_caption"))
         if not prompt:
             continue
+        candidates.append((item, prompt))
+
+    result: List[Dict[str, Any]] = []
+    for index, (item, prompt) in enumerate(candidates):
+        negative_prompt = _first_text(item, ("negative_prompt", "negative", "uc"))
+        center = _entry_center(item)
         entry = {
             "prompt": prompt[:MAX_CHAR_PROMPT_LENGTH],
-            "negative_prompt": str(
-                item.get("negative_prompt") or item.get("negative") or ""
-            ).strip()[:MAX_CHAR_PROMPT_LENGTH],
+            "negative_prompt": negative_prompt[:MAX_CHAR_PROMPT_LENGTH],
             "position": "",
         }
         explicit = str(item.get("position") or "").strip().upper()
@@ -129,9 +194,15 @@ def normalize_char_entries(raw: Any) -> List[Dict[str, str]]:
             # 非法站位（"Z9"、"C6"）不能原样送出去：网关会以 400 拒绝整次
             # 请求，连带把其余角色一起废掉。退回坐标推算或默认站位。
             entry["position"] = (
-                char_grid_position(item.get("x"), item.get("y"))
-                or default_char_position(len(result), len(raw))
-            )
+                char_grid_position(center["x"], center["y"])
+                if center is not None
+                else None
+            ) or default_char_position(index, len(candidates))
+
+        # ``center`` 是官方 char_captions 的真实坐标。只有输入确实提供了
+        # 有效坐标时才写入，位置-only 的旧缓存仍保持原来的简洁形状。
+        if center is not None:
+            entry["center"] = center
         result.append(entry)
 
     return result
