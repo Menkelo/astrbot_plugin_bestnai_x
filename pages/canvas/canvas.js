@@ -274,6 +274,10 @@ const state = {
 };
 
 const MAX_HISTORY = 40;
+const PROMPT_MIN_WIDTH = 320;
+const PROMPT_MAX_WIDTH = 640;
+const PROMPT_MIN_HEIGHT = 430;
+const PROMPT_MAX_HEIGHT = 800;
 function debugModeEnabled() {
   return !!state.debugEnabled;
 }
@@ -3842,8 +3846,8 @@ function hydrateImageAsset(node) {
 
 function normalizeLoadedNodeDimensions(node) {
   if (node.type === "prompt") {
-    node.width = clamp(Number(node.width) || 320, 280, 640);
-    node.height = clamp(Number(node.height) || 360, 300, 800);
+    node.width = clamp(Number(node.width) || PROMPT_MIN_WIDTH, PROMPT_MIN_WIDTH, PROMPT_MAX_WIDTH);
+    node.height = clamp(Number(node.height) || PROMPT_MIN_HEIGHT, PROMPT_MIN_HEIGHT, PROMPT_MAX_HEIGHT);
     if (node.artist === "__none__") node.artist = "";
     node.artist = normalizedArtistSelection(node.artist);
   }
@@ -3860,6 +3864,28 @@ function normalizeLoadedNodeDimensions(node) {
   }
   if (node.type === "image") hydrateImageAsset(node);
   return node;
+}
+
+function limitPromptResizeWidth(element, requestedWidth, minWidth = PROMPT_MIN_WIDTH) {
+  if (!element) return requestedWidth;
+  const roleCard = element.querySelector(".node-role-stack .retag-character-card");
+  if (!roleCard || !roleCard.classList.contains("open")) return requestedWidth;
+  const boardRect = els.viewport.getBoundingClientRect();
+  const safeTop = boardRect.top + 8;
+  const fits = (width) => {
+    element.style.width = `${width}px`;
+    return roleCard.getBoundingClientRect().top >= safeTop;
+  };
+  if (fits(requestedWidth)) return requestedWidth;
+  let low = minWidth;
+  let high = requestedWidth;
+  if (!fits(low)) return minWidth;
+  for (let i = 0; i < 8; i += 1) {
+    const middle = Math.round((low + high) / 2);
+    if (fits(middle)) low = middle;
+    else high = middle - 1;
+  }
+  return low;
 }
 
 function appendConnectionPath(x1, y1, x2, y2, className, edge = null) {
@@ -4293,11 +4319,17 @@ function attachNodeResize(handle, element, node) {
         pushHistory();
       }
       const promptMinimumHeight = window.matchMedia("(max-width: 620px)").matches ? 450 : 300;
-      node.width = clamp(Math.round(start.width + dx), node.type === "prompt" ? 280 : 220, 640);
+      let nextWidth = clamp(
+        Math.round(start.width + dx),
+        node.type === "prompt" ? PROMPT_MIN_WIDTH : 220,
+        node.type === "prompt" ? PROMPT_MAX_WIDTH : 640,
+      );
+      if (node.type === "prompt") nextWidth = limitPromptResizeWidth(element, nextWidth);
+      node.width = nextWidth;
       node.height = clamp(
         Math.round(start.height + dy),
         node.type === "prompt" ? promptMinimumHeight : 180,
-        800,
+        node.type === "prompt" ? PROMPT_MAX_HEIGHT : 800,
       );
       element.style.width = `${node.width}px`;
       element.style.height = `${node.height}px`;

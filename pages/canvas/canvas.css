@@ -858,12 +858,14 @@ select:focus-visible {
 .prompt-node {
   display: flex;
   width: 310px;
+  min-width: 320px;
+  min-height: 430px;
   flex-direction: column;
 }
 
 /* 调试信息较高，展开时允许提示词卡片继续收缩。 */
 .prompt-node.debug-open {
-  min-height: 0;
+  min-height: 430px;
 }
 
 .prompt-node .node-body {
