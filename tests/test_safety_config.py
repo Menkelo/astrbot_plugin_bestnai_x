@@ -45,6 +45,20 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertNotIn("nude", result.filtered_prompt)
         self.assertNotIn("custom blocked", result.filtered_prompt)
 
+    def test_detection_mode_keeps_prompt_intact(self) -> None:
+        moderator = SafetyModerator(
+            SimpleNamespace(
+                prompt_block_enabled=True,
+                prompt_block_words=["custom blocked"],
+            )
+        )
+
+        result = moderator.detect_prompt("nude, custom blocked, portrait")
+
+        self.assertEqual(result.filtered_prompt, "nude, custom blocked, portrait")
+        self.assertIn("nude", result.reason)
+        self.assertIn("custom blocked", result.reason)
+
     def test_empty_custom_list_keeps_builtin_protection(self) -> None:
         filtered, removed = filter_sensitive_prompt("nude portrait", [])
 
@@ -129,12 +143,15 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         self.assertEqual(config.safety.prompt_block_words, [])
 
-    def test_image_safety_review_is_disabled_by_default(self) -> None:
+    def test_visual_review_provider_was_removed_from_schema(self) -> None:
         config = PluginConfig.from_dict({})
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
 
         self.assertFalse(config.safety.enabled)
-        self.assertFalse(schema["safety_config"]["items"]["enabled"]["default"])
+        safety_items = schema["safety_config"]["items"]
+        self.assertNotIn("enabled", safety_items)
+        self.assertNotIn("provider_id", safety_items)
+        self.assertTrue(safety_items["prompt_block_enabled"]["default"])
 
     def test_retag_controls_include_artist_presets_and_quality_suffix(self) -> None:
         config = PluginConfig.from_dict(
@@ -194,8 +211,8 @@ class SafetyPromptWordsTest(unittest.TestCase):
     def test_qq_path_filters_the_fully_assembled_prompt(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")
 
-        self.assertIn("final_prompt_check = self.safety.check_prompt(final_prompt)", main)
-        self.assertIn("已自动过滤最终 prompt", main)
+        self.assertIn("final_prompt_check = self.safety.detect_prompt(final_prompt)", main)
+        self.assertIn("最终 prompt 命中敏感词", main)
 
 
 if __name__ == "__main__":

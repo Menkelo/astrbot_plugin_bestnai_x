@@ -59,6 +59,7 @@ from .models.config import (
 from .services.artist_gallery import ArtistGalleryService
 from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
+from .services.image_obfuscation import obfuscate_image_bytes
 from .services.image_ratio import (
     choose_ratio_source,
     clamp_to_pixel_budget,
@@ -98,8 +99,6 @@ from .services.nai_metadata import (
 )
 from .services.runtime_state import RuntimeStateService
 
-
-SAFETY_BLOCK_REPLY = "⚠️ 未能通过安全检测，已拦截"
 
 # 画布可手动调节的生图参数范围
 # 步数上限锁在 28：NovelAI 的免费额度只在 ≤28 步时生效，超过就开始扣 Anlas。
@@ -228,8 +227,7 @@ class BestNAIPlugin(Star):
             f"生图接口={api_source}，"
             f"API URL={self.plugin_config.api_url or '(未配置)'}，"
             f"生图并发上限={self.plugin_config.max_concurrency}，"
-            f"安全审核={'开启' if self.plugin_config.safety.enabled else '关闭'}，"
-            f"审核提供商={self.plugin_config.safety.provider_id or '(未选择)'}，"
+            f"提示词敏感词混淆={'开启' if self.plugin_config.safety.prompt_block_enabled else '关闭'}，"
             f"图片反推={'开启' if self.plugin_config.image_retag.enabled else '关闭'}，"
             f"反推提供商={self.plugin_config.image_retag.provider_id or '(未选择)'}，"
             f"配置默认画师预设={artist_source}，"
@@ -1994,9 +1992,9 @@ class BestNAIPlugin(Star):
         text: str,
         apply_safety_filter: bool = True,
     ) -> Optional[str]:
-        """将中文提示词翻译为英文，可选应用 QQ 场景安全过滤。
+        """将中文提示词翻译为英文，可选检测 QQ 场景敏感词。
 
-        翻译失败，或启用过滤后结果为空时返回 None。
+        检测只记录命中状态，不改写翻译结果。
         """
         translated, _ = await self._translate_prompt_with_reason(
             text,
@@ -2046,17 +2044,18 @@ class BestNAIPlugin(Star):
 
             return None, "翻译服务返回的仍然是中文，请检查翻译提供商选用的模型"
 
+        safety_detected = False
         if apply_safety_filter:
-            translated_check = self.safety.check_prompt(translated)
+            translated_check = self.safety.detect_prompt(translated)
 
-            if translated_check.filtered_prompt != translated:
+            if translated_check.reason:
+                safety_detected = True
                 logger.info(
-                    f"[BestNAI/Safety] 已自动过滤翻译后 prompt：{translated_check.reason}"
+                    f"[BestNAI/Safety] 翻译后 prompt 命中敏感词：{translated_check.reason}"
                 )
-                translated = translated_check.filtered_prompt
 
         if not translated:
-            return None, "翻译结果被安全过滤清空了，请换个说法再试"
+            return None, "翻译结果为空，请换个说法再试"
 
         if translator.last_character_tag and not prompt_has_tag(
             str(translated), translator.last_character_tag
@@ -2068,6 +2067,7 @@ class BestNAIPlugin(Star):
             str(translated),
             character_tag=translator.last_character_tag,
             series_tag=translator.last_series_tag,
+            safety_detected=safety_detected,
         ), ""
 
     async def _send_images(
@@ -2222,20 +2222,21 @@ class BestNAIPlugin(Star):
         if artist_slot_name:
             logger.info(f"[BestNAI] 本次使用画师预设：{artist_slot_name}")
 
-        prompt_check = self.safety.check_prompt(clean_prompt)
+        prompt_sensitive_detected = False
+        prompt_check = self.safety.detect_prompt(clean_prompt)
 
-        if prompt_check.filtered_prompt != clean_prompt:
+        if prompt_check.reason:
+            prompt_sensitive_detected = True
             logger.info(
-                f"[BestNAI/Safety] 已自动过滤 prompt：{prompt_check.reason}"
+                f"[BestNAI/Safety] prompt 命中敏感词：{prompt_check.reason}"
             )
-            clean_prompt = prompt_check.filtered_prompt
-
-        if not clean_prompt:
-            yield event.plain_result("❌ 提示词过滤后为空，请补充安全的有效提示词")
-            return
 
         try:
-            gen_config: GenerationConfig = self.prompt_builder.build_generation_config(ratio_name)
+            # QQ 防护现在只检测敏感词并混淆发送副本，不改写负面提示词。
+            gen_config: GenerationConfig = self.prompt_builder.build_generation_config(
+                ratio_name,
+                apply_safe_negative=False,
+            )
 
             if raw_mode:
                 gen_config = replace(
@@ -2304,6 +2305,10 @@ class BestNAIPlugin(Star):
                 yield event.plain_result("❌ 翻译失败，请检查翻译提供商配置。")
                 return
 
+            prompt_sensitive_detected = prompt_sensitive_detected or bool(
+                getattr(translated, "safety_detected", False)
+            )
+
             if tr_cfg.show_result:
                 yield event.plain_result(f"🔎 翻译结果：\n{translated}")
 
@@ -2327,25 +2332,18 @@ class BestNAIPlugin(Star):
                 suffix=self.plugin_config.prompt_suffix or "",
             )
 
-        # Run the QQ prompt filter again after translation, retag merging,
-        # artist presets, and the quality suffix have all been assembled. This
-        # closes the gap where a later-added English tag could bypass the
-        # earlier user-input-only check.
-        final_prompt_check = self.safety.check_prompt(final_prompt)
-        if final_prompt_check.filtered_prompt != final_prompt:
+        # Run QQ sensitive-term detection again after translation, retag
+        # merging, artist presets, and the quality suffix have been assembled.
+        # This catches later-added English tags without changing the prompt.
+        final_prompt_check = self.safety.detect_prompt(final_prompt)
+        if final_prompt_check.reason:
+            prompt_sensitive_detected = True
             logger.info(
-                f"[BestNAI/Safety] 已自动过滤最终 prompt：{final_prompt_check.reason}"
+                f"[BestNAI/Safety] 最终 prompt 命中敏感词：{final_prompt_check.reason}"
             )
-            final_prompt = final_prompt_check.filtered_prompt
 
         if not final_prompt:
-            if raw_mode and has_chinese(clean_prompt):
-                yield event.plain_result(
-                    "❌ 提示词清理后为空：中文提示词翻译结果为空，请检查翻译提供商，"
-                    "或改用英文提示词"
-                )
-            else:
-                yield event.plain_result("❌ 提示词清理后为空，请输入英文提示词或开启中文翻译")
+            yield event.plain_result("❌ 提示词为空，请输入有效提示词")
             return
 
         try:
@@ -2389,20 +2387,25 @@ class BestNAIPlugin(Star):
             images = result.images
             safe_images: List[Tuple[str, bytes]] = []
 
-            if self.plugin_config.safety.enabled:
-                for img_format, img_bytes in images:
-                    audit = await self.safety.check_image(img_bytes)
+            safe_images = images
 
-                    if not audit.safe:
-                        logger.warning(
-                            f"[BestNAI/Safety] 图片审核未通过 source={audit.source}, reason={audit.reason}"
+            if prompt_sensitive_detected and self.plugin_config.safety.prompt_block_enabled:
+                obfuscated_images: List[Tuple[str, bytes]] = []
+                for img_format, img_bytes in safe_images:
+                    obfuscated_images.append(
+                        (
+                            img_format,
+                            await asyncio.to_thread(
+                                obfuscate_image_bytes,
+                                img_bytes,
+                                16,
+                            ),
                         )
-                        yield event.plain_result(SAFETY_BLOCK_REPLY)
-                        return
-
-                    safe_images.append((img_format, img_bytes))
-            else:
-                safe_images = images
+                    )
+                safe_images = obfuscated_images
+                logger.info(
+                    "[BestNAI/Safety] 提示词命中敏感词，已对发送图片进行本地混淆"
+                )
 
             async for result in self._send_images(event, safe_images):
                 yield result

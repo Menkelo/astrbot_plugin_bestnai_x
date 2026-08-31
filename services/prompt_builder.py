@@ -171,15 +171,12 @@ class PromptBuilder:
         self.resolve_ratio_to_size = resolve_ratio_to_size
 
     def _safe_negative_enabled(self) -> bool:
-        """QQ 路径是否追加安全负面词。
+        """Whether legacy callers explicitly request safe negative tags.
 
-        与「提示词敏感词过滤」共用 ``prompt_block_enabled`` 一个开关：两者
-        都是提示词侧的 QQ 防护，一个从正向提示词里删词、一个往负面提示词里
-        加词，本来就是同一件事的两半。分开控制只会让面板上多一个几乎同名的
-        开关，而用户想要的从来是「别再动我的提示词」这一个意思。
+        The QQ safety mode is detection-only now, so the default generation
+        path no longer injects or rewrites negative prompts.
         """
-        safety = getattr(self.plugin_config, "safety", None)
-        return bool(getattr(safety, "prompt_block_enabled", True))
+        return False
 
     def build_generation_config(
         self,
@@ -188,9 +185,8 @@ class PromptBuilder:
     ) -> GenerationConfig:
         """构造生图参数。
 
-        ``apply_safe_negative`` 留空表示按「提示词敏感词过滤」开关决定。
-        画布路径显式传 ``False``：它不经过 QQ，不该被 QQ 的防封规则约束，
-        所以无论开关如何都不追加。
+        ``apply_safe_negative`` 显式传 ``True`` 仅供旧调用方兼容；默认路径
+        不再追加安全负面词。
         """
         if apply_safe_negative is None:
             apply_safe_negative = self._safe_negative_enabled()

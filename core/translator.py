@@ -174,16 +174,19 @@ class TranslatedPrompt(str):
 
     character_tag: str
     series_tag: str
+    safety_detected: bool
 
     def __new__(
         cls,
         value: str,
         character_tag: str = "",
         series_tag: str = "",
+        safety_detected: bool = False,
     ) -> "TranslatedPrompt":
         obj = str.__new__(cls, value or "")
         obj.character_tag = str(character_tag or "").strip()
         obj.series_tag = str(series_tag or "").strip()
+        obj.safety_detected = bool(safety_detected)
         return obj
 
 

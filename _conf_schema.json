@@ -112,7 +112,7 @@
       "negative_prompt": {
         "description": "负面提示词",
         "type": "string",
-        "hint": "全局生效的负面提示词。开启「提示词敏感词过滤」时，插件会在 QQ 路径额外追加内置的安全负面词；关闭该开关后只发这里填的内容。画布路径始终不追加。",
+        "hint": "全局生效的负面提示词，按这里填写的内容发送。",
         "default": "lowres, bad anatomy, bad hands, text, error, missing fingers"
       },
       "artist_presets": {
@@ -187,24 +187,11 @@
     "description": "QQ 防封安全审核配置",
     "type": "object",
     "items": {
-      "enabled": {
-        "description": "启用发送前图片安全审核",
-        "type": "bool",
-        "default": false,
-        "hint": "开启后生成图片会先审核，安全才发送，审核接口报错时会放行。"
-      },
-      "provider_id": {
-        "description": "视觉审核提供商",
-        "type": "string",
-        "default": "",
-        "_special": "select_provider",
-        "hint": "选择支持视觉输入的提供商。"
-      },
       "prompt_block_enabled": {
         "description": "启用提示词敏感词过滤",
         "type": "bool",
         "default": true,
-        "hint": "提示词侧的 QQ 防护总开关，管两件事：用户提示词命中明显 NSFW 关键词会自动移除并继续生成；同时向负面提示词追加内置安全负面词。关闭后两者都不再生效，出 NSFW 内容的概率会明显上升。画布路径不受此开关影响，始终不追加安全负面词。"
+        "hint": "QQ 防护总开关：命中敏感词时保留原始提示词，并对发送图片做本地马赛克混淆。关闭后不再检测或混淆图片。"
       },
       "prompt_block_words": {
         "description": "提示词敏感词列表",

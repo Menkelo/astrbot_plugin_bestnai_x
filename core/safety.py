@@ -1,11 +1,8 @@
-"""QQ 防封安全审核模块。
+"""QQ 防封安全模块。
 
-功能：
-- 提示词 NSFW 关键词过滤。
-- 固定追加安全负面词。
-- 图片发送前调用视觉模型审核。
-- 审核模型明确判定 unsafe 时拦截。
-- 审核模型报错 / 超时 / SSL 错误 / 供应商异常 / 结果解析失败时放行。
+主流程使用提示词敏感词过滤和安全负面词追加；命中过滤词后，发送层会
+对图片副本做本地混淆。``check_image`` 保留用于旧调用方兼容，但不再由
+主生图流程调用，也不再需要视觉审核提供商。
 """
 
 from __future__ import annotations
@@ -342,6 +339,35 @@ class SafetyModerator:
             safe=True,
             source="prompt",
             filtered_prompt=prompt or "",
+        )
+
+    def detect_prompt(self, prompt: str) -> SafetyCheckResult:
+        """Detect sensitive terms without changing the prompt.
+
+        QQ image protection uses detection as a trigger for output obfuscation;
+        the original prompt remains intact for the image provider.
+        """
+        original = str(prompt or "")
+        if not getattr(self.config, "prompt_block_enabled", True):
+            return SafetyCheckResult(
+                safe=True,
+                source="prompt",
+                filtered_prompt=original,
+            )
+
+        _, removed_words = filter_sensitive_prompt(
+            original,
+            getattr(self.config, "prompt_block_words", None),
+        )
+        return SafetyCheckResult(
+            safe=True,
+            reason=(
+                f"prompt 检测到敏感词：{', '.join(removed_words)}"
+                if removed_words
+                else ""
+            ),
+            source="prompt",
+            filtered_prompt=original,
         )
 
     async def check_image(self, image_bytes: bytes) -> SafetyCheckResult:

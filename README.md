@@ -122,7 +122,7 @@ pip install aiohttp pillow
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `quality_prompt` | string | `best quality, amazing quality, very aesthetic, absurdres` | 质量提示词，自动追加到最终正面提示词末尾，留空则不追加。发送前会自动清理非 ASCII 字符 |
-| `negative_prompt` | string | `lowres, bad anatomy, bad hands, text, error, missing fingers` | 全局生效的负面提示词。开启 `prompt_block_enabled` 时，QQ 路径会额外追加内置安全负面词。发送前会自动清理非 ASCII 字符 |
+| `negative_prompt` | string | `lowres, bad anatomy, bad hands, text, error, missing fingers` | 全局生效的负面提示词。发送前会自动清理非 ASCII 字符 |
 | `artist_presets` | list | 内置 5 个示例预设 | 画师预设列表，每项格式为 `预设名:画师提示词` |
 
 **内置画师预设示例**：
@@ -163,10 +163,10 @@ pip install aiohttp pillow
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `enabled` | bool | `false` | 启用发送前图片安全审核。需要视觉审核时可手动开启；开启后生成图片会先审核，安全才发送，审核接口报错/超时时放行 |
-| `provider_id` | string | 空 | 视觉审核提供商，需选择支持视觉输入的 AstrBot 提供商 |
-| `prompt_block_enabled` | bool | `true` | 提示词侧 QQ 防护总开关，同时控制两件事：正向提示词的 NSFW 关键词移除，以及负面提示词追加内置安全负面词。关闭后两者都失效 |
+| `prompt_block_enabled` | bool | `true` | QQ 防护总开关。检测到敏感词时保留原始提示词并自动对本轮发送图片做本地马赛克混淆；关闭后不再检测或混淆图片 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤的额外检测词；内置高风险词始终生效，完全关闭请使用 `prompt_block_enabled` |
+
+> 图片混淆使用本地 Pillow 处理，不需要视觉审核提供商，也不会把图片上传到“小番茄混淆”或其他外部网站。混淆只作用于发送副本，视觉审核配置中的旧字段仍可读取，但已不再参与主流程。
 
 > **Danbooru Tag 检索**已内嵌，翻译中文提示词时自动启用，无需配置。
 > 检索服务由第三方提供：[sakizuki/danboorusearch](https://huggingface.co/spaces/sakizuki/danboorusearch)（`https://sakizuki-danboorusearch.hf.space`），
@@ -222,7 +222,7 @@ pip install aiohttp pillow
    优先调用提供商 API Base 的 `/chat/completions`（完整 NAI payload）
         └─ Chat 路由不存在时回退 `/images/generations`（仅基础字段）
         ▼
-   图片安全审核（视觉模型，可选）
+   命中敏感词？──► 发送前本地马赛克混淆
         ▼
    发送图片
 ```
@@ -272,25 +272,16 @@ pip install aiohttp pillow
 
 ## 安全审核机制
 
-本插件为 QQ 场景提供了三层安全机制：
+本插件为 QQ 场景提供了提示词检测和发送副本混淆：
 
-1. **提示词敏感词过滤**（`prompt_block_enabled`，默认开）
-   - 内置高风险词始终生效；`prompt_block_words` 用于追加自定义检测词。若需要完全关闭提示词过滤，请关闭 `prompt_block_enabled`。
-   - 命中敏感词时会移除整个逗号分隔 Tag，避免只删掉 `sex` 后残留 `rough`、只删掉 `breasts` 后残留 `exposed` 等仍可能引导危险画面的碎片。
+1. **提示词敏感词检测**（`prompt_block_enabled`，默认开）
+   - 内置高风险词始终生效；`prompt_block_words` 用于追加自定义检测词。命中时只记录触发状态，不改写正向提示词。
    - 空格、下划线和连字符按同一种分隔方式检测，可过滤 `oral sex`、`oral_sex`、`oral-sex` 等 Danbooru 变体；零宽字符与 `rating:explicit` 命名空间也无法绕过。
-   - 提示词过滤后为空时会提示用户补充安全提示词。
+2. **命中后的图片混淆**（同样受 `prompt_block_enabled` 控制）
+   - 只要本轮提示词检测命中敏感词，生成完成后会在发送前对图片副本做本地马赛克混淆。
+   - 混淆失败时不会发送未混淆的原图，而是返回错误，避免敏感图片直接泄露。
 
-2. **图片发送前视觉审核**（`enabled`，默认开）
-   - 生成图片后、发送前，调用所选视觉提供商对图片进行安全判定。
-   - **只有审核模型明确返回 `safe=false` 时才拦截**；审核供应商未配置、接口报错、超时、SSL 错误、结果解析失败、不支持的供应商类型均**放行**，避免误伤正常图片。
-   - 拦截时回复固定文案：`未能通过安全检测，已拦截`。
-
-3. **负面提示词追加 QQ 安全负面词**（同样受 `prompt_block_enabled` 控制）
-   - 开关开启时，QQ 路径会在发送前向负面提示词追加 `rating:explicit, rating:questionable, nsfw, nude, underwear, suggestive, ...` 等安全负面词，从模型层面压低出图风险。已存在的词不会重复追加。
-   - 关闭 `prompt_block_enabled` 后不再追加，只发用户配置的 `negative_prompt`。
-   - 画布路径始终不追加：它不经过 QQ，不适用 QQ 的防封规则。
-
-> 第 1 条和第 3 条共用 `prompt_block_enabled` 一个开关——两者都是提示词侧的防护，一个从正向提示词删词、一个往负面提示词加词。关掉它意味着插件完全不再改动你的提示词，出 NSFW 内容与封号的风险都会明显上升。
+> 第 1、2 条共用 `prompt_block_enabled` 一个开关：检测正向提示词并混淆发送图片。提示词和负面提示词均保持用户原文，关闭开关意味着插件完全不再检测或改动图片。
 
 ---
 
@@ -327,7 +318,7 @@ astrbot_plugin_bestnai_x/
 ├── core/
 │   ├── generator.py         # 生图 API 调用核心（/images/generations + /chat/completions 回退；官方接口模式改走 /ai/generate-image）
 │   ├── novelai_api.py       # NovelAI 官方协议的请求载荷构造与 ZIP 响应解包
-│   ├── safety.py            # 安全审核（提示词过滤 + 图片视觉审核 + 负面词追加）
+│   ├── safety.py            # 安全审核（提示词过滤 + 负面词追加）
 │   ├── translator.py        # 中文提示词翻译 + Danbooru tag 检索
 │   ├── api_errors.py        # 上游报错可读化 + API Key 脱敏
 │   ├── debug_trace.py       # 调试模式的耗时/提示词流水记录
@@ -338,6 +329,7 @@ astrbot_plugin_bestnai_x/
     ├── image_ratio.py       # 图片尺寸读取与比例推断
     ├── mention_avatar.py    # 提取 @ 用户与 QQ 头像 URL
     ├── prompt_builder.py    # 最终 prompt 拼接、ASCII 清理、临时文件管理
+    ├── image_obfuscation.py # 敏感提示词命中后的本地图片混淆
     └── runtime_state.py     # 运行时状态持久化（默认画师预设）
 ```
 
