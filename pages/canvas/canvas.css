@@ -1571,7 +1571,6 @@ select:focus-visible {
 }
 
 .retag-character-card {
-  container-type: inline-size;
   border-radius: var(--card-radius);
   box-shadow: none;
 }
@@ -1705,8 +1704,12 @@ select:focus-visible {
 .retag-character-preview-surface {
   position: relative;
   display: grid;
-  width: 100%;
-  height: min(100cqw, 320px);
+  /* Keep the coordinate canvas square; only cap its width on wide cards so
+     widening a prompt card does not stretch the role module vertically. */
+  width: min(100%, 320px);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  margin-inline: auto;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--line);
