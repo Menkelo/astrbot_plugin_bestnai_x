@@ -1730,6 +1730,39 @@ select:focus-visible {
   margin-top: 7px;
 }
 
+.retag-character-mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-solid);
+}
+
+.retag-character-mode {
+  min-width: 72px;
+  height: 23px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 8.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.retag-character-mode:hover {
+  color: var(--text);
+}
+
+.retag-character-mode.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .retag-character-toggle,
 .retag-character-enabled {
   display: inline-flex;

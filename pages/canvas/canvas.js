@@ -2258,43 +2258,51 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const characterOptions = document.createElement("div");
     characterOptions.className = "retag-character-options";
 
-    const makeCharacterToggle = (labelText, checked, titleText, onChange) => {
-      const label = document.createElement("label");
-      label.className = "retag-character-toggle";
-      label.title = titleText;
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = checked;
-      input.addEventListener("change", (event) => {
-        event.stopPropagation();
-        pushHistory();
-        onChange(input.checked);
+    const modeSwitch = document.createElement("div");
+    modeSwitch.className = "retag-character-mode-switch";
+    modeSwitch.setAttribute("role", "radiogroup");
+    modeSwitch.setAttribute("aria-label", "角色布局模式");
+    const modeButtons = new Map();
+    const activeMode = node.meta?.retagUseCoords ? "coords" : "order";
+    const setCharacterMode = (mode, persist = true) => {
+      const useCoords = mode === "coords";
+      if (persist) pushHistory();
+      node.meta = {
+        ...(node.meta || {}),
+        retagUseCoords: useCoords,
+        retagUseOrder: !useCoords,
+      };
+      modeButtons.forEach((button, key) => {
+        const active = key === mode;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-checked", String(active));
+      });
+      if (persist) {
         clearDebugTrace(node);
         refreshSummary();
         scheduleSave();
-      });
-      label.append(input, document.createTextNode(labelText));
-      return label;
+      }
     };
-
-    characterOptions.append(
-      makeCharacterToggle(
-        "按坐标分区",
-        !!node.meta?.retagUseCoords,
-        "开启后使用每个角色的精确 center 坐标；关闭时由 NovelAI 按出场顺序布局",
-        (checked) => {
-          node.meta = { ...(node.meta || {}), retagUseCoords: checked };
-        },
-      ),
-      makeCharacterToggle(
-        "按出场顺序",
-        node.meta?.retagUseOrder !== false,
-        "控制 NovelAI 是否优先保持角色出场顺序",
-        (checked) => {
-          node.meta = { ...(node.meta || {}), retagUseOrder: checked };
-        },
-      ),
-    );
+    [
+      ["coords", "按坐标分区", "按每个角色的精确 center 坐标布局"],
+      ["order", "按出场顺序", "忽略坐标，按角色提示词的出场顺序布局"],
+    ].forEach(([mode, labelText, titleText]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "retag-character-mode";
+      button.textContent = labelText;
+      button.title = titleText;
+      button.setAttribute("role", "radio");
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (mode === (node.meta?.retagUseCoords ? "coords" : "order")) return;
+        setCharacterMode(mode);
+      });
+      modeButtons.set(mode, button);
+      modeSwitch.appendChild(button);
+    });
+    characterOptions.appendChild(modeSwitch);
+    setCharacterMode(activeMode, false);
 
     const restoreCharacters = document.createElement("button");
     restoreCharacters.type = "button";

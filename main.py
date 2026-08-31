@@ -957,7 +957,9 @@ class BestNAIPlugin(Star):
                 if "retagUseCoords" in payload
                 else has_explicit_positions(raw_char_prompts)
             )
-            use_order = bool(payload.get("retagUseOrder", True))
+            # The canvas exposes these as one mutually-exclusive layout mode.
+            # Prefer coordinates when a legacy workspace contains both flags.
+            use_order = bool(payload.get("retagUseOrder", True)) and not use_coords
             gen_config = replace(
                 gen_config,
                 characters=char_prompts,
