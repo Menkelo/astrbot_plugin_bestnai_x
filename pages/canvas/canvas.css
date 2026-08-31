@@ -1856,7 +1856,7 @@ select:focus-visible {
 .retag-character-row.is-active {
   display: block;
   border-color: #93c5fd;
-  box-shadow: 0 0 0 2px rgba(147, 197, 253, .18);
+  box-shadow: none;
 }
 
 .retag-character-row.is-disabled {
