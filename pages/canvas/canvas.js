@@ -2174,6 +2174,16 @@ function fitLayerBodyToViewport(card, body) {
   body.style.maxHeight = `${Math.max(160, Math.min(620, available))}px`;
 }
 
+function positionCharacterEditor(card, editor) {
+  if (!card || !editor || editor.hidden || !card.classList.contains("open")) return;
+  const cardRect = card.getBoundingClientRect();
+  const editorWidth = editor.getBoundingClientRect().width || 300;
+  const gap = 10;
+  const margin = 12;
+  const fitsRight = cardRect.right + gap + editorWidth <= window.innerWidth - margin;
+  editor.classList.toggle("place-left", !fitsRight && cardRect.left >= editorWidth + gap + margin);
+}
+
 function makeRetagLayerCard(node, sourceImage, nodeElement) {
   const charPrompts = normalizeCharPromptEntries(
     node?.meta?.retagCharPrompts,
@@ -2254,6 +2264,9 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
 
     const characterPanel = document.createElement("section");
     characterPanel.className = "retag-character-panel";
+    const characterEditorPopover = document.createElement("div");
+    characterEditorPopover.className = "retag-character-editor-popover";
+    characterEditorPopover.hidden = !charPrompts.length;
 
     const characterOptions = document.createElement("div");
     characterOptions.className = "retag-character-options";
@@ -2373,10 +2386,14 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       node._characterModuleSelectedIndex = index;
       characterRows.forEach((row, rowIndex) => row.classList.toggle("is-active", rowIndex === index));
       markerByIndex.forEach((marker, markerIndex) => marker.classList.toggle("is-active", markerIndex === index));
+      characterEditorPopover.hidden = index < 0 || !charPrompts.length;
       const editor = characterEditors.get(index);
       if (focusEditor && editor?.prompt) {
         editor.prompt.focus({ preventScroll: true });
         editor.prompt.setSelectionRange(editor.prompt.value.length, editor.prompt.value.length);
+      }
+      if (index >= 0) {
+        requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
       }
     };
     const addCharacterAt = (center = null) => {
@@ -2500,7 +2517,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       });
       characterRow.append(promptField, negativeField);
 
-      characterPanel.appendChild(characterRow);
+      characterEditorPopover.appendChild(characterRow);
     });
     const layoutTools = document.createElement("div");
     layoutTools.className = "retag-character-layouts";
@@ -2752,7 +2769,11 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const setCharacterOpen = (open) => {
       characterCard.classList.toggle("open", open);
       characterBody.hidden = !open;
+      characterEditorPopover.hidden = !open || !charPrompts.length || selectedCharacterIndex < 0;
       characterToggle.setAttribute("aria-expanded", String(open));
+      if (open && charPrompts.length) {
+        requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
+      }
     };
     characterToggle.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -2764,7 +2785,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     setCharacterOpen(node.meta?.retagCharacterExpanded === true);
     // 标题栏放在正文之后，整张卡以底边锚定时正文只会向上展开，
     // 标题栏本身在展开/收起前后保持同一个位置。
-    characterCard.append(characterBody, characterCardHead);
+    characterCard.append(characterBody, characterCardHead, characterEditorPopover);
+    if (charPrompts.length) {
+      requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
+    }
   }
 
   const tools = document.createElement("div");
@@ -7335,6 +7359,9 @@ window.addEventListener("resize", () => {
   scheduleOverlayAlignment();
   document.querySelectorAll(".retag-layer-card:not(.retag-character-card)").forEach((card) => {
     fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"));
+  });
+  document.querySelectorAll(".retag-character-editor-popover").forEach((editor) => {
+    positionCharacterEditor(editor.closest(".retag-character-card"), editor);
   });
   if (!els.imageViewer.hidden) {
     applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);

@@ -1565,6 +1565,32 @@ select:focus-visible {
   box-shadow: none;
 }
 
+.retag-character-editor-popover {
+  position: absolute;
+  z-index: 16;
+  right: auto;
+  bottom: 0;
+  left: calc(100% + 10px);
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(520px, 70vh);
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid #bfdbfe;
+  border-radius: 11px;
+  background: var(--card-solid);
+  scrollbar-color: rgba(100, 116, 139, .28) transparent;
+  scrollbar-width: thin;
+}
+
+.retag-character-editor-popover.place-left {
+  right: calc(100% + 10px);
+  left: auto;
+}
+
+.retag-character-editor-popover[hidden] {
+  display: none;
+}
+
 .retag-character-card.open .retag-layer-toggle {
   border-radius: 0 0 15px 15px;
 }
