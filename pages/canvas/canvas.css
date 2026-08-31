@@ -942,6 +942,7 @@ select:focus-visible {
 .node-attach-stack .retag-layer-card {
   position: static;
   top: auto;
+  box-shadow: none;
 }
 
 .node-attach-stack .retag-layer-card::before {
@@ -970,6 +971,29 @@ select:focus-visible {
 /* 角色模块贴近操作记录的轻量浮层，不再给节点周边增加投影。 */
 .node-role-stack .retag-character-card {
   box-shadow: none;
+}
+
+/* 附属卡片跟随提示词节点一起显示选中态，并用不同颜色区分用途。 */
+.node.selected > .node-role-stack .retag-character-card {
+  border-color: #16a34a;
+  outline: 2px solid rgba(22, 163, 74, .42);
+  outline-offset: 2px;
+}
+
+.node.selected .retag-character-editor-popover .retag-character-row.is-active {
+  border-color: #16a34a;
+}
+
+.node.selected > .node-attach-stack > .adv-card {
+  border-color: #d97706;
+  outline: 2px solid rgba(217, 119, 6, .42);
+  outline-offset: 2px;
+}
+
+.node.selected > .node-attach-stack > .retag-layer-card:not(.adv-card) {
+  border-color: #dc2626;
+  outline: 2px solid rgba(220, 38, 38, .42);
+  outline-offset: 2px;
 }
 
 .field-label {
@@ -1555,6 +1579,7 @@ select:focus-visible {
   border: 1px solid #bfdbfe;
   border-radius: 12px;
   background: color-mix(in srgb, #eff6ff 72%, transparent);
+  font-size: 11px;
 }
 
 .retag-character-card .retag-layer-body {
@@ -1876,7 +1901,7 @@ select:focus-visible {
 .retag-character-center-summary {
   color: var(--faint);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 9.5px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1889,7 +1914,7 @@ select:focus-visible {
 
 .retag-character-field > span {
   color: var(--faint);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -1906,8 +1931,8 @@ select:focus-visible {
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   /* Match the prompt card's main textarea typography. */
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .retag-character-field textarea:focus {
