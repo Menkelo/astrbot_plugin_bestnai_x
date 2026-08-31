@@ -16,7 +16,7 @@
 
 ### 测试
 
-- 全量测试通过：479 passed，203 subtests passed。
+- 全量测试通过：480 passed，203 subtests passed。
 
 ## [4.5.7] - 2026-09-01
 
