@@ -890,7 +890,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.2", metadata)
+        self.assertIn("version: 4.5.3", metadata)
         self.assertIn('PLUGIN_VERSION = "4.4.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
@@ -1130,6 +1130,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("按坐标分区", editor)
         self.assertIn("恢复原图参数", editor)
         self.assertIn("input.step = \"0.001\"", editor)
+        self.assertIn("retagCharacterCard", editor)
+        self.assertIn("stack.appendChild(retagCharacterCard)", editor)
+        self.assertIn("retag-character-preview-surface", editor)
+        self.assertIn("setPointerCapture(pointerId)", editor)
+        self.assertIn("均匀横向", editor)
+        self.assertIn("三人构图", editor)
+        self.assertIn("四人构图", editor)
+        self.assertIn("retagCharacterExpanded", editor)
         self.assertIn("if (center) {", editor)
         self.assertIn("const position = String(item.position || \"\").trim().toUpperCase();", editor)
         self.assertIn('if "retagUseCoords" in payload', main_source)
@@ -1491,6 +1499,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
             ".adv-card .retag-layer-body:not([hidden])",
             styles,
         )
+        self.assertIn(".retag-layer-body::-webkit-scrollbar", styles)
+        self.assertIn(".retag-layer-body::-webkit-scrollbar-thumb", styles)
+        self.assertIn("scrollbar-color: rgba(100, 116, 139, .22) transparent", styles)
         # 提示词卡片默认尺寸放大
         self.assertIn("width: 380,", editor)
         self.assertIn("height: 430,", editor)

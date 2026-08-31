@@ -383,6 +383,7 @@ class CanvasStoreTest(unittest.TestCase):
                             "retagCharDisabled": [1, 1, 99, -2],
                             "retagUseCoords": True,
                             "retagUseOrder": False,
+                            "retagCharacterExpanded": True,
                             "retagUseCoordsOriginal": False,
                             "retagUseOrderOriginal": True,
                         },
@@ -402,6 +403,7 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertFalse(meta["retagUseOrder"])
         self.assertFalse(meta["retagUseCoordsOriginal"])
         self.assertTrue(meta["retagUseOrderOriginal"])
+        self.assertTrue(meta["retagCharacterExpanded"])
 
     def test_workspace_clamps_out_of_range_source_sampling_params(self) -> None:
         sanitized = self.store.sanitize_workspace(

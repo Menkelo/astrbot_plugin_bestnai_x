@@ -839,6 +839,9 @@ class CanvasStore:
                     ]
                 meta["retagUseCoords"] = bool(raw_meta.get("retagUseCoords", False))
                 meta["retagUseOrder"] = bool(raw_meta.get("retagUseOrder", True))
+                meta["retagCharacterExpanded"] = bool(
+                    raw_meta.get("retagCharacterExpanded", False)
+                )
                 original_char_prompts = _sanitize_char_prompts(
                     raw_meta.get("retagCharPromptsOriginal")
                 )
