@@ -1557,10 +1557,16 @@ select:focus-visible {
 
 .retag-character-card .retag-layer-body {
   max-height: min(620px, calc(100vh - 120px));
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .retag-character-card {
   box-shadow: none;
+}
+
+.retag-character-card.open .retag-layer-toggle {
+  border-radius: 0 0 15px 15px;
 }
 
 .retag-character-card-head {
@@ -1604,7 +1610,7 @@ select:focus-visible {
 }
 
 .retag-character-preview-help {
-  margin: 0 0 5px;
+  margin: 6px 0 0;
   color: var(--faint);
   font-size: 8px;
   line-height: 1.45;
@@ -1708,7 +1714,6 @@ select:focus-visible {
   opacity: .42;
 }
 
-.retag-character-head,
 .retag-character-row-head {
   display: flex;
   min-width: 0;
@@ -1717,24 +1722,12 @@ select:focus-visible {
   gap: 8px;
 }
 
-.retag-character-head {
-  margin-bottom: 7px;
-  color: #1d4ed8;
-  font-size: 9.5px;
-}
-
-.retag-character-head span {
-  color: #60a5fa;
-  font-size: 8px;
-  font-weight: 800;
-}
-
 .retag-character-options {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 7px;
+  margin-top: 7px;
 }
 
 .retag-character-toggle,

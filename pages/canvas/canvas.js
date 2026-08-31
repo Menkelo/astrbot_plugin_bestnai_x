@@ -2254,12 +2254,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
 
     const characterPanel = document.createElement("section");
     characterPanel.className = "retag-character-panel";
-    const characterHead = document.createElement("div");
-    characterHead.className = "retag-character-head";
-    const characterNote = document.createElement("span");
-    characterNote.textContent = "V4+";
-    characterNote.title = "控制 NovelAI V4+ 的角色提示词与结构化位置";
-    characterHead.append(characterNote);
 
     const characterOptions = document.createElement("div");
     characterOptions.className = "retag-character-options";
@@ -2328,7 +2322,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       renderNodes();
     });
     characterOptions.appendChild(restoreCharacters);
-    characterPanel.append(characterHead, characterOptions);
 
     const updateCharacterEntry = (index, patch) => {
       const current = charPrompts[index];
@@ -2601,7 +2594,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const markerLayer = document.createElement("div");
     markerLayer.className = "retag-character-marker-layer";
     previewSurface.appendChild(markerLayer);
-    preview.append(previewHelp, previewSurface);
+    preview.append(previewSurface);
 
     const syncCharacterPreview = () => {
       charPrompts.forEach((character, index) => {
@@ -2689,14 +2682,14 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       markerByIndex.set(index, marker);
     });
     characterPanel.insertBefore(preview, characterPanel.querySelector(".retag-character-row"));
-    // 快捷布局放在角色编辑器之后，避免占据顶部的主要预览空间。
-    characterPanel.appendChild(layoutTools);
     if (!charPrompts.length) {
       const emptyCharacters = document.createElement("p");
       emptyCharacters.className = "retag-character-empty";
-      emptyCharacters.textContent = "暂无角色，双击上方画布添加角色。";
+      emptyCharacters.textContent = "暂无角色";
       characterPanel.appendChild(emptyCharacters);
     }
+    // 固定内部顺序：画布在最上，角色编辑居中，按钮和操作提示在最下。
+    characterPanel.append(characterOptions, layoutTools, previewHelp);
     syncCharacterPreview();
     if (charPrompts.length) {
       const selectedIndex = clamp(
@@ -2724,7 +2717,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     characterToggleTitle.append(icon("users-round"), document.createTextNode("角色模块"));
     characterSummary = document.createElement("span");
     characterSummary.className = "retag-layer-summary";
-    const characterChevron = icon("chevron-down", "retag-layer-chevron");
+    const characterChevron = icon("chevron-up", "retag-layer-chevron");
     characterToggle.append(characterToggleTitle, characterSummary, characterChevron);
     const characterCardHead = document.createElement("div");
     characterCardHead.className = "retag-character-card-head";
@@ -2749,7 +2742,9 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       scheduleSave();
     });
     setCharacterOpen(node.meta?.retagCharacterExpanded === true);
-    characterCard.append(characterCardHead, characterBody);
+    // 标题栏放在正文之后，整张卡以底边锚定时正文只会向上展开，
+    // 标题栏本身在展开/收起前后保持同一个位置。
+    characterCard.append(characterBody, characterCardHead);
   }
 
   const tools = document.createElement("div");
