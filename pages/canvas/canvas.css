@@ -1578,11 +1578,11 @@ select:focus-visible {
   width: min(280px, calc(100vw - 24px));
   min-height: 190px;
   max-height: min(520px, 70vh);
-  padding: 8px;
+  padding: 0;
   overflow-y: auto;
-  border: 1px solid #bfdbfe;
-  border-radius: 12px;
-  background: var(--card-solid);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   scrollbar-color: rgba(100, 116, 139, .28) transparent;
   scrollbar-width: thin;
 }
@@ -1893,7 +1893,7 @@ select:focus-visible {
 
 .retag-character-field textarea {
   width: 100%;
-  min-height: 48px;
+  min-height: 64px;
   box-sizing: border-box;
   resize: vertical;
   padding: 5px 6px;
