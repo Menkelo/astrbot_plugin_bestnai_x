@@ -890,7 +890,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.0", metadata)
+        self.assertIn("version: 4.5.1", metadata)
         self.assertIn('PLUGIN_VERSION = "4.4.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
@@ -1105,6 +1105,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_canvas_generate_round_trips_char_prompt_entries(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
         self.assertIn("retagCharPrompts: normalizeCharPromptEntries(result?.charPrompts)", editor)
@@ -1120,6 +1121,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         self.assertIn("function normalizeCharCenter", editor)
+        self.assertIn("if (center) {", editor)
+        self.assertIn("const position = String(item.position || \"\").trim().toUpperCase();", editor)
+        self.assertIn('if "retagUseCoords" in payload', main_source)
+        self.assertIn('if getattr(self.plugin_config, "use_official_api", False)', main_source)
 
     def test_canvas_generate_reuses_source_sampling_params(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")

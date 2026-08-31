@@ -472,8 +472,15 @@ class BestNAIPlugin(Star):
 
             # Return only image tags. The caller translates and weights the
             # current hand-written hint exactly once during generation.
-            image_tags = ", ".join(
-                part for part in (source_prompt, *char_tag_texts) if part
+            # NovelAI's official canvas keeps character captions in the
+            # structured V4 payload and does not duplicate them in the base
+            # prompt. Keep the flattened form only for legacy relay gateways.
+            image_tags = (
+                source_prompt
+                if getattr(self.plugin_config, "use_official_api", False)
+                else ", ".join(
+                    part for part in (source_prompt, *char_tag_texts) if part
+                )
             )
 
             trace.note(
@@ -924,10 +931,14 @@ class BestNAIPlugin(Star):
         char_prompts = normalize_char_entries(raw_char_prompts)
         if char_prompts:
             # 站位只有在 use_coords 为真时才生效，否则 NovelAI 按出场顺序排布、
-            # 忽略坐标。所以用户明确指定过站位时要一并打开它；只有程序按人数
-            # 自动分配的默认站位则不开，免得把顺序排布换成没人要求的分区。
-            use_coords = bool(payload.get("retagUseCoords")) or has_explicit_positions(
-                raw_char_prompts
+            # 忽略坐标。前端现在总会发送 retagUseCoords；它一旦存在就是权威值。
+            # 只有旧版客户端完全没有这个字段时，才根据显式 position 兼容推断。
+            # 不能把规范化过程中由 center 推导出的 B3/C3/D3 当成用户选择，
+            # 否则会把官方元数据里的 use_coords=false 错误改成 true。
+            use_coords = (
+                bool(payload.get("retagUseCoords"))
+                if "retagUseCoords" in payload
+                else has_explicit_positions(raw_char_prompts)
             )
             use_order = bool(payload.get("retagUseOrder", True))
             gen_config = replace(

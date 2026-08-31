@@ -1704,10 +1704,16 @@ function normalizeCharPromptEntries(value) {
       negative_prompt: firstCharPromptText(item, ["negative_prompt", "negative", "uc"]).slice(0, 2000),
       position: "",
     };
-    const position = String(item.position || "").trim().toUpperCase();
-    if (/^[A-E][1-5]$/.test(position)) entry.position = position;
     const center = charPromptCenter(item);
-    if (center) entry.center = center;
+    if (center) {
+      // Metadata-derived positions are only relay compatibility values; the
+      // exact center is authoritative and must not be mistaken for a user's
+      // explicit grid selection on the next generate request.
+      entry.center = center;
+    } else {
+      const position = String(item.position || "").trim().toUpperCase();
+      if (/^[A-E][1-5]$/.test(position)) entry.position = position;
+    }
     result.push(entry);
   }
   return result;

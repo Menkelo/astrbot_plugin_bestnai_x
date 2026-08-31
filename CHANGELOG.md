@@ -2,6 +2,19 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.5.1] - 2026-08-31
+
+### 修复
+
+- **修复官方画布多角色位置异常**：`retagUseCoords=false` 现在作为权威值保留，不会被由精确中心点自动推导出的 `B3/C3/D3` 兼容站位错误覆盖为 `true`。
+- **修复官方 prompt 重复注入角色标签**：使用 NovelAI 官方接口时，角色提示词只通过结构化 `char_captions` 发送，不再重复拼接到基础 prompt，避免重复标签干扰构图。
+- **修复画布缓存中的站位误判**：带有精确 `center` 的角色条目不再被前端误认为用户手动选择了网格位置；旧版客户端仍保留显式 `position` 的兼容推断。
+
+### 测试
+
+- 补充官方 `use_coords` 语义和前端角色坐标缓存回归检查。
+- 全量测试通过：472 passed，203 subtests passed。
+
 ## [4.5.0] - 2026-08-31
 
 ### 修复
