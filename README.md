@@ -163,7 +163,7 @@ pip install aiohttp pillow
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `prompt_block_enabled` | bool | `true` | QQ 防护总开关。检测到敏感词时保留原始提示词并自动对本轮发送图片做本地马赛克混淆；关闭后不再检测或混淆图片 |
+| `prompt_block_enabled` | bool | `true` | QQ 防护总开关。检测到敏感词时保留原始提示词并自动对本轮发送图片做本地 Gilbert Curve 混淆，输出无损 PNG；关闭后不再检测或混淆图片 |
 | `prompt_block_words` | list | 内置检测词列表 | QQ 平台提示词过滤的额外检测词；内置高风险词始终生效，完全关闭请使用 `prompt_block_enabled` |
 
 > 图片混淆使用本地 Pillow 按 Gilbert Curve 处理，不需要视觉审核提供商，也不会把图片上传到“小番茄混淆”或其他外部网站。混淆只作用于发送副本，视觉审核配置中的旧字段仍可读取，但已不再参与主流程。
@@ -278,7 +278,7 @@ pip install aiohttp pillow
    - 内置高风险词始终生效；`prompt_block_words` 用于追加自定义检测词。命中时只记录触发状态，不改写正向提示词。
    - 空格、下划线和连字符按同一种分隔方式检测，可过滤 `oral sex`、`oral_sex`、`oral-sex` 等 Danbooru 变体；零宽字符与 `rating:explicit` 命名空间也无法绕过。
 2. **命中后的图片混淆**（同样受 `prompt_block_enabled` 控制）
-   - 只要本轮提示词检测命中敏感词，生成完成后会在发送前对图片副本做本地 Gilbert Curve 混淆（JPEG 质量 1.0）。
+   - 只要本轮提示词检测命中敏感词，生成完成后会在发送前对图片副本做本地 Gilbert Curve 混淆，并输出带 NovelAI 元数据的无损 PNG。
    - 混淆失败时不会发送未混淆的原图，而是返回错误，避免敏感图片直接泄露。
 
 > 第 1、2 条共用 `prompt_block_enabled` 一个开关：检测正向提示词并混淆发送图片。提示词和负面提示词均保持用户原文，关闭开关意味着插件完全不再检测或改动图片。

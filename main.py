@@ -2394,7 +2394,7 @@ class BestNAIPlugin(Star):
                 for img_format, img_bytes in safe_images:
                     obfuscated_images.append(
                         (
-                            "jpeg",
+                            "png",
                             await asyncio.to_thread(
                                 obfuscate_image_bytes,
                                 img_bytes,

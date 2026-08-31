@@ -1,18 +1,18 @@
 """小番茄混淆兼容实现。
 
 算法与 https://xiaofanqiehunxiao.com/ 使用的前端实现一致：沿 Gilbert
-Curve 遍历像素，并以黄金比例偏移量进行可逆置换。结果统一编码为 JPEG
-质量 1.0；同时搬运 NovelAI 元数据到 EXIF UserComment，方便解混淆后继续读取。
+Curve 遍历像素，并以黄金比例偏移量进行可逆置换。结果编码为无损 PNG，
+并搬运 NovelAI 元数据到 PNG tEXt 块，方便继续读取。
 """
 
 from __future__ import annotations
 
+import json
 from array import array
 from io import BytesIO
 from math import floor, sqrt
-import json
 
-from PIL import ExifTags, Image
+from PIL import ExifTags, Image, PngImagePlugin
 
 
 def _sign(value: int) -> int:
@@ -86,7 +86,7 @@ def _gilbert_curve(width: int, height: int) -> tuple[array, array]:
 
 
 def obfuscate_image_bytes(image_bytes: bytes, key: float = 1.0) -> bytes:
-    """Apply the Xiaofanqie pixel permutation and return JPEG quality 1 bytes."""
+    """Apply the Xiaofanqie pixel permutation and return metadata-bearing PNG."""
     if not image_bytes:
         raise ValueError("图片内容为空，无法混淆")
 
@@ -105,10 +105,14 @@ def obfuscate_image_bytes(image_bytes: bytes, key: float = 1.0) -> bytes:
         if len(xs) != total:
             raise ValueError("Gilbert 曲线像素数量与图片尺寸不一致")
 
-        pixels = source.convert("RGB").load()
-        output = Image.new("RGB", (width, height))
+        has_alpha = "A" in source.getbands()
+        source_pixels = source.convert("RGBA" if has_alpha else "RGB")
+        pixels = source_pixels.load()
+        output = Image.new(source_pixels.mode, (width, height))
         output_pixels = output.load()
-        offset = round(((sqrt(5) - 1) / 2) * total * key)
+        # JavaScript Math.round / Java Math.round round positive half values up;
+        # Python round uses bankers rounding, so spell out the equivalent.
+        offset = floor(((sqrt(5) - 1) / 2) * total * key + 0.5)
 
         for index in range(total):
             src_x = xs[index]
@@ -117,7 +121,15 @@ def obfuscate_image_bytes(image_bytes: bytes, key: float = 1.0) -> bytes:
             output_pixels[xs[dst_index], ys[dst_index]] = pixels[src_x, src_y]
 
         encoded = BytesIO()
-        save_kwargs = {"quality": 100, "subsampling": 0}
+        pnginfo = PngImagePlugin.PngInfo()
+        for name, value in source.info.items():
+            if name in {"Comment", "icc_profile", "exif", "transparency"}:
+                continue
+            if isinstance(value, bytes):
+                value = value.decode("utf-8", errors="ignore")
+            if isinstance(value, str) and value:
+                pnginfo.add_text(str(name), value)
+
         metadata = source.info.get("Comment")
         if isinstance(metadata, bytes):
             metadata = metadata.decode("utf-8", errors="ignore")
@@ -127,21 +139,26 @@ def obfuscate_image_bytes(image_bytes: bytes, key: float = 1.0) -> bytes:
             except Exception:
                 metadata = ""
 
-        # Carry NovelAI PNG Comment (or an existing JPEG UserComment) across
-        # the JPEG export so the unshuffled result can still be retagged.
+        # Carry an existing JPEG/WebP EXIF UserComment into PNG Comment.
         exif = source.getexif()
         if not metadata:
             try:
                 user_comment = exif.get_ifd(ExifTags.IFD.Exif).get(
                     ExifTags.Base.UserComment
                 )
-                metadata = user_comment.decode("utf-8", errors="ignore") if isinstance(user_comment, bytes) else str(user_comment or "")
+                metadata = (
+                    user_comment.decode("utf-8", errors="ignore")
+                    if isinstance(user_comment, bytes)
+                    else str(user_comment or "")
+                )
             except Exception:
                 metadata = ""
         if metadata:
-            exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
-            exif_ifd[ExifTags.Base.UserComment] = b"ASCII\x00\x00\x00" + metadata.encode("utf-8")
-            save_kwargs["exif"] = exif
+            try:
+                json.loads(metadata)
+                pnginfo.add_text("Comment", metadata)
+            except Exception:
+                pass
 
-        output.save(encoded, format="JPEG", **save_kwargs)
+        output.save(encoded, format="PNG", pnginfo=pnginfo, compress_level=0)
         return encoded.getvalue()

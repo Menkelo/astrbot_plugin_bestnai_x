@@ -21,7 +21,7 @@ from astrbot_plugin_bestnai_x.services.nai_metadata import read_image_generation
 
 
 class ImageObfuscationTest(unittest.TestCase):
-    def test_obfuscation_preserves_dimensions_and_uses_jpeg(self) -> None:
+    def test_obfuscation_preserves_dimensions_and_uses_png(self) -> None:
         source = Image.new("RGB", (32, 24), "white")
         for x in range(16, 32):
             for y in range(12, 24):
@@ -32,7 +32,7 @@ class ImageObfuscationTest(unittest.TestCase):
         result = obfuscate_image_bytes(raw.getvalue(), key=1.0)
 
         with Image.open(io.BytesIO(result)) as image:
-            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(image.format, "PNG")
             self.assertEqual(image.size, source.size)
             self.assertNotEqual(image.tobytes(), source.tobytes())
 
