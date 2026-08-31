@@ -1712,7 +1712,7 @@ select:focus-visible {
   aspect-ratio: 1 / 1;
   place-items: center;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 12px;
   background: #94a3b8;
   touch-action: none;
@@ -1722,7 +1722,7 @@ select:focus-visible {
   position: relative;
   flex: 0 0 auto;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .72);
+  border: 0;
   background: #cbd5e1;
   cursor: crosshair;
   touch-action: none;
