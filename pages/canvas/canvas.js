@@ -2467,6 +2467,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       deleteButton.className = "retag-character-delete";
       deleteButton.title = `删除角色 ${index + 1}`;
       deleteButton.setAttribute("aria-label", `删除角色 ${index + 1}`);
+      deleteButton.appendChild(icon("trash-2"));
       const deleteConfirm = document.createElement("button");
       deleteConfirm.type = "button";
       deleteConfirm.className = "retag-character-delete-confirm";

@@ -1529,13 +1529,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".node-role-stack", styles)
         role_stack = styles.split(".node-role-stack {", 1)[1].split("}", 1)[0]
         self.assertIn("bottom: calc(100% + 11px);", role_stack)
-        # 附属卡片跟随提示词节点选中态显示彩色边框，且不再依赖投影。
-        self.assertIn(".node.selected > .node-role-stack .retag-character-card", styles)
-        self.assertIn(".node.selected > .node-attach-stack > .adv-card", styles)
-        self.assertIn(".node.selected > .node-attach-stack > .retag-layer-card:not(.adv-card)", styles)
-        self.assertIn("outline: 2px solid rgba(22, 163, 74, .42);", styles)
-        self.assertIn("outline: 2px solid rgba(217, 119, 6, .42);", styles)
-        self.assertIn("outline: 2px solid rgba(220, 38, 38, .42);", styles)
+        # 附属卡片不再添加额外的彩色选中边框，避免内外框叠色。
+        self.assertNotIn(".node.selected > .node-role-stack .retag-character-card", styles)
+        self.assertNotIn(".node.selected > .node-attach-stack > .adv-card", styles)
+        self.assertNotIn(".node.selected > .node-attach-stack > .retag-layer-card:not(.adv-card)", styles)
         self.assertIn("font-size: 11px;", styles.split(".retag-character-field textarea", 1)[1].split("}", 1)[0])
         self.assertIn("box-shadow: none;", styles.split(".node-attach-stack .retag-layer-card", 1)[1].split("}", 1)[0])
         self.assertIn("background: #cbd5e1;", styles)

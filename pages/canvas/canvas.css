@@ -973,29 +973,6 @@ select:focus-visible {
   box-shadow: none;
 }
 
-/* 附属卡片跟随提示词节点一起显示选中态，并用不同颜色区分用途。 */
-.node.selected > .node-role-stack .retag-character-card {
-  border-color: #16a34a;
-  outline: 2px solid rgba(22, 163, 74, .42);
-  outline-offset: 2px;
-}
-
-.node.selected .retag-character-editor-popover .retag-character-row.is-active {
-  border-color: #16a34a;
-}
-
-.node.selected > .node-attach-stack > .adv-card {
-  border-color: #d97706;
-  outline: 2px solid rgba(217, 119, 6, .42);
-  outline-offset: 2px;
-}
-
-.node.selected > .node-attach-stack > .retag-layer-card:not(.adv-card) {
-  border-color: #dc2626;
-  outline: 2px solid rgba(220, 38, 38, .42);
-  outline-offset: 2px;
-}
-
 .field-label {
   position: relative;
   display: flex;
@@ -1085,7 +1062,7 @@ select:focus-visible {
   min-height: 30px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   padding: 0 8px;
   border-radius: 8px;
   background: transparent;
@@ -1355,7 +1332,7 @@ select:focus-visible {
   left: 0;
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, .97);
   box-shadow: 0 15px 36px rgba(15, 23, 42, .14);
   color: var(--text);
@@ -1381,7 +1358,7 @@ select:focus-visible {
   gap: 8px;
   padding: 7px 10px;
   border: 0;
-  border-radius: 15px;
+  border-radius: 11px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -1389,7 +1366,7 @@ select:focus-visible {
 }
 
 .retag-layer-card.open .retag-layer-toggle {
-  border-radius: 21px 21px 0 0;
+  border-radius: 11px 11px 0 0;
 }
 
 .retag-layer-toggle:hover {
@@ -1590,7 +1567,7 @@ select:focus-visible {
 }
 
 .retag-character-card {
-  border-radius: 22px;
+  border-radius: 12px;
   box-shadow: none;
 }
 
@@ -1622,11 +1599,11 @@ select:focus-visible {
 }
 
 .retag-character-card.open .retag-layer-toggle {
-  border-radius: 0 0 21px 21px;
+  border-radius: 0 0 11px 11px;
 }
 
 .retag-character-card:not(.open) .retag-layer-toggle {
-  border-radius: 21px;
+  border-radius: 11px;
 }
 
 .retag-character-card-head {
@@ -1664,6 +1641,10 @@ select:focus-visible {
   background: transparent;
   color: #16a34a;
   cursor: pointer;
+}
+
+.retag-character-delete-confirm[hidden] {
+  display: none;
 }
 
 .retag-character-delete-confirm:hover {
@@ -1907,7 +1888,7 @@ select:focus-visible {
 
 .retag-character-row.is-active {
   display: block;
-  border-color: #16a34a;
+  border-color: var(--line);
   box-shadow: none;
 }
 
