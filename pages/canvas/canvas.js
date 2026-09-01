@@ -7143,6 +7143,8 @@ function acceptDocumentFileDrag(event) {
 
 document.addEventListener("dragenter", acceptDocumentFileDrag, true);
 document.addEventListener("dragover", acceptDocumentFileDrag, true);
+window.addEventListener("dragenter", acceptDocumentFileDrag, true);
+window.addEventListener("dragover", acceptDocumentFileDrag, true);
 
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
