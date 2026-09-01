@@ -5585,6 +5585,18 @@ function imageViewerControlTagKey(value) {
     .trim();
 }
 
+function retagImageFromViewer(imageNode) {
+  const target = state.connections
+    .filter((edge) => edge.source === imageNode?.id)
+    .map((edge) => findNode(edge.target))
+    .find((node) => node?.type === "prompt");
+  if (!target) {
+    toast("请先将图片连接到提示词节点", "error");
+    return null;
+  }
+  return retagFromNode(target.id, false);
+}
+
 function imageViewerConfiguredControlKeys(extraControlPrompts = []) {
   const configuredPrompts = Array.isArray(state.config.retagControlPrompts)
     ? state.config.retagControlPrompts
@@ -5783,10 +5795,9 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     () => els.imageViewer.focus({ preventScroll: true }),
   );
   els.imageViewerDownloadBtn.onclick = () => downloadImage(node);
-  els.imageViewerRetagBtn.onclick = () => {
-    if (node.type === "image") return retagFromNode(node.id, false);
-    return null;
-  };
+  els.imageViewerRetagBtn.onclick = () => (
+    node.type === "image" ? retagImageFromViewer(node) : null
+  );
   state.viewerLibraryAsset = libraryAsset;
   const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
