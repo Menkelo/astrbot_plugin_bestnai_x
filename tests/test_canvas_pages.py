@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.3"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -32,6 +32,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('includes("Files")', editor)
         self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
         self.assertIn("uploadFiles(event.dataTransfer.files", editor)
+        self.assertIn("const handledCanvasDrops = new WeakSet()", editor)
+        self.assertIn('document.addEventListener("drop", (event) => {', editor)
+        self.assertIn("if (handledCanvasDrops.has(event)) return;", editor)
         self.assertNotIn('els.viewport.addEventListener("dragenter"', editor)
         self.assertNotIn("filesFromDataTransfer", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
@@ -416,7 +419,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
         fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:363px;", fold)
+        self.assertIn("right:18px;", fold)
         next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
         self.assertIn("right:394px;", next_button)
         prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
@@ -909,8 +912,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.2", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.2"', constants)
+        self.assertIn("version: 4.6.3", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.3"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

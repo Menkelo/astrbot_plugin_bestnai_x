@@ -7100,6 +7100,27 @@ function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
 
+const handledCanvasDrops = new WeakSet();
+
+function eventTargetsCanvas(event) {
+  const target = event.target;
+  return target instanceof Node && els.viewport.contains(target);
+}
+
+// AstrBot embeds the page in a WebView. Some versions dispatch the native
+// file drop through an overlay child before the board's bubbling listener can
+// observe it. Capture the same 4.5.9 FileList at document level, but keep the
+// event propagating for the host and mark it so the board cannot upload twice.
+document.addEventListener("drop", (event) => {
+  if (!eventTargetsCanvas(event) || !dataTransferHasFiles(event.dataTransfer)) return;
+  const files = event.dataTransfer?.files;
+  if (!files?.length) return;
+  event.preventDefault();
+  handledCanvasDrops.add(event);
+  clearDropOverlay();
+  uploadFiles(files, clientToWorld(event.clientX, event.clientY));
+}, true);
+
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   const selection = window.getSelection?.();
@@ -7148,6 +7169,7 @@ els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
 els.viewport.addEventListener("drop", (event) => {
+  if (handledCanvasDrops.has(event)) return;
   const hasFiles = dataTransferHasFiles(event.dataTransfer);
   clearDropOverlay();
   if (!hasFiles) return;
