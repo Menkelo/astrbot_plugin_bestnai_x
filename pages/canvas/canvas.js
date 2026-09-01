@@ -5744,8 +5744,6 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
   setImageViewerDetailsCollapsed(false);
   els.imageViewerImage.src = node.dataUrl;
-  els.imageViewerImage.draggable = false;
-  els.imageViewerImage.title = "请使用下载按钮后将文件拖入 QQ";
   els.imageViewerImage.alt = node.title || "画布图片";
   const tags = stripImageViewerControlTags(
     meta.tags || meta.finalPrompt || "",
@@ -5767,8 +5765,6 @@ function closeImageViewer() {
   state.viewerTagLookupSequence += 1;
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
-  els.imageViewerImage.draggable = false;
-  els.imageViewerImage.removeAttribute("title");
   renderImageViewerTags("");
   setImageViewerDetailsCollapsed(false);
   state.viewerImageDimensions = { width: 0, height: 0 };

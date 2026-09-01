@@ -2296,11 +2296,6 @@ select:focus-visible {
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--image-viewer-radius);
-  cursor: grab;
-}
-
-.image-viewer-stage img:active {
-  cursor: grabbing;
 }
 
 .image-viewer-details {
