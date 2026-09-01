@@ -207,13 +207,18 @@
       </section>
     </div>
 
-    <div id="imageViewer" class="image-viewer layout-bottom" role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1" hidden>
-      <figure class="image-viewer-stage">
+    <div id="imageViewer" class="image-viewer layout-bottom" role="dialog" aria-modal="true" aria-label="图片灯箱" tabindex="-1" hidden>
+      <button id="imageViewerPrevBtn" class="image-viewer-nav image-viewer-nav-prev" type="button" aria-label="上一张"><i data-lucide="chevron-left"></i></button>
+      <button id="imageViewerNextBtn" class="image-viewer-nav image-viewer-nav-next" type="button" aria-label="下一张"><i data-lucide="chevron-right"></i></button>
+      <div id="imageViewerStage" class="image-viewer-stage">
         <div class="image-viewer-image-frame">
           <img id="imageViewerImage" alt="" />
           <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </div>
-        <figcaption id="imageViewerDetails" class="image-viewer-details">
+      </div>
+      <button id="imageViewerFoldBtn" class="image-viewer-fold" type="button" title="收起 / 展开信息栏" aria-label="收起或展开信息栏"><i data-lucide="chevron-right"></i></button>
+      <div id="imageViewerThumbs" class="image-viewer-thumbs" hidden></div>
+      <aside id="imageViewerDetails" class="image-viewer-details">
           <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true" aria-label="折叠 Prompt Tags" title="折叠 Prompt Tags"><i data-lucide="chevron-up"></i></button>
           <header class="image-viewer-header">
             <h2 id="imageViewerTitle">图片预览</h2>
@@ -236,8 +241,7 @@
             <div class="image-viewer-copy-head"><span>Note</span></div>
             <div id="imageViewerNote" class="image-viewer-note"></div>
           </div>
-        </figcaption>
-      </figure>
+      </aside>
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>

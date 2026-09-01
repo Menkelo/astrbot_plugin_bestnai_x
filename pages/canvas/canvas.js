@@ -50,6 +50,7 @@ const els = {
   imageViewerImage: document.getElementById("imageViewerImage"),
   imageViewerDetails: document.getElementById("imageViewerDetails"),
   imageViewerDetailsToggle: document.getElementById("imageViewerDetailsToggle"),
+  imageViewerFoldBtn: document.getElementById("imageViewerFoldBtn"),
   imageViewerTags: document.getElementById("imageViewerTags"),
   imageViewerTitle: document.getElementById("imageViewerTitle"),
   imageViewerMeta: document.getElementById("imageViewerMeta"),
@@ -60,6 +61,10 @@ const els = {
   imageViewerCopyAllBtn: document.getElementById("imageViewerCopyAllBtn"),
   imageViewerDownloadBtn: document.getElementById("imageViewerDownloadBtn"),
   imageViewerRetagBtn: document.getElementById("imageViewerRetagBtn"),
+  imageViewerPrevBtn: document.getElementById("imageViewerPrevBtn"),
+  imageViewerNextBtn: document.getElementById("imageViewerNextBtn"),
+  imageViewerStage: document.getElementById("imageViewerStage"),
+  imageViewerThumbs: document.getElementById("imageViewerThumbs"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetLibraryBtn: document.getElementById("assetLibraryBtn"),
   mobileAssetLibraryBtn: document.getElementById("mobileAssetLibraryBtn"),
@@ -273,6 +278,7 @@ const state = {
   contextMenuPoint: null,
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
+  viewerNodeId: "",
   viewerImageDimensions: { width: 0, height: 0 },
   viewerFrameSyncHandle: 0,
   viewerBottomLayoutLock: null,
@@ -5764,6 +5770,12 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   };
   applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
   setImageViewerDetailsCollapsed(false);
+  els.imageViewer.classList.remove("folded");
+  if (els.imageViewerFoldBtn) {
+    els.imageViewerFoldBtn.setAttribute("aria-expanded", "true");
+    els.imageViewerFoldBtn.setAttribute("aria-label", "收起信息栏");
+    els.imageViewerFoldBtn.title = "收起信息栏";
+  }
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.alt = node.title || "画布图片";
   els.imageViewerTitle.textContent = node.title || "图片预览";
@@ -5799,6 +5811,16 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     node.type === "image" ? retagImageFromViewer(node) : null
   );
   state.viewerLibraryAsset = libraryAsset;
+  state.viewerNodeId = node.id || "";
+  const navItems = libraryAsset
+    ? state.library.images
+    : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
+  const navEnabled = navItems.length > 1;
+  [els.imageViewerPrevBtn, els.imageViewerNextBtn].forEach((button) => {
+    if (!button) return;
+    button.hidden = !navEnabled;
+    button.disabled = !navEnabled;
+  });
   const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
@@ -5806,6 +5828,23 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   scheduleImageViewerFrameSync();
   if (tags) void hydrateImageViewerChineseTags(node, tags, lookupSequence);
   recordOperation(operationLabel, node.title || "图片");
+}
+
+async function stepImageViewer(delta) {
+  const current = state.viewerLibraryAsset;
+  if (current) {
+    const items = state.library.images;
+    const index = items.findIndex((item) => item.id === current.id);
+    if (index < 0 || items.length < 2) return;
+    const target = items[(index + delta + items.length) % items.length];
+    await openLibraryImageViewer(target);
+    return;
+  }
+  const items = state.nodes.filter((item) => item.type === "image" && item.dataUrl);
+  const currentNode = state.nodes.find((item) => item.dataUrl === els.imageViewerImage.src || item.id === state.viewerNodeId);
+  const index = items.findIndex((item) => item === currentNode || item.dataUrl === els.imageViewerImage.src);
+  if (index < 0 || items.length < 2) return;
+  openImageViewer(items[(index + delta + items.length) % items.length]);
 }
 
 function closeImageViewer() {
@@ -5822,9 +5861,11 @@ function closeImageViewer() {
   els.imageViewerNote.textContent = "";
   els.imageViewerNoteSection.hidden = true;
   setImageViewerDetailsCollapsed(false);
+  els.imageViewer.classList.remove("folded");
   state.viewerImageDimensions = { width: 0, height: 0 };
   applyImageViewerLayout(0, 0);
   state.viewerLibraryAsset = null;
+  state.viewerNodeId = "";
   els.imageViewerPlaceBtn.hidden = true;
   if (wasOpen) recordOperation("关闭图片预览");
 }
@@ -7338,9 +7379,19 @@ els.imageViewerImage.addEventListener("load", () => {
   if (els.imageViewer.hidden) return;
   applyImageViewerLayout(els.imageViewerImage.naturalWidth, els.imageViewerImage.naturalHeight);
 });
-els.imageViewerDetailsToggle.addEventListener("click", () => {
-  setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
+  els.imageViewerDetailsToggle.addEventListener("click", () => {
+    setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
+  });
+els.imageViewerFoldBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const folded = els.imageViewer.classList.toggle("folded");
+  els.imageViewerFoldBtn.setAttribute("aria-expanded", String(!folded));
+  els.imageViewerFoldBtn.setAttribute("aria-label", folded ? "展开信息栏" : "收起信息栏");
+  els.imageViewerFoldBtn.title = folded ? "展开信息栏" : "收起信息栏";
+  scheduleImageViewerFrameSync();
 });
+els.imageViewerPrevBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(-1); });
+els.imageViewerNextBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(1); });
 els.imageViewer.addEventListener("pointerdown", (event) => {
   if (
     event.button !== 0
@@ -7412,6 +7463,11 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     if (!els.imageViewer.hidden) {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        void stepImageViewer(event.key === "ArrowLeft" ? -1 : 1);
+        return;
+      }
       closeImageViewer();
       return;
     }
