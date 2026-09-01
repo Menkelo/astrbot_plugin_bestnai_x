@@ -2,6 +2,19 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.16] - 2026-09-02
+
+### 变更
+
+- **画布前端整体回退到 4.5.8**：`pages/canvas/canvas.js`、`canvas.css`、`editor.html` 以及 `tests/test_canvas_pages.py` 全部还原为 `af0d409`（4.5.8）的内容。4.6.11 起连续五个版本围绕拖放的改动均未改变禁止投放光标的现象，改为整体回到用户确认可用的前端状态，再从这里重新定位。
+- **回退随之移除的 4.5.9 - 4.6.15 前端功能**：重做的大图灯箱预览（左右切换、缩略图、信息栏折叠、复制全部 / 下载原图 / 反推此图）、导入图片时间戳标题、URL 与 HTML 图片拖入、拖放探针。后端保留不变；`main.py` 与 `services/canvas.py` 新增的 `rawPrompt` / `retagRawPrompt` 字段会被旧前端忽略，`retagUseCoords` 缺失时后端本就有旧客户端兼容分支。
+- **备份**：回退前的状态保存在分支 `backup/4.6.15-before-canvas-revert` 与 tag `backup-4.6.15`，均已推送远端。
+
+### 保留
+
+- **缓存键**：`editor.html` 引用改为 `canvas.css?v=4.6.16` / `canvas.js?v=4.6.16`。4.5.8 原文件不带查询串，直接还原会命中 4.5.8 时期遗留的缓存条目。
+- **画布脚本自报版本**：保留 `CANVAS_SCRIPT_VERSION` 与启动时写入「操作记录」的 warning 级条目，用于确认本次回退是否真的加载生效。
+
 ## [4.6.15] - 2026-09-02
 
 ### 修复

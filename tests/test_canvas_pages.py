@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.15"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.16"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -27,56 +27,27 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn("while (!window.AstrBotPluginPage", editor)
 
-    def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
-        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        self.assertIn('includes("Files")', editor)
-        # 拖放监听回退到 4.5.0 的已知可用形态。4.6.x 期间 codex 反复改写这段
-        # 代码（document 捕获监听、items[] 兜底、URL/HTML 分支）都没能修好
-        # 禁止投放光标，全部移除以排除干扰。
-        dragover = editor.split('els.viewport.addEventListener("dragover"', 1)[1].split("});", 1)[0]
-        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", dragover)
-        self.assertIn("event.preventDefault();", dragover)
-        self.assertIn(
-            "uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY))",
-            editor,
-        )
-        self.assertNotIn("handledCanvasDrops", editor)
-        self.assertNotIn("acceptDocumentFileDrag", editor)
-        self.assertNotIn("filesFromDataTransfer", editor)
-        self.assertNotIn("imageUrlFromDataTransfer", editor)
-        self.assertNotIn("fileFromDroppedImageUrl", editor)
-        self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
-
     def test_canvas_script_stamps_its_own_version_into_the_operation_log(self) -> None:
         # 顶栏版本号来自后端 API，证明不了浏览器加载的是哪一份 canvas.js。
-        # 脚本必须自报版本，否则无法区分「代码没生效」和「代码有问题」。
+        # info 级条目会被 isImportantOperation 过滤出操作记录面板，必须用
+        # warning 级，否则写了也看不到。
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        constants = (ROOT / "constants.py").read_text(encoding="utf-8")
-        self.assertIn('const CANVAS_SCRIPT_VERSION = "4.6.15";', editor)
-        self.assertIn('PLUGIN_VERSION = "4.6.15"', constants)
+        self.assertIn('const CANVAS_SCRIPT_VERSION = "4.6.16";', editor)
         self.assertIn(
             'recordOperation("画布脚本版本", `canvas.js ${CANVAS_SCRIPT_VERSION}`, "warning")',
             editor,
         )
 
-    def test_editor_logs_drag_probe_into_the_operation_log(self) -> None:
-        # 宿主 WebView 里没有控制台可用，拖放事件必须能在页面内的「操作记录」
-        # 里看到，否则无法判断事件到底有没有送达。
+    def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        self.assertIn("function describeDragEvent(event)", editor)
-        # info 级条目会被 isImportantOperation 过滤出操作记录面板，探针必须用
-        # warning 级，否则写了也看不到。
-        self.assertIn('recordOperation("拖入探针 dragenter", describeDragEvent(event), "warning")', editor)
-        self.assertIn('recordOperation("拖入探针 drop", describeDragEvent(event), "warning")', editor)
-        # dragenter 每次拖动只记一条，否则日志会被高频事件刷满。
-        self.assertIn("if (dragProbeActive) return;", editor)
+        self.assertIn('includes("Files")', editor)
+        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
+        self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
     def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
-        self.assertNotIn('document.addEventListener("dragstart"', editor)
-        self.assertIn('id="imageViewerImage" alt="" draggable="false"', (PAGE_ROOT / "editor.html").read_text(encoding="utf-8"))
+        self.assertIn('document.addEventListener("dragstart"', editor)
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
@@ -209,8 +180,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('document.createTextNode(node.status === "retagging"', editor)
         self.assertNotIn("promptOverride", editor)
         self.assertNotIn("function mergeRetagPrompt", editor)
-        self.assertIn("retagPrompt: (node.raw && node.meta?.retagRawPrompt)", editor)
-        self.assertIn("retagRawPrompt: String(result?.rawPrompt || \"\").trim()", editor)
+        self.assertIn("retagPrompt: requestRetagPrompt", editor)
         self.assertIn('retagPrompt: node.meta?.retagPrompt || ""', editor)
         self.assertNotIn("retagMode", editor)
         self.assertNotIn('"复刻（保留原图）"', editor)
@@ -357,7 +327,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('id="imageViewer"', html)
         self.assertIn('class="image-viewer layout-bottom"', html)
         self.assertIn('class="image-viewer-image-frame"', html)
-        self.assertIn('id="imageViewerImage" alt="" draggable="false"', html)
         self.assertIn('id="imageViewerDetails"', html)
         self.assertIn('id="imageViewerDetailsToggle"', html)
         self.assertIn('id="imageViewerTags"', html)
@@ -365,9 +334,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('id="imageViewerPrompt"', html)
         self.assertNotIn('id="imageViewerPromptSection"', html)
         self.assertNotIn("提示词 / Prompt", html)
-        self.assertIn("正向 Tags", html)
-        self.assertIn('id="imageViewerNegative"', html)
-        self.assertIn('id="imageViewerNote"', html)
+        self.assertIn("Prompt Tags / 提示词标签", html)
         self.assertNotIn("<span>Tags 标签</span>", html)
         self.assertIn('aria-label="折叠 Prompt Tags"', html)
         self.assertNotIn("中文 Tags / Chinese Tags", html)
@@ -452,33 +419,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('chip.setAttribute("aria-label", `复制英文 Tag：${tag}`)', editor)
         self.assertIn('copyPlainText(tag, `复制英文 Tag：${tag}`', editor)
         self.assertIn(".image-viewer {", styles)
-        self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
-        fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:18px;", fold)
-        next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:394px;", next_button)
-        prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
-        self.assertIn("left:36px;", prev_button)
-        self.assertIn("border-radius:13px;", fold)
-        self.assertIn("white-space:nowrap;", styles)
-        self.assertIn("text-overflow:ellipsis;", styles)
-        self.assertIn("const importedTitle = `导入图片", editor)
-        self.assertIn("sourceFilename: images[index].name", editor)
-        self.assertNotIn("width: fit-content;", styles)
-        self.assertIn(".image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs", editor)
         viewer_stage = styles.split("\n.image-viewer-stage {", 1)[1].split("}", 1)[0]
-        self.assertIn("width: auto;", viewer_stage)
-        self.assertIn("max-width: none;", viewer_stage)
-        self.assertIn("height: auto;", viewer_stage)
+        self.assertIn("width: 100%;", viewer_stage)
+        self.assertIn("max-width: 1600px;", viewer_stage)
+        self.assertIn("height: 100%;", viewer_stage)
         self.assertIn("min-height: 0;", viewer_stage)
-        self.assertIn("grid-template-rows: minmax(0, 1fr);", viewer_stage)
+        self.assertIn("grid-template-rows: minmax(0, 1fr) auto;", viewer_stage)
         image_frame_html = html.split('class="image-viewer-image-frame"', 1)[1].split("</div>", 1)[0]
         self.assertIn('id="imageViewerPlaceBtn"', image_frame_html)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
         self.assertIn("position: relative;", image_frame)
         self.assertIn("height: 100%;", image_frame)
         self.assertIn("min-height: 0;", image_frame)
-        self.assertIn("overflow: visible;", image_frame)
+        self.assertIn("overflow: hidden;", image_frame)
         viewer_image = styles.split("\n.image-viewer-stage img {", 1)[1].split("}", 1)[0]
         self.assertIn("width: auto;", viewer_image)
         self.assertIn("height: auto;", viewer_image)
@@ -487,11 +440,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("object-fit: contain;", viewer_image)
         self.assertIn("border-radius: var(--image-viewer-radius);", viewer_image)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
-        self.assertNotIn("clip-path:", image_frame)
+        self.assertIn("clip-path: inset(0 round var(--image-viewer-radius));", image_frame)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
         self.assertIn("align-content: start;", viewer_details)
-        self.assertIn("scrollbar-color: rgba(100, 116, 139, .42) transparent;", viewer_details)
+        self.assertIn("scrollbar-color: rgba(148, 163, 184, .42) transparent;", viewer_details)
         self.assertIn("scrollbar-gutter: auto;", viewer_details)
         self.assertIn("scrollbar-width: thin;", viewer_details)
         self.assertNotIn("calc(100vh - 300px)", styles)
@@ -505,13 +458,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer.layout-side .image-viewer-stage", styles)
         side_viewer = styles.split(".image-viewer.layout-side .image-viewer-stage {", 1)[1].split("}", 1)[0]
         self.assertIn("display: flex;", side_viewer)
-        self.assertIn("width: auto;", side_viewer)
-        self.assertIn("max-width: none;", side_viewer)
-        self.assertIn("height: auto;", side_viewer)
-        self.assertIn("align-items: center;", side_viewer)
+        self.assertIn("width: fit-content;", side_viewer)
+        self.assertIn("max-width: 100%;", side_viewer)
+        self.assertIn("height: 100%;", side_viewer)
+        self.assertIn("align-items: stretch;", side_viewer)
+        self.assertIn("gap: 12px;", side_viewer)
         side_frame = styles.split(".image-viewer.layout-side .image-viewer-image-frame {", 1)[1].split("}", 1)[0]
-        self.assertIn("aspect-ratio: auto;", side_frame)
-        self.assertIn("flex: 1 1 auto;", side_frame)
+        self.assertIn("aspect-ratio: var(--viewer-image-aspect, 2 / 3);", side_frame)
+        self.assertIn("flex: 0 1 auto;", side_frame)
         side_details = styles.split(".image-viewer.layout-side .image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("display: flex;", side_details)
         self.assertIn("flex-direction: column;", side_details)
@@ -947,8 +901,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.15", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.15"', constants)
+        self.assertIn("version: 4.6.16", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.16"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

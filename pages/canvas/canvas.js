@@ -50,21 +50,7 @@ const els = {
   imageViewerImage: document.getElementById("imageViewerImage"),
   imageViewerDetails: document.getElementById("imageViewerDetails"),
   imageViewerDetailsToggle: document.getElementById("imageViewerDetailsToggle"),
-  imageViewerFoldBtn: document.getElementById("imageViewerFoldBtn"),
   imageViewerTags: document.getElementById("imageViewerTags"),
-  imageViewerTitle: document.getElementById("imageViewerTitle"),
-  imageViewerMeta: document.getElementById("imageViewerMeta"),
-  imageViewerNegativeSection: document.getElementById("imageViewerNegativeSection"),
-  imageViewerNegative: document.getElementById("imageViewerNegative"),
-  imageViewerNoteSection: document.getElementById("imageViewerNoteSection"),
-  imageViewerNote: document.getElementById("imageViewerNote"),
-  imageViewerCopyAllBtn: document.getElementById("imageViewerCopyAllBtn"),
-  imageViewerDownloadBtn: document.getElementById("imageViewerDownloadBtn"),
-  imageViewerRetagBtn: document.getElementById("imageViewerRetagBtn"),
-  imageViewerPrevBtn: document.getElementById("imageViewerPrevBtn"),
-  imageViewerNextBtn: document.getElementById("imageViewerNextBtn"),
-  imageViewerStage: document.getElementById("imageViewerStage"),
-  imageViewerThumbs: document.getElementById("imageViewerThumbs"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetLibraryBtn: document.getElementById("assetLibraryBtn"),
   mobileAssetLibraryBtn: document.getElementById("mobileAssetLibraryBtn"),
@@ -112,11 +98,10 @@ const ASSET_LIBRARY_PREFS_KEY = "bestnaiCanvasAssetLibraryPrefs";
 const ASSET_RECENT_LIMIT = 24;
 const OPERATION_LOG_LIMIT = 240;
 
-// 这份 JS 自己的版本号，和 constants.py 的 PLUGIN_VERSION 分开维护。
-// 顶栏版本号来自后端 API，只能证明 Python 侧更新了；浏览器仍可能在跑缓存
-// 里的旧脚本。启动时把这个常量写进「操作记录」，就能看出实际加载的是哪一
-// 份 canvas.js。
-const CANVAS_SCRIPT_VERSION = "4.6.15";
+// 这份 JS 自己的版本号。顶栏版本号来自后端 API，只能证明 Python 侧更新了，
+// 无法说明浏览器加载的是哪一份 canvas.js。启动时以 warning 级写入「操作记录」
+//（info 级会被 isImportantOperation 过滤掉），用来确认回退是否真的生效。
+const CANVAS_SCRIPT_VERSION = "4.6.16";
 const OPERATION_VISIBLE_LIMIT = 9;
 const IMPORTANT_OPERATION_ACTIONS = new Set([
   "记录器已清空",
@@ -284,8 +269,6 @@ const state = {
   contextMenuPoint: null,
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
-  viewerNodeId: "",
-  viewerNavItems: [],
   viewerImageDimensions: { width: 0, height: 0 },
   viewerFrameSyncHandle: 0,
   viewerBottomLayoutLock: null,
@@ -4682,9 +4665,7 @@ async function generateFromNode(id, {
       sampler: node.meta?.sampler || node.meta?.retagSampler || undefined,
       // Legacy source contract (kept for old integrations): sampler: node.meta?.retagSampler || undefined
       varietyPlus: !!node.meta?.varietyBoost,
-      retagPrompt: (node.raw && node.meta?.retagRawPrompt)
-        ? String(node.meta.retagRawPrompt).trim()
-        : requestRetagPrompt,
+      retagPrompt: requestRetagPrompt,
       retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
       retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
       ratio: node.ratio,
@@ -4994,12 +4975,6 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     || meta.retagAssetId !== sourceImage.assetId
     || !Object.keys(tagGroups).length
   ) return null;
-  // Older workspaces only persisted the control-stripped prompt. In raw mode
-  // that cache is incomplete, so refresh once to recover the full metadata
-  // prompt before generating.
-  if (node.raw && meta.retagFromMetadata && !String(meta.retagRawPrompt || "").trim()) {
-    return null;
-  }
   const cachedSeed = normalizeNaiSeed(meta.retagSeed);
   // A legacy workspace may have cached tags but no seed even though the
   // source image now carries one (for example after restoring it from the
@@ -5014,7 +4989,6 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
   // seed fingerprint and is refreshed when the cached result is applied.
   return {
     prompt: String(meta.retagPrompt).trim(),
-    rawPrompt: String(meta.retagRawPrompt || "").trim(),
     ratio: String(meta.retagRatio || "").trim(),
     character: String(meta.retagCharacter || "").trim(),
     series: String(meta.retagSeries || "").trim(),
@@ -5125,8 +5099,6 @@ async function retagFromNode(
       ...(node.meta || {}),
       retagBasePrompt: basePrompt,
       retagPrompt,
-      // 元数据里的完整 prompt 供 raw 模式复用，普通模式仍使用清理版。
-      retagRawPrompt: String(result?.rawPrompt || "").trim(),
       retagCharacter: String(result?.character || "").trim(),
       retagSeries: String(result?.series || "").trim(),
       retagAssetId: sourceImage.assetId,
@@ -5305,13 +5277,11 @@ async function downloadImage(node) {
 function preferredImageViewerLayout(width, height) {
   const imageWidth = Number(width) || 0;
   const imageHeight = Number(height) || 0;
-  // NovelAI-Tag keeps the desktop lightbox as a stable two-column layout;
-  // choosing bottom for landscape images leaves the absolute details card
-  // constrained to a short strip in our canvas viewer.  Only narrow/mobile
-  // viewports use the bottom sheet layout.
-  if (window.matchMedia("(max-width: 760px)").matches) return "bottom";
-  // Legacy breakpoint expression retained for compatibility: return window.innerWidth >= 1100 ? "side" : "bottom"
-  return imageWidth && imageHeight ? "side" : "bottom";
+  if (!imageWidth || !imageHeight || window.matchMedia("(max-width: 760px)").matches) return "bottom";
+  const aspect = imageWidth / imageHeight;
+  if (aspect < .92) return "side";
+  if (aspect > 1.12) return "bottom";
+  return window.innerWidth >= 1100 ? "side" : "bottom";
 }
 
 function applyImageViewerLayout(width, height) {
@@ -5600,18 +5570,6 @@ function imageViewerControlTagKey(value) {
     .trim();
 }
 
-function retagImageFromViewer(imageNode) {
-  const target = state.connections
-    .filter((edge) => edge.source === imageNode?.id)
-    .map((edge) => findNode(edge.target))
-    .find((node) => node?.type === "prompt");
-  if (!target) {
-    toast("请先将图片连接到提示词节点", "error");
-    return null;
-  }
-  return retagFromNode(target.id, false);
-}
-
 function imageViewerConfiguredControlKeys(extraControlPrompts = []) {
   const configuredPrompts = Array.isArray(state.config.retagControlPrompts)
     ? state.config.retagControlPrompts
@@ -5779,59 +5737,14 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   };
   applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
   setImageViewerDetailsCollapsed(false);
-  els.imageViewer.classList.remove("folded");
-  if (els.imageViewerFoldBtn) {
-    els.imageViewerFoldBtn.setAttribute("aria-expanded", "true");
-    els.imageViewerFoldBtn.setAttribute("aria-label", "收起信息栏");
-    els.imageViewerFoldBtn.title = "收起信息栏";
-  }
   els.imageViewerImage.src = node.dataUrl;
-  els.imageViewerImage.draggable = false;
   els.imageViewerImage.alt = node.title || "画布图片";
-  els.imageViewerTitle.textContent = node.title || "图片预览";
-  els.imageViewerMeta.textContent = [
-    meta.width && meta.height ? `${meta.width}×${meta.height}` : "",
-    meta.ratio || "",
-    meta.seed ? `Seed ${meta.seed}` : "",
-  ].filter(Boolean).join(" / ") || "可查看 NovelAI 参数";
   const tags = stripImageViewerControlTags(
     meta.tags || meta.finalPrompt || "",
     meta.artist || "",
   );
   renderImageViewerTags(tags);
-  const negative = String(meta.negativePrompt || meta.negative_prompt || "").trim();
-  els.imageViewerNegative.textContent = negative || "";
-  els.imageViewerNegative.dataset.copyText = negative;
-  els.imageViewerNegativeSection.hidden = !negative;
-  const note = [
-    meta.steps ? `Steps: ${meta.steps}` : "",
-    meta.scale ? `CFG scale: ${meta.scale}` : "",
-    meta.sampler ? `Sampler: ${meta.sampler}` : "",
-    meta.cfgRescale != null ? `CFG rescale: ${meta.cfgRescale}` : "",
-  ].filter(Boolean).join(" · ");
-  els.imageViewerNote.textContent = note;
-  els.imageViewerNoteSection.hidden = !note;
-  els.imageViewerCopyAllBtn.onclick = () => copyPlainText(
-    [tags, negative].filter(Boolean).join("\nNegative prompt: "),
-    "复制全部提示词",
-    () => els.imageViewer.focus({ preventScroll: true }),
-  );
-  els.imageViewerDownloadBtn.onclick = () => downloadImage(node);
-  els.imageViewerRetagBtn.onclick = () => (
-    node.type === "image" ? retagImageFromViewer(node) : null
-  );
   state.viewerLibraryAsset = libraryAsset;
-  state.viewerNodeId = node.id || "";
-  const navItems = libraryAsset
-    ? state.library.images
-    : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
-  state.viewerNavItems = navItems;
-  const navEnabled = navItems.length > 1;
-  [els.imageViewerPrevBtn, els.imageViewerNextBtn].forEach((button) => {
-    if (!button) return;
-    button.hidden = !navEnabled;
-    button.disabled = !navEnabled;
-  });
   const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
@@ -5841,44 +5754,16 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   recordOperation(operationLabel, node.title || "图片");
 }
 
-async function stepImageViewer(delta) {
-  const current = state.viewerLibraryAsset;
-  if (current) {
-    const items = state.library.images;
-    const index = items.findIndex((item) => item.id === current.id);
-    if (index < 0 || items.length < 2) return;
-    const target = items[(index + delta + items.length) % items.length];
-    await openLibraryImageViewer(target);
-    return;
-  }
-  const items = Array.isArray(state.viewerNavItems)
-    ? state.viewerNavItems
-    : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
-  const index = items.findIndex((item) => item.id === state.viewerNodeId);
-  if (index < 0 || items.length < 2) return;
-  openImageViewer(items[(index + delta + items.length) % items.length]);
-}
-
 function closeImageViewer() {
   const wasOpen = !els.imageViewer.hidden;
   state.viewerTagLookupSequence += 1;
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
   renderImageViewerTags("");
-  els.imageViewerTitle.textContent = "图片预览";
-  els.imageViewerMeta.textContent = "--";
-  els.imageViewerNegative.textContent = "";
-  els.imageViewerNegative.dataset.copyText = "";
-  els.imageViewerNegativeSection.hidden = true;
-  els.imageViewerNote.textContent = "";
-  els.imageViewerNoteSection.hidden = true;
   setImageViewerDetailsCollapsed(false);
-  els.imageViewer.classList.remove("folded");
   state.viewerImageDimensions = { width: 0, height: 0 };
   applyImageViewerLayout(0, 0);
   state.viewerLibraryAsset = null;
-  state.viewerNodeId = "";
-  state.viewerNavItems = [];
   els.imageViewerPlaceBtn.hidden = true;
   if (wasOpen) recordOperation("关闭图片预览");
 }
@@ -6666,15 +6551,6 @@ async function uploadFiles(files, point = worldCenter()) {
   for (let index = 0; index < images.length; index += 1) {
     try {
       const asset = await bridge.upload("canvas/upload", images[index]);
-      const importedAt = new Date();
-      const importedTitle = `导入图片 ${importedAt.toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      }).replace(/\//g, "-")}`;
       const nodeWidth = fittedImageNodeWidth(asset.width, asset.height);
       const nodeHeight = estimatedImageNodeHeight(nodeWidth, asset.width, asset.height);
       const node = {
@@ -6683,16 +6559,11 @@ async function uploadFiles(files, point = worldCenter()) {
         x: point.x + index * 34 - nodeWidth / 2,
         y: point.y + index * 34 - nodeHeight / 2,
         width: nodeWidth,
-        title: importedTitle,
+        title: images[index].name,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
         createdAt: new Date().toISOString(),
-        meta: {
-          prompt: images[index].name,
-          sourceFilename: images[index].name,
-          width: asset.width,
-          height: asset.height,
-        },
+        meta: { prompt: images[index].name, width: asset.width, height: asset.height },
       };
       addNode(node);
       recordOperation("上传图片", images[index].name, "success");
@@ -7128,6 +6999,10 @@ function isSelectableTextTarget(target) {
   );
 }
 
+document.addEventListener("dragstart", (event) => {
+  event.preventDefault();
+  clearDropOverlay();
+});
 document.addEventListener("selectstart", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
@@ -7138,33 +7013,6 @@ document.addEventListener("cut", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 
-// 拖放探针：把 dragenter/drop 的原始信息写进画布的「操作记录」，
-// 这样不用开控制台也能看到事件到底有没有送到页面、payload 是什么。
-// 每次拖动只记一条 dragenter，避免 dragover 的高频事件刷屏。
-let dragProbeActive = false;
-
-function describeDragEvent(event) {
-  const types = Array.from(event.dataTransfer?.types || []).join(", ") || "（空）";
-  const target = event.target instanceof Element
-    ? (event.target.id || event.target.className || event.target.tagName)
-    : String(event.target);
-  const inBoard = event.target instanceof Node && els.viewport.contains(event.target);
-  return `types=[${types}] files=${event.dataTransfer?.files?.length ?? 0} 目标=${target} 在画布内=${inBoard ? "是" : "否"}`;
-}
-
-document.addEventListener("dragenter", (event) => {
-  if (dragProbeActive) return;
-  dragProbeActive = true;
-  recordOperation("拖入探针 dragenter", describeDragEvent(event), "warning");
-}, true);
-document.addEventListener("dragleave", () => { dragProbeActive = false; }, true);
-document.addEventListener("drop", (event) => {
-  dragProbeActive = false;
-  recordOperation("拖入探针 drop", describeDragEvent(event), "warning");
-}, true);
-
-// 以下四个监听与 4.5.0 完全一致。4.6.x 期间累积的 document 捕获监听、
-// items[] 兜底、URL/HTML 拖入分支全部移除，先回到已知可用的状态。
 els.viewport.addEventListener("dragover", (event) => {
   if (!dataTransferHasFiles(event.dataTransfer)) {
     clearDropOverlay();
@@ -7429,26 +7277,13 @@ els.imageViewerImage.addEventListener("load", () => {
   if (els.imageViewer.hidden) return;
   applyImageViewerLayout(els.imageViewerImage.naturalWidth, els.imageViewerImage.naturalHeight);
 });
-  els.imageViewerDetailsToggle.addEventListener("click", () => {
-    setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
-  });
-els.imageViewerFoldBtn?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  const folded = els.imageViewer.classList.toggle("folded");
-  els.imageViewerFoldBtn.setAttribute("aria-expanded", String(!folded));
-  els.imageViewerFoldBtn.setAttribute("aria-label", folded ? "展开信息栏" : "收起信息栏");
-  els.imageViewerFoldBtn.title = folded ? "展开信息栏" : "收起信息栏";
-  scheduleImageViewerFrameSync();
+els.imageViewerDetailsToggle.addEventListener("click", () => {
+  setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
 });
-els.imageViewerPrevBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(-1); });
-els.imageViewerNextBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(1); });
 els.imageViewer.addEventListener("pointerdown", (event) => {
-  // Keep the original selector contract: event.target.closest(".image-viewer-details, .image-viewer-place-btn")
   if (
     event.button !== 0
-    || event.target.closest(
-      ".image-viewer-details, .image-viewer-place-btn, .image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs",
-    )
+    || event.target.closest(".image-viewer-details, .image-viewer-place-btn")
   ) return;
   if (imageViewerPointHitsRenderedImage(event.clientX, event.clientY)) return;
   closeImageViewer();
@@ -7502,11 +7337,6 @@ async function copyPlainText(text, label, refocus) {
 document.addEventListener("keydown", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const editing = !!target?.closest("textarea, input, select, [contenteditable='true']");
-  if (!els.imageViewer.hidden && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-    event.preventDefault();
-    void stepImageViewer(event.key === "ArrowLeft" ? -1 : 1);
-    return;
-  }
   if (event.key === "Escape") {
     if (selectMenuOpen()) {
       closeSelectMenu();
