@@ -8,7 +8,7 @@ from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import Image
+from astrbot.api.message_components import Image, Plain
 from astrbot.api.star import Context, Star
 
 from PIL import Image as PILImage
@@ -2088,6 +2088,7 @@ class BestNAIPlugin(Star):
         self,
         event: AstrMessageEvent,
         images: List[Tuple[str, bytes]],
+        notice: str = "",
     ) -> AsyncGenerator:
         if not images:
             yield event.plain_result("❌ API 未返回图片")
@@ -2098,7 +2099,10 @@ class BestNAIPlugin(Star):
 
             try:
                 temp_path = save_image_to_temp(img_bytes, img_format or "png")
-                yield event.chain_result([Image.fromFileSystem(temp_path)])
+                components = [Image.fromFileSystem(temp_path)]
+                if notice:
+                    components.append(Plain(notice))
+                yield event.chain_result(components)
 
             except Exception as e:
                 logger.error(f"[BestNAI] 发送图片失败 idx={idx}: {e}")
@@ -2421,7 +2425,13 @@ class BestNAIPlugin(Star):
                     "[BestNAI/Safety] 提示词命中敏感词，已对发送图片进行本地混淆"
                 )
 
-            async for result in self._send_images(event, safe_images):
+            notice = (
+                "检测到nsfw内容，请自行解混淆"
+                if prompt_sensitive_detected
+                and self.plugin_config.safety.prompt_block_enabled
+                else ""
+            )
+            async for result in self._send_images(event, safe_images, notice=notice):
                 yield result
 
         except APIKeyError as e:
