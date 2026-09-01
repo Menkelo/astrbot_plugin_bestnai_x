@@ -37,9 +37,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         self.assertIn('document.addEventListener("dragstart"', editor)
-        self.assertIn('els.imageViewerImage.addEventListener("dragstart"', editor)
-        self.assertIn("dataTransfer.items.add(state.viewerDragFile)", editor)
-        self.assertIn('els.imageViewerImage.draggable = true', editor)
+        self.assertNotIn('els.imageViewerImage.addEventListener("dragstart"', editor)
+        self.assertIn('els.imageViewerImage.draggable = false', editor)
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
