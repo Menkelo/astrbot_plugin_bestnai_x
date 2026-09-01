@@ -2260,10 +2260,10 @@ select:focus-visible {
   right: 376px;
   bottom: 18px;
   display: flex;
-  width: 100%;
-  max-width: 1900px;
-  height: 100%;
-  max-height: calc(100% - 36px);
+  width: auto;
+  max-width: none;
+  height: auto;
+  max-height: none;
   min-height: 0;
   grid-template-rows: minmax(0, 1fr);
   align-items: center;
@@ -2271,12 +2271,7 @@ select:focus-visible {
   margin: 0;
   transition: right .3s var(--ease), bottom .3s var(--ease);
 }
-/* The stage is absolutely inset between the image and the info rail.  A
-   percentage width together with left/right insets makes it overflow by the
-   inset amount, which shifts the image under the info card; let the insets
-   determine its actual width. */
-.image-viewer-stage { width: auto; max-width: none; }
-.image-viewer.folded .image-viewer-stage { right:18px; }
+.image-viewer.folded .image-viewer-stage { right: 18px; }
 
 .image-viewer-image-frame {
   position: relative;
@@ -2295,7 +2290,6 @@ select:focus-visible {
   clip-path: inset(0 round var(--image-viewer-radius));
   -webkit-clip-path: inset(0 round var(--image-viewer-radius));
   isolation: isolate;
-  box-shadow: 0 26px 80px rgba(15, 23, 42, .25);
 }
 
 .image-viewer-stage img {
@@ -2308,6 +2302,7 @@ select:focus-visible {
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--image-viewer-radius);
+  box-shadow: 0 26px 80px rgba(15, 23, 42, .25);
 }
 
 .image-viewer-details {
@@ -2335,9 +2330,11 @@ select:focus-visible {
 }
 .image-viewer.folded .image-viewer-details { transform: translateX(calc(100% + 26px)); opacity: 0; pointer-events: none; }
 
-.image-viewer-fold { position:absolute; z-index:4; top:50%; right:370px; display:grid; width:40px; height:62px; place-items:center; border:1px solid rgba(148,163,184,.3); border-radius:18px 0 0 18px; background:rgba(255,255,255,.82); color:#64748b; cursor:pointer; transform:translateY(-50%); box-shadow:0 8px 22px rgba(15,23,42,.15); }
+.image-viewer-fold { position:absolute; z-index:4; top:50%; right: 363px; display:grid; width:26px; height:58px; place-items:center; border:1px solid rgba(148,163,184,.3); border-radius:13px; background:rgba(255,255,255,.82); color:#64748b; cursor:pointer; transform:translateY(-50%); box-shadow:0 8px 22px rgba(15,23,42,.15); transition:right .3s var(--ease), color .12s, border-color .12s; }
 .image-viewer-fold:hover { color:#4338ca; background:#fff; }
 .image-viewer-fold svg { width:20px; height:20px; }
+.image-viewer.folded .image-viewer-fold { right: 18px; }
+.image-viewer.folded .image-viewer-fold svg { transform: rotate(180deg); }
 .image-viewer-thumbs { position:absolute; z-index:4; left:50%; bottom:18px; display:flex; gap:7px; max-width:72vw; overflow:auto; padding:7px; border:1px solid rgba(148,163,184,.3); border-radius:14px; background:rgba(255,255,255,.72); transform:translateX(-50%); }
 .image-viewer-thumbs[hidden] { display:none; }
 
@@ -2369,21 +2366,21 @@ select:focus-visible {
 
 .image-viewer.layout-side .image-viewer-stage {
   display: flex;
-  width: fit-content;
-  height: 100%;
-  max-width: 100%;
+  width: auto;
+  height: auto;
+  max-width: none;
   min-height: 0;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
-  gap: 12px;
 }
 
 .image-viewer.layout-side .image-viewer-image-frame {
-  width: auto;
+  width: 100%;
   height: 100%;
   max-width: 100%;
-  aspect-ratio: var(--viewer-image-aspect, 2 / 3);
-  flex: 0 1 auto;
+  max-height: 100%;
+  aspect-ratio: auto;
+  flex: 1 1 auto;
 }
 
 .image-viewer.layout-side .image-viewer-details {
@@ -2408,7 +2405,7 @@ select:focus-visible {
 }
 
 @media (min-width: 761px) {
-  .image-viewer-image-frame { width:auto; height:auto; }
+  .image-viewer-image-frame { width:100%; height:100%; }
 }
 
 .image-viewer-header h2 { margin: 0; color: #1e293b; font-size: 18px; font-weight: 850; }

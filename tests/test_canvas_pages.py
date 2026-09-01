@@ -411,10 +411,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('chip.setAttribute("aria-label", `复制英文 Tag：${tag}`)', editor)
         self.assertIn('copyPlainText(tag, `复制英文 Tag：${tag}`', editor)
         self.assertIn(".image-viewer {", styles)
+        self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
+        self.assertIn(".image-viewer.folded .image-viewer-fold { right: 18px; }", styles)
+        self.assertNotIn("width: fit-content;", styles)
+        self.assertIn(".image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs", editor)
         viewer_stage = styles.split("\n.image-viewer-stage {", 1)[1].split("}", 1)[0]
-        self.assertIn("width: 100%;", viewer_stage)
-        self.assertIn("max-width: 1900px;", viewer_stage)
-        self.assertIn("height: 100%;", viewer_stage)
+        self.assertIn("width: auto;", viewer_stage)
+        self.assertIn("max-width: none;", viewer_stage)
+        self.assertIn("height: auto;", viewer_stage)
         self.assertIn("min-height: 0;", viewer_stage)
         self.assertIn("grid-template-rows: minmax(0, 1fr);", viewer_stage)
         image_frame_html = html.split('class="image-viewer-image-frame"', 1)[1].split("</div>", 1)[0]
@@ -450,14 +454,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer.layout-side .image-viewer-stage", styles)
         side_viewer = styles.split(".image-viewer.layout-side .image-viewer-stage {", 1)[1].split("}", 1)[0]
         self.assertIn("display: flex;", side_viewer)
-        self.assertIn("width: fit-content;", side_viewer)
-        self.assertIn("max-width: 100%;", side_viewer)
-        self.assertIn("height: 100%;", side_viewer)
-        self.assertIn("align-items: stretch;", side_viewer)
-        self.assertIn("gap: 12px;", side_viewer)
+        self.assertIn("width: auto;", side_viewer)
+        self.assertIn("max-width: none;", side_viewer)
+        self.assertIn("height: auto;", side_viewer)
+        self.assertIn("align-items: center;", side_viewer)
         side_frame = styles.split(".image-viewer.layout-side .image-viewer-image-frame {", 1)[1].split("}", 1)[0]
-        self.assertIn("aspect-ratio: var(--viewer-image-aspect, 2 / 3);", side_frame)
-        self.assertIn("flex: 0 1 auto;", side_frame)
+        self.assertIn("aspect-ratio: auto;", side_frame)
+        self.assertIn("flex: 1 1 auto;", side_frame)
         side_details = styles.split(".image-viewer.layout-side .image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("display: flex;", side_details)
         self.assertIn("flex-direction: column;", side_details)
