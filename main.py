@@ -2426,7 +2426,7 @@ class BestNAIPlugin(Star):
                 )
 
             notice = (
-                "检测到nsfw内容，请自行解混淆"
+                "⚠️检测到nsfw内容，请自行解混淆"
                 if prompt_sensitive_detected
                 and self.plugin_config.safety.prompt_block_enabled
                 else ""
