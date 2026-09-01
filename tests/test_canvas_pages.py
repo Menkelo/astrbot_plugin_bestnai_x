@@ -29,8 +29,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        self.assertIn('includes("Files")', editor)
+        self.assertIn('types.includes("files")', editor)
+        self.assertIn('item?.kind === "file"', editor)
         self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
+        self.assertIn('els.viewport.addEventListener("dragenter", acceptCanvasFileDrag)', editor)
+        self.assertIn("event.stopPropagation();", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
     def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
@@ -412,7 +415,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('copyPlainText(tag, `复制英文 Tag：${tag}`', editor)
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
-        self.assertIn(".image-viewer.folded .image-viewer-fold { right: 18px; }", styles)
+        fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
+        self.assertIn("right: 18px;", fold)
+        next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
+        self.assertIn("right: 410px;", next_button)
         self.assertNotIn("width: fit-content;", styles)
         self.assertIn(".image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs", editor)
         viewer_stage = styles.split("\n.image-viewer-stage {", 1)[1].split("}", 1)[0]
@@ -896,8 +902,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.9", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.5.9"', constants)
+        self.assertIn("version: 4.6.0", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.0"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

@@ -7078,8 +7078,10 @@ els.viewport.addEventListener("contextmenu", (event) => {
 });
 
 function dataTransferHasFiles(dataTransfer) {
-  return Array.from(dataTransfer?.types || []).includes("Files")
-    || Number(dataTransfer?.files?.length || 0) > 0;
+  if (!dataTransfer) return false;
+  const types = Array.from(dataTransfer.types || []).map((type) => String(type).toLowerCase());
+  if (types.includes("files") || Number(dataTransfer.files?.length || 0) > 0) return true;
+  return Array.from(dataTransfer.items || []).some((item) => item?.kind === "file");
 }
 
 function clearDropOverlay() {
@@ -7108,6 +7110,8 @@ function isSelectableTextTarget(target) {
 }
 
 document.addEventListener("dragstart", (event) => {
+  // This event only originates from draggable content already inside the
+  // document. External files enter through dragenter/dragover instead.
   event.preventDefault();
   clearDropOverlay();
 });
@@ -7121,14 +7125,21 @@ document.addEventListener("cut", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 
-els.viewport.addEventListener("dragover", (event) => {
+function acceptCanvasFileDrag(event) {
   if (!dataTransferHasFiles(event.dataTransfer)) {
     clearDropOverlay();
-    return;
+    return false;
   }
   event.preventDefault();
+  event.stopPropagation();
   event.dataTransfer.dropEffect = "copy";
   els.viewport.classList.add("drag-over");
+  return true;
+}
+
+els.viewport.addEventListener("dragenter", acceptCanvasFileDrag);
+els.viewport.addEventListener("dragover", (event) => {
+  acceptCanvasFileDrag(event);
 });
 els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
@@ -7138,6 +7149,7 @@ els.viewport.addEventListener("drop", (event) => {
   clearDropOverlay();
   if (!hasFiles) return;
   event.preventDefault();
+  event.stopPropagation();
   uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
 });
 window.addEventListener("dragend", clearDropOverlay);
