@@ -2257,7 +2257,7 @@ select:focus-visible {
   position: absolute;
   left: 18px;
   top: 18px;
-  right: 394px;
+  right: 376px;
   bottom: 18px;
   display: flex;
   width: 100%;
@@ -2271,6 +2271,11 @@ select:focus-visible {
   margin: 0;
   transition: right .3s var(--ease), bottom .3s var(--ease);
 }
+/* The stage is absolutely inset between the image and the info rail.  A
+   percentage width together with left/right insets makes it overflow by the
+   inset amount, which shifts the image under the info card; let the insets
+   determine its actual width. */
+.image-viewer-stage { width: auto; max-width: none; }
 .image-viewer.folded .image-viewer-stage { right:18px; }
 
 .image-viewer-image-frame {
@@ -2318,7 +2323,7 @@ select:focus-visible {
   border: 1px solid rgba(148, 163, 184, .25);
   border-radius: 12px;
   border-radius: var(--image-viewer-radius);
-  background: rgba(255,255,255,.82);
+  background: rgba(255,255,255,.92);
   color: #334155;
   box-shadow: 0 18px 48px rgba(100, 116, 139, .2);
   scrollbar-color: rgba(100, 116, 139, .42) transparent;
@@ -2471,14 +2476,14 @@ select:focus-visible {
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 6px;
   background: rgba(255, 255, 255, .06);
-  color: #cbd5e1;
+  color: #64748b;
   cursor: pointer;
 }
 
 .image-viewer-copy-btn:hover {
   border-color: rgba(255, 255, 255, .28);
   background: rgba(255, 255, 255, .12);
-  color: #fff;
+  color: #4338ca;
 }
 
 .image-viewer-copy-btn svg {
@@ -2506,8 +2511,8 @@ select:focus-visible {
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, .22);
   border-radius: 7px;
-  background: rgba(255, 255, 255, .06);
-  color: #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
@@ -2521,16 +2526,16 @@ select:focus-visible {
 }
 
 .image-viewer-tag-chip.bilingual {
-  border-color: rgba(129, 140, 248, .28);
-  background: rgba(99, 102, 241, .1);
-  color: #f8fafc;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
 }
 
 .image-viewer-tag-chip:hover,
 .image-viewer-tag-chip:focus-visible {
-  border-color: rgba(165, 180, 252, .64);
-  background: rgba(99, 102, 241, .2);
-  color: #fff;
+  border-color: #818cf8;
+  background: #e0e7ff;
+  color: #312e81;
   outline: none;
 }
 

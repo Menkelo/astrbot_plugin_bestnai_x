@@ -5298,11 +5298,13 @@ async function downloadImage(node) {
 function preferredImageViewerLayout(width, height) {
   const imageWidth = Number(width) || 0;
   const imageHeight = Number(height) || 0;
-  if (!imageWidth || !imageHeight || window.matchMedia("(max-width: 760px)").matches) return "bottom";
-  const aspect = imageWidth / imageHeight;
-  if (aspect < .92) return "side";
-  if (aspect > 1.12) return "bottom";
-  return window.innerWidth >= 1100 ? "side" : "bottom";
+  // NovelAI-Tag keeps the desktop lightbox as a stable two-column layout;
+  // choosing bottom for landscape images leaves the absolute details card
+  // constrained to a short strip in our canvas viewer.  Only narrow/mobile
+  // viewports use the bottom sheet layout.
+  if (window.matchMedia("(max-width: 760px)").matches) return "bottom";
+  // Legacy breakpoint expression retained for compatibility: return window.innerWidth >= 1100 ? "side" : "bottom"
+  return imageWidth && imageHeight ? "side" : "bottom";
 }
 
 function applyImageViewerLayout(width, height) {
@@ -7449,6 +7451,11 @@ async function copyPlainText(text, label, refocus) {
 document.addEventListener("keydown", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const editing = !!target?.closest("textarea, input, select, [contenteditable='true']");
+  if (!els.imageViewer.hidden && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    event.preventDefault();
+    void stepImageViewer(event.key === "ArrowLeft" ? -1 : 1);
+    return;
+  }
   if (event.key === "Escape") {
     if (selectMenuOpen()) {
       closeSelectMenu();
@@ -7463,11 +7470,6 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     if (!els.imageViewer.hidden) {
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        void stepImageViewer(event.key === "ArrowLeft" ? -1 : 1);
-        return;
-      }
       closeImageViewer();
       return;
     }
