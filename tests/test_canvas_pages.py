@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.12"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.13"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -31,25 +31,32 @@ class CanvasPageBridgeTest(unittest.TestCase):
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn('includes("Files")', editor)
-        dragover = editor.split("function acceptDocumentFileDrag", 1)[1].split("}", 1)[0]
+        # 拖放监听回退到 4.5.0 的已知可用形态。4.6.x 期间 codex 反复改写这段
+        # 代码（document 捕获监听、items[] 兜底、URL/HTML 分支）都没能修好
+        # 禁止投放光标，全部移除以排除干扰。
+        dragover = editor.split('els.viewport.addEventListener("dragover"', 1)[1].split("});", 1)[0]
+        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", dragover)
         self.assertIn("event.preventDefault();", dragover)
-        self.assertNotIn("dataTransferHasImage", dragover)
-        self.assertIn("await uploadFiles(files, point)", editor)
-        # The AstrBot WebView does not always route the drag through the board
-        # subtree, so the canvas must claim it at document level in the capture
-        # phase or Chromium paints the forbidden-drop cursor and never fires
-        # `drop`. Regression guard for 4.6.9.
-        self.assertIn('document.addEventListener("dragenter", acceptDocumentFileDrag, true)', editor)
-        self.assertIn('document.addEventListener("dragover", acceptDocumentFileDrag, true)', editor)
-        self.assertIn('document.addEventListener("drop", handleCanvasDrop, true)', editor)
-        self.assertIn("handledCanvasDrops", editor)
-        self.assertIn("function filesFromDataTransfer(dataTransfer)", editor)
+        self.assertIn(
+            "uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY))",
+            editor,
+        )
+        self.assertNotIn("handledCanvasDrops", editor)
+        self.assertNotIn("acceptDocumentFileDrag", editor)
+        self.assertNotIn("filesFromDataTransfer", editor)
+        self.assertNotIn("imageUrlFromDataTransfer", editor)
+        self.assertNotIn("fileFromDroppedImageUrl", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
-        self.assertIn("function imageUrlFromDataTransfer(dataTransfer)", editor)
-        self.assertIn('types.includes("text/uri-list")', editor)
-        self.assertIn('types.includes("text/html")', editor)
-        self.assertIn("async function fileFromDroppedImageUrl(url)", editor)
-        self.assertIn("await fileFromDroppedImageUrl(imageUrl)", editor)
+
+    def test_editor_logs_drag_probe_into_the_operation_log(self) -> None:
+        # 宿主 WebView 里没有控制台可用，拖放事件必须能在页面内的「操作记录」
+        # 里看到，否则无法判断事件到底有没有送达。
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        self.assertIn("function describeDragEvent(event)", editor)
+        self.assertIn('recordOperation("拖入探针 dragenter", describeDragEvent(event))', editor)
+        self.assertIn('recordOperation("拖入探针 drop", describeDragEvent(event))', editor)
+        # dragenter 每次拖动只记一条，否则日志会被高频事件刷满。
+        self.assertIn("if (dragProbeActive) return;", editor)
 
     def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -926,8 +933,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.12", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.12"', constants)
+        self.assertIn("version: 4.6.13", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.13"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

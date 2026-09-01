@@ -2,6 +2,22 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.13] - 2026-09-02
+
+### 变更
+
+- **拖放代码回退到 4.5.0 的已知可用形态**：4.6.1 起 codex 连续七个版本改写外部图片拖入逻辑（document 捕获监听、`items[]` 兜底、URL/HTML 拖入分支、`WeakSet` 去重），均未修好禁止投放光标。已确认 4.5.0 与 4.5.8 的拖放代码完全相同且可用，且 4.5.0 的 `dragover` 在 `DataTransfer.types` 缺少 `Files` 时并不调用 `preventDefault()`——这反证宿主 WebView 的事件投递与类型信息都正常，此前"WebView 隐藏 types / 不把事件派发到画布子树"的判断不成立。现整段还原为 4.5.0 的四个监听，移除全部 4.6.x 累积改动以排除干扰。
+- **移除 URL / HTML 图片拖入**：随上述回退一并移除，待根因定位后再评估是否重新加入。
+
+### 新增
+
+- **拖放探针**：`dragenter` 与 `drop` 会把 `DataTransfer.types`、文件数、事件目标、是否落在画布内写入画布内的「操作记录」。宿主 WebView 中没有控制台可用，这是唯一能观察事件是否送达的手段。每次拖动只记录一条 `dragenter`，避免高频事件刷屏。
+
+### 测试
+
+- `test_editor_only_opens_drop_overlay_for_supported_images` 改为断言 4.5.0 形态的监听，并断言 4.6.x 的辅助函数已移除。
+- 新增 `test_editor_logs_drag_probe_into_the_operation_log`。
+
 ## [4.6.12] - 2026-09-02
 
 ### 修复

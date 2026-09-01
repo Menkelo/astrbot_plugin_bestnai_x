@@ -7097,59 +7097,6 @@ function dataTransferHasFiles(dataTransfer) {
     || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
-function filesFromDataTransfer(dataTransfer) {
-  const files = Array.from(dataTransfer?.files || []);
-  if (files.length) return files;
-  // Some WebViews leave DataTransfer.files empty and only expose the payload
-  // through the item list.
-  return Array.from(dataTransfer?.items || [])
-    .filter((item) => item?.kind === "file")
-    .map((item) => item.getAsFile?.())
-    .filter(Boolean);
-}
-
-function imageUrlFromDataTransfer(dataTransfer) {
-  if (!dataTransfer) return "";
-  const uri = String(dataTransfer.getData?.("text/uri-list") || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith("#"));
-  if (uri) return uri;
-  const html = String(dataTransfer.getData?.("text/html") || "");
-  if (!html) return "";
-  const documentFragment = new DOMParser().parseFromString(html, "text/html");
-  return String(documentFragment.querySelector("img[src]")?.src || "");
-}
-
-function dataTransferHasImage(dataTransfer) {
-  const types = Array.from(dataTransfer?.types || []).map((type) => String(type).toLowerCase());
-  return dataTransferHasFiles(dataTransfer)
-    || types.includes("text/uri-list")
-    || types.includes("text/html");
-}
-
-async function fileFromDroppedImageUrl(url) {
-  const value = String(url || "").trim();
-  if (!/^(?:https?:|data:image\/|blob:)/i.test(value)) {
-    throw new Error("拖入内容不是可读取的图片");
-  }
-  const response = await fetch(value);
-  if (!response.ok) throw new Error(`图片下载失败（HTTP ${response.status}）`);
-  const blob = await response.blob();
-  if (!String(blob.type || "").toLowerCase().startsWith("image/")) {
-    throw new Error("拖入链接没有返回图片");
-  }
-  let name = "dropped-image";
-  try {
-    name = decodeURIComponent(new URL(value, location.href).pathname.split("/").pop() || name);
-  } catch (_) { /* use fallback */ }
-  if (!/\.(?:png|jpe?g|webp|gif)$/i.test(name)) {
-    const extension = String(blob.type).split("/")[1]?.replace("jpeg", "jpg") || "png";
-    name = `${name}.${extension}`;
-  }
-  return new File([blob], name, { type: blob.type, lastModified: Date.now() });
-}
-
 function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
@@ -7185,63 +7132,52 @@ document.addEventListener("cut", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 
-// AstrBot embeds this page in a WebView that does not always route the native
-// drag through the board's subtree, so a listener bound to els.viewport alone
-// never runs and the browser paints the forbidden-drop cursor. Accept the drag
-// at document level in the capture phase, then validate the real payload when
-// `drop` fires.
-function acceptDocumentFileDrag(event) {
-  // Sandboxed WebViews may hide DataTransfer.types until drop. Always keep
-  // this surface droppable, then validate the actual payload in the drop
-  // handler and uploadFiles().
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-  els.viewport.classList.add("drag-over");
+// 拖放探针：把 dragenter/drop 的原始信息写进画布的「操作记录」，
+// 这样不用开控制台也能看到事件到底有没有送到页面、payload 是什么。
+// 每次拖动只记一条 dragenter，避免 dragover 的高频事件刷屏。
+let dragProbeActive = false;
+
+function describeDragEvent(event) {
+  const types = Array.from(event.dataTransfer?.types || []).join(", ") || "（空）";
+  const target = event.target instanceof Element
+    ? (event.target.id || event.target.className || event.target.tagName)
+    : String(event.target);
+  const inBoard = event.target instanceof Node && els.viewport.contains(event.target);
+  return `types=[${types}] files=${event.dataTransfer?.files?.length ?? 0} 目标=${target} 在画布内=${inBoard ? "是" : "否"}`;
 }
 
-document.addEventListener("dragenter", acceptDocumentFileDrag, true);
-document.addEventListener("dragover", acceptDocumentFileDrag, true);
-els.viewport.addEventListener("dragover", acceptDocumentFileDrag);
+document.addEventListener("dragenter", (event) => {
+  if (dragProbeActive) return;
+  dragProbeActive = true;
+  recordOperation("拖入探针 dragenter", describeDragEvent(event));
+}, true);
+document.addEventListener("dragleave", () => { dragProbeActive = false; }, true);
+document.addEventListener("drop", (event) => {
+  dragProbeActive = false;
+  recordOperation("拖入探针 drop", describeDragEvent(event));
+}, true);
+
+// 以下四个监听与 4.5.0 完全一致。4.6.x 期间累积的 document 捕获监听、
+// items[] 兜底、URL/HTML 拖入分支全部移除，先回到已知可用的状态。
+els.viewport.addEventListener("dragover", (event) => {
+  if (!dataTransferHasFiles(event.dataTransfer)) {
+    clearDropOverlay();
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  els.viewport.classList.add("drag-over");
+});
 els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
-
-// Drops are handled once, at document level, and marked so the board's own
-// bubbling listener cannot upload the same payload twice.
-const handledCanvasDrops = new WeakSet();
-
-function canvasDropPoint(event) {
-  const rect = els.viewport.getBoundingClientRect();
-  const clientX = clamp(Number(event.clientX) || rect.left + rect.width / 2, rect.left, rect.right);
-  const clientY = clamp(Number(event.clientY) || rect.top + rect.height / 2, rect.top, rect.bottom);
-  return clientToWorld(clientX, clientY);
-}
-
-async function handleCanvasDrop(event) {
-  if (handledCanvasDrops.has(event)) return;
-  const files = filesFromDataTransfer(event.dataTransfer);
-  const imageUrl = files.length ? "" : imageUrlFromDataTransfer(event.dataTransfer);
+els.viewport.addEventListener("drop", (event) => {
+  const hasFiles = dataTransferHasFiles(event.dataTransfer);
   clearDropOverlay();
-  if (!files.length && !imageUrl && !dataTransferHasImage(event.dataTransfer)) return;
-  handledCanvasDrops.add(event);
-  // Swallow the drop even when nothing usable came through, so the host
-  // WebView cannot navigate away to the dragged file.
+  if (!hasFiles) return;
   event.preventDefault();
-  const point = canvasDropPoint(event);
-  if (files.length) {
-    await uploadFiles(files, point);
-    return;
-  }
-  try {
-    await uploadFiles([await fileFromDroppedImageUrl(imageUrl)], point);
-  } catch (error) {
-    recordOperation("拖入图片失败", error.message || "无法读取拖入图片", "error");
-    toast(error.message || "无法读取拖入图片", "error");
-  }
-}
-
-document.addEventListener("drop", handleCanvasDrop, true);
-els.viewport.addEventListener("drop", handleCanvasDrop);
+  uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
+});
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
