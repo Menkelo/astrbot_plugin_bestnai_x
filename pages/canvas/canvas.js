@@ -4660,7 +4660,9 @@ async function generateFromNode(id, {
       sampler: node.meta?.sampler || node.meta?.retagSampler || undefined,
       // Legacy source contract (kept for old integrations): sampler: node.meta?.retagSampler || undefined
       varietyPlus: !!node.meta?.varietyBoost,
-      retagPrompt: requestRetagPrompt,
+      retagPrompt: (node.raw && node.meta?.retagRawPrompt)
+        ? String(node.meta.retagRawPrompt).trim()
+        : requestRetagPrompt,
       retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
       retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
       ratio: node.ratio,
@@ -4984,6 +4986,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
   // seed fingerprint and is refreshed when the cached result is applied.
   return {
     prompt: String(meta.retagPrompt).trim(),
+    rawPrompt: String(meta.retagRawPrompt || "").trim(),
     ratio: String(meta.retagRatio || "").trim(),
     character: String(meta.retagCharacter || "").trim(),
     series: String(meta.retagSeries || "").trim(),
@@ -5094,6 +5097,8 @@ async function retagFromNode(
       ...(node.meta || {}),
       retagBasePrompt: basePrompt,
       retagPrompt,
+      // 元数据里的完整 prompt 供 raw 模式复用，普通模式仍使用清理版。
+      retagRawPrompt: String(result?.rawPrompt || "").trim(),
       retagCharacter: String(result?.character || "").trim(),
       retagSeries: String(result?.series || "").trim(),
       retagAssetId: sourceImage.assetId,

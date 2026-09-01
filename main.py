@@ -413,12 +413,18 @@ class BestNAIPlugin(Star):
         embedded_seed = normalize_nai_seed(source_info.get("seed"))
         cached_seed = normalize_nai_seed(source_seed)
         source_seed = embedded_seed or cached_seed
+        source_embedded_prompt = str(source_info.get("prompt") or "").strip()
         raw_embedded_prompt = strip_control_tags(
-            str(source_info.get("prompt") or "").strip(),
+            source_embedded_prompt,
             extra_control_tags=retag_control_prompts,
         )
         embedded_prompt = (
             raw_embedded_prompt
+            if is_trusted_nai_generation_info(source_info)
+            else ""
+        )
+        embedded_raw_prompt = (
+            source_embedded_prompt
             if is_trusted_nai_generation_info(source_info)
             else ""
         )
@@ -497,6 +503,13 @@ class BestNAIPlugin(Star):
                     part for part in (source_prompt, *char_tag_texts) if part
                 )
             )
+            raw_image_tags = (
+                embedded_raw_prompt
+                if getattr(self.plugin_config, "use_official_api", False)
+                else ", ".join(
+                    part for part in (embedded_raw_prompt, *char_tag_texts) if part
+                )
+            )
 
             trace.note(
                 "走的分支",
@@ -537,6 +550,7 @@ class BestNAIPlugin(Star):
                 trace,
                 {
                     "prompt": image_tags,
+                    "rawPrompt": raw_image_tags,
                     "character": source_character,
                     "series": source_series,
                     "tagGroups": tag_groups,

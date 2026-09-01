@@ -778,6 +778,7 @@ class CanvasStore:
                 "translationSeries": _short_text(raw_meta.get("translationSeries"), 240),
                 "retagBasePrompt": _short_text(raw_meta.get("retagBasePrompt"), 6000),
                 "retagPrompt": _short_text(raw_meta.get("retagPrompt"), 6000),
+                "retagRawPrompt": _short_text(raw_meta.get("retagRawPrompt"), 6000),
                 "retagCharacter": _short_text(raw_meta.get("retagCharacter"), 240),
                 "retagSeries": _short_text(raw_meta.get("retagSeries"), 240),
                 "retagAssetId": _short_text(raw_meta.get("retagAssetId"), 128),
