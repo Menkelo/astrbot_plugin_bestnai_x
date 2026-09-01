@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.9"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.10"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -31,12 +31,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn('includes("Files")', editor)
-        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
-        self.assertIn("uploadFiles(event.dataTransfer.files", editor)
+        self.assertIn("if (!dataTransferHasImage(event.dataTransfer))", editor)
+        self.assertIn("await uploadFiles(files, point)", editor)
         self.assertNotIn("handledCanvasDrops", editor)
         self.assertNotIn("acceptDocumentFileDrag", editor)
         self.assertNotIn('els.viewport.addEventListener("dragenter"', editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
+        self.assertIn("function imageUrlFromDataTransfer(dataTransfer)", editor)
+        self.assertIn('types.includes("text/uri-list")', editor)
+        self.assertIn('types.includes("text/html")', editor)
+        self.assertIn("async function fileFromDroppedImageUrl(url)", editor)
+        self.assertIn("await fileFromDroppedImageUrl(imageUrlFromDataTransfer(event.dataTransfer))", editor)
 
     def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
@@ -913,8 +918,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.9", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.9"', constants)
+        self.assertIn("version: 4.6.10", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.10"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

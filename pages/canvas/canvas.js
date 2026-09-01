@@ -7097,6 +7097,49 @@ function dataTransferHasFiles(dataTransfer) {
     || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
+function imageUrlFromDataTransfer(dataTransfer) {
+  if (!dataTransfer) return "";
+  const uri = String(dataTransfer.getData?.("text/uri-list") || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("#"));
+  if (uri) return uri;
+  const html = String(dataTransfer.getData?.("text/html") || "");
+  if (!html) return "";
+  const documentFragment = new DOMParser().parseFromString(html, "text/html");
+  return String(documentFragment.querySelector("img[src]")?.src || "");
+}
+
+function dataTransferHasImage(dataTransfer) {
+  const types = Array.from(dataTransfer?.types || []).map((type) => String(type).toLowerCase());
+  return dataTransferHasFiles(dataTransfer)
+    || types.includes("text/uri-list")
+    || types.includes("text/html")
+    || !!imageUrlFromDataTransfer(dataTransfer);
+}
+
+async function fileFromDroppedImageUrl(url) {
+  const value = String(url || "").trim();
+  if (!/^(?:https?:|data:image\/|blob:)/i.test(value)) {
+    throw new Error("拖入内容不是可读取的图片");
+  }
+  const response = await fetch(value);
+  if (!response.ok) throw new Error(`图片下载失败（HTTP ${response.status}）`);
+  const blob = await response.blob();
+  if (!String(blob.type || "").toLowerCase().startsWith("image/")) {
+    throw new Error("拖入链接没有返回图片");
+  }
+  let name = "dropped-image";
+  try {
+    name = decodeURIComponent(new URL(value, location.href).pathname.split("/").pop() || name);
+  } catch (_) { /* use fallback */ }
+  if (!/\.(?:png|jpe?g|webp|gif)$/i.test(name)) {
+    const extension = String(blob.type).split("/")[1]?.replace("jpeg", "jpg") || "png";
+    name = `${name}.${extension}`;
+  }
+  return new File([blob], name, { type: blob.type, lastModified: Date.now() });
+}
+
 function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
@@ -7133,7 +7176,7 @@ document.addEventListener("cut", (event) => {
 });
 
 els.viewport.addEventListener("dragover", (event) => {
-  if (!dataTransferHasFiles(event.dataTransfer)) {
+  if (!dataTransferHasImage(event.dataTransfer)) {
     clearDropOverlay();
     return;
   }
@@ -7144,12 +7187,23 @@ els.viewport.addEventListener("dragover", (event) => {
 els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
-els.viewport.addEventListener("drop", (event) => {
-  const hasFiles = dataTransferHasFiles(event.dataTransfer);
+els.viewport.addEventListener("drop", async (event) => {
+  const hasImage = dataTransferHasImage(event.dataTransfer);
   clearDropOverlay();
-  if (!hasFiles) return;
+  if (!hasImage) return;
   event.preventDefault();
-  uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
+  const point = clientToWorld(event.clientX, event.clientY);
+  const files = Array.from(event.dataTransfer.files || []);
+  if (files.length) {
+    await uploadFiles(files, point);
+    return;
+  }
+  try {
+    await uploadFiles([await fileFromDroppedImageUrl(imageUrlFromDataTransfer(event.dataTransfer))], point);
+  } catch (error) {
+    recordOperation("拖入图片失败", error.message || "无法读取拖入图片", "error");
+    toast(error.message || "无法读取拖入图片", "error");
+  }
 });
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);

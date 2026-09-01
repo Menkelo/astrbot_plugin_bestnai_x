@@ -2,6 +2,18 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.10] - 2026-09-01
+
+### 修复
+
+- **扩展外部图片拖入来源**：除 Windows 资源管理器提供的 `FileList` 外，新增支持 QQ、网页和其他应用常见的 `text/uri-list` / `text/html` 图片拖放；链接会下载为 Blob/File 后复用现有上传与后端图片校验。
+- **拖放类型提前放行**：`dragover` 阶段按公开的 MIME 类型允许 URL/HTML 图片投放，`drop` 阶段再解析和验证实际图片，避免显示禁止投放光标。
+- **刷新画布缓存键**：静态资源切换到 `v=4.6.10`。
+
+### 测试
+
+- 全量测试通过：481 passed，203 subtests passed。
+
 ## [4.6.9] - 2026-09-01
 
 ### 修复
