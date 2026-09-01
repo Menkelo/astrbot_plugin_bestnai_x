@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BestNAI 无限画布</title>
-    <link rel="stylesheet" href="./canvas.css?v=4.6.7" />
+    <link rel="stylesheet" href="./canvas.css?v=4.6.8" />
     <script src="./vendor/lucide.js"></script>
   </head>
-  <body>
+  <body ondragover="event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect='copy';" ondrop="event.preventDefault();">
     <div id="shell" class="shell">
       <div class="topbar panel">
         <section class="canvas-nav" aria-label="画布状态">
@@ -81,7 +81,7 @@
         </div>
       </div>
 
-      <main id="board" class="board" tabindex="-1" aria-label="无限画布">
+      <main id="board" class="board" tabindex="-1" aria-label="无限画布" dropzone="copy">
         <div id="dropOverlay" class="drop-overlay">
           <i data-lucide="image-down"></i>
           <strong>拖放图片到画布</strong>
@@ -245,6 +245,6 @@
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>
-    <script type="module" src="./canvas.js?v=4.6.7"></script>
+    <script type="module" src="./canvas.js?v=4.6.8"></script>
   </body>
 </html>

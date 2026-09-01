@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.7"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.8"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -28,7 +28,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("while (!window.AstrBotPluginPage", editor)
 
     def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
+        html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        self.assertIn('ondragover="event.preventDefault()', html)
+        self.assertIn('dropzone="copy"', html)
+        self.assertIn('document.body?.addEventListener("dragover"', editor)
         self.assertIn('includes("Files")', editor)
         self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
         self.assertIn("uploadFiles(event.dataTransfer.files", editor)
@@ -916,8 +920,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.7", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.7"', constants)
+        self.assertIn("version: 4.6.8", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.8"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

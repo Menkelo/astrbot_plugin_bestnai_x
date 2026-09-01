@@ -7141,6 +7141,14 @@ function acceptDocumentFileDrag(event) {
   els.viewport.classList.add("drag-over");
 }
 
+// Inline/body handlers in editor.html cover hosts that short-circuit module
+// listeners. Keep a normal bubbling listener as a final guard so Chromium's
+// native cursor never falls back to the forbidden-drop state.
+document.body?.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+}, false);
+
 document.addEventListener("dragenter", acceptDocumentFileDrag, true);
 document.addEventListener("dragover", acceptDocumentFileDrag, true);
 window.addEventListener("dragenter", acceptDocumentFileDrag, true);
