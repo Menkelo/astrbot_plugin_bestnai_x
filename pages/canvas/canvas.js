@@ -7176,12 +7176,11 @@ document.addEventListener("cut", (event) => {
 });
 
 els.viewport.addEventListener("dragover", (event) => {
-  if (!dataTransferHasImage(event.dataTransfer)) {
-    clearDropOverlay();
-    return;
-  }
+  // Sandboxed WebViews may hide DataTransfer.types until drop. Always keep
+  // this surface droppable, then validate the actual payload in the drop
+  // handler and uploadFiles().
   event.preventDefault();
-  event.dataTransfer.dropEffect = "copy";
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   els.viewport.classList.add("drag-over");
 });
 els.viewport.addEventListener("dragleave", (event) => {

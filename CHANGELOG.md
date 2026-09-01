@@ -2,6 +2,17 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.11] - 2026-09-02
+
+### 修复
+
+- **修复禁止投放光标**：移除 `dragover` 阶段依赖 `DataTransfer.types` 的提前返回。插件 WebView 可能在拖动阶段隐藏类型信息，导致画布未调用 `preventDefault()`；现在画布始终允许产生 drop，再在 `drop` 与 `uploadFiles()` 阶段验证实际文件或图片 URL。
+- **刷新画布缓存键**：静态资源切换到 `v=4.6.11`。
+
+### 测试
+
+- 全量测试通过：481 passed，203 subtests passed。
+
 ## [4.6.10] - 2026-09-01
 
 ### 修复
