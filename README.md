@@ -54,7 +54,7 @@ AstrBot `4.26.0+` 会在插件详情页直接提供 `Canvas` Page。画布支持
 - **调试模式**：仅在画布顶栏通过 bug 按钮开关；运行后底部状态栏会折叠显示当前节点的阶段耗时、提示词流水、请求参数和上游报错原文，后端仅在该次画布请求开启时返回调试数据。
 - 常用操作：双击空白处新建提示词；右键空白处打开添加菜单，右键节点可复制或删除，图片节点还可直接收录素材库或下载；`Ctrl/⌘ + Enter` 生成，`Ctrl/⌘ + Z` 撤销，`Ctrl/⌘ + Shift + Z` 重做，`Delete` 删除选中节点。
 
-Canvas Web API 不使用 QQ 平台专用的安全过滤；QQ 上的 `/nai` 与 `/nai0` 仍使用完整防封流程。画布交互参考并适配自 [hero8152/Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas)，许可与归属见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。单个工作区最多 160 个节点、320 条连线，单张上传图片最大 15 MB。
+Canvas Web API 不使用 QQ 平台专用的安全过滤；QQ 上的 `/nai` 与 `/nai0` 仍使用完整防封流程。画布交互参考并适配自 [hero8152/Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas)，大图预览的沉浸式灯箱布局参考 [AgIzT/NovelAI-Tag](https://github.com/AgIzT/NovelAI-Tag)，许可与归属见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。单个工作区最多 160 个节点、320 条连线，单张上传图片最大 15 MB。
 
 ---
 

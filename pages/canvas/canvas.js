@@ -6659,6 +6659,15 @@ async function uploadFiles(files, point = worldCenter()) {
   for (let index = 0; index < images.length; index += 1) {
     try {
       const asset = await bridge.upload("canvas/upload", images[index]);
+      const importedAt = new Date();
+      const importedTitle = `导入图片 ${importedAt.toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }).replace(/\//g, "-")}`;
       const nodeWidth = fittedImageNodeWidth(asset.width, asset.height);
       const nodeHeight = estimatedImageNodeHeight(nodeWidth, asset.width, asset.height);
       const node = {
@@ -6667,11 +6676,16 @@ async function uploadFiles(files, point = worldCenter()) {
         x: point.x + index * 34 - nodeWidth / 2,
         y: point.y + index * 34 - nodeHeight / 2,
         width: nodeWidth,
-        title: images[index].name,
+        title: importedTitle,
         assetId: asset.id,
         dataUrl: asset.dataUrl,
         createdAt: new Date().toISOString(),
-        meta: { prompt: images[index].name, width: asset.width, height: asset.height },
+        meta: {
+          prompt: images[index].name,
+          sourceFilename: images[index].name,
+          width: asset.width,
+          height: asset.height,
+        },
       };
       addNode(node);
       recordOperation("上传图片", images[index].name, "success");
@@ -7084,6 +7098,15 @@ function dataTransferHasFiles(dataTransfer) {
   return Array.from(dataTransfer.items || []).some((item) => item?.kind === "file");
 }
 
+function filesFromDataTransfer(dataTransfer) {
+  const files = Array.from(dataTransfer?.files || []);
+  if (files.length) return files;
+  return Array.from(dataTransfer?.items || [])
+    .filter((item) => item?.kind === "file")
+    .map((item) => item.getAsFile?.())
+    .filter(Boolean);
+}
+
 function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
@@ -7126,15 +7149,13 @@ document.addEventListener("cut", (event) => {
 });
 
 function acceptCanvasFileDrag(event) {
-  if (!dataTransferHasFiles(event.dataTransfer)) {
-    clearDropOverlay();
-    return false;
-  }
+  // Some Windows WebViews expose files only at drop time. The browser must
+  // still see preventDefault during dragenter/dragover or it will reject the
+  // eventual file drop before DataTransfer.files becomes available.
   event.preventDefault();
   event.stopPropagation();
-  event.dataTransfer.dropEffect = "copy";
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   els.viewport.classList.add("drag-over");
-  return true;
 }
 
 els.viewport.addEventListener("dragenter", acceptCanvasFileDrag);
@@ -7145,12 +7166,12 @@ els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
 els.viewport.addEventListener("drop", (event) => {
-  const hasFiles = dataTransferHasFiles(event.dataTransfer);
-  clearDropOverlay();
-  if (!hasFiles) return;
   event.preventDefault();
   event.stopPropagation();
-  uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
+  clearDropOverlay();
+  const files = filesFromDataTransfer(event.dataTransfer);
+  if (!files.length && !dataTransferHasFiles(event.dataTransfer)) return;
+  uploadFiles(files, clientToWorld(event.clientX, event.clientY));
 });
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);

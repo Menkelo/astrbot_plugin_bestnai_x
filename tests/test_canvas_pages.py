@@ -31,8 +31,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn('types.includes("files")', editor)
         self.assertIn('item?.kind === "file"', editor)
-        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
         self.assertIn('els.viewport.addEventListener("dragenter", acceptCanvasFileDrag)', editor)
+        self.assertIn("Some Windows WebViews expose files only at drop time", editor)
+        self.assertIn("function filesFromDataTransfer(dataTransfer)", editor)
+        self.assertIn("item.getAsFile?.()", editor)
+        self.assertIn("const files = filesFromDataTransfer(event.dataTransfer)", editor)
         self.assertIn("event.stopPropagation();", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
@@ -416,9 +419,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
         fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
-        self.assertIn("right: 18px;", fold)
+        self.assertIn("right:18px;", fold)
         next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
-        self.assertIn("right: 410px;", next_button)
+        self.assertIn("right:394px;", next_button)
+        prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
+        self.assertIn("left:36px;", prev_button)
+        self.assertIn("border-radius:50%;", fold)
+        self.assertIn("white-space:nowrap;", styles)
+        self.assertIn("text-overflow:ellipsis;", styles)
+        self.assertIn("const importedTitle = `导入图片", editor)
+        self.assertIn("sourceFilename: images[index].name", editor)
         self.assertNotIn("width: fit-content;", styles)
         self.assertIn(".image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs", editor)
         viewer_stage = styles.split("\n.image-viewer-stage {", 1)[1].split("}", 1)[0]
@@ -902,8 +912,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.0", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.0"', constants)
+        self.assertIn("version: 4.6.1", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.1"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

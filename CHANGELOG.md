@@ -2,6 +2,22 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.1] - 2026-09-01
+
+### 变更
+
+- **优化大图预览控件**：左右导航按钮相对图片舞台保持一致间距；信息栏开关改为右上角独立圆形按钮，避免与导航按钮混淆。
+- **规范外部导入名称**：外部导入图片显示为“导入图片 + 时间戳”，原始文件名保留在图片元数据中；信息栏长标题强制单行省略，不再撑出容器。
+- **补充参考项目说明**：README 与第三方归属文档均注明大图预览布局参考 [AgIzT/NovelAI-Tag](https://github.com/AgIzT/NovelAI-Tag)。
+
+### 修复
+
+- **恢复外部文件拖放**：画布在 `dragenter/dragover` 阶段无条件允许浏览器继续文件拖放，并在 `drop` 时兼容从 `DataTransfer.files` 或 `DataTransfer.items.getAsFile()` 提取图片，修复部分 Windows WebView 无法导入的问题。
+
+### 测试
+
+- 全量测试通过：480 passed，203 subtests passed；浏览器几何检查确认左右导航间距一致、标题不会侵入信息栏开关。
+
 ## [4.6.0] - 2026-09-01
 
 ### 变更

@@ -11,6 +11,15 @@ The project workspace, canvas-card layout, canvas-creation transition, editor pa
 
 The upstream license prohibits commercial use without authorization, requires derivative software to remain open source, and requires attribution to the original author. This notice applies to the reproduced canvas frontend; the AstrBot integration, NovelAI generation flow, plugin services, and data model remain part of this plugin.
 
+## NovelAI-Tag
+
+The canvas image viewer's immersive lightbox layout is visually referenced and adapted from:
+
+- Project: `AgIzT/NovelAI-Tag`
+- Source: https://github.com/AgIzT/NovelAI-Tag
+
+Only the presentation pattern is referenced; the viewer behavior, AstrBot integration, image metadata handling, and canvas interactions are implemented in this plugin.
+
 ### Upstream License Text
 
 > 禁止商业用途
