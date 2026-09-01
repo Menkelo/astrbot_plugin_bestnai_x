@@ -2,6 +2,19 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.9] - 2026-09-01
+
+### 修复
+
+- **移除全局拖拽禁用**：删除 `document.dragstart.preventDefault()`，避免插件 WebView 将系统文件拖入误判为页面内部拖拽后被强制禁止。
+- **恢复单一拖放路径**：删除后来叠加的 window/document/body 捕获监听、WeakSet 去重和行内 `ondragover`，画布拖入完整恢复为 `v4.5.8` 的 `#board dragover/drop -> uploadFiles()` 链路。
+- **保留元素级禁拖**：画布图片和大图预览仅通过各自的 `draggable=false` 禁止向外拖出，不再影响外部文件拖入。
+- **刷新画布缓存键**：静态资源切换到 `v=4.6.9`。
+
+### 测试
+
+- 全量测试通过：481 passed，203 subtests passed。
+
 ## [4.6.8] - 2026-09-01
 
 ### 修复

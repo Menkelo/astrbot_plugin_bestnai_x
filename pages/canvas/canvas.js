@@ -7097,62 +7097,9 @@ function dataTransferHasFiles(dataTransfer) {
     || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
-function filesFromDataTransfer(dataTransfer) {
-  const files = Array.from(dataTransfer?.files || []);
-  if (files.length) return files;
-  return Array.from(dataTransfer?.items || [])
-    .filter((item) => item?.kind === "file")
-    .map((item) => item.getAsFile?.())
-    .filter(Boolean);
-}
-
 function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
-
-const handledCanvasDrops = new WeakSet();
-
-function canvasDropPoint(event) {
-  const rect = els.viewport.getBoundingClientRect();
-  const clientX = clamp(Number(event.clientX) || rect.left + rect.width / 2, rect.left, rect.right);
-  const clientY = clamp(Number(event.clientY) || rect.top + rect.height / 2, rect.top, rect.bottom);
-  return clientToWorld(clientX, clientY);
-}
-
-// AstrBot embeds the page in a WebView. Some versions dispatch the native
-// file drop through an overlay child before the board's bubbling listener can
-// observe it. Capture the same 4.5.9 FileList at document level, but keep the
-// event propagating for the host and mark it so the board cannot upload twice.
-document.addEventListener("drop", (event) => {
-  const files = filesFromDataTransfer(event.dataTransfer);
-  if (!files.length) return;
-  event.preventDefault();
-  handledCanvasDrops.add(event);
-  clearDropOverlay();
-  uploadFiles(files, canvasDropPoint(event));
-}, true);
-
-function acceptDocumentFileDrag(event) {
-  // WebViews often expose an empty `types` list until the actual drop. Keep
-  // the browser's drop target alive for every drag over the canvas, then
-  // validate the payload only when `drop` fires.
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-  els.viewport.classList.add("drag-over");
-}
-
-// Inline/body handlers in editor.html cover hosts that short-circuit module
-// listeners. Keep a normal bubbling listener as a final guard so Chromium's
-// native cursor never falls back to the forbidden-drop state.
-document.body?.addEventListener("dragover", (event) => {
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-}, false);
-
-document.addEventListener("dragenter", acceptDocumentFileDrag, true);
-document.addEventListener("dragover", acceptDocumentFileDrag, true);
-window.addEventListener("dragenter", acceptDocumentFileDrag, true);
-window.addEventListener("dragover", acceptDocumentFileDrag, true);
 
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
@@ -7175,10 +7122,6 @@ function isSelectableTextTarget(target) {
   );
 }
 
-document.addEventListener("dragstart", (event) => {
-  event.preventDefault();
-  clearDropOverlay();
-});
 document.addEventListener("selectstart", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
@@ -7202,12 +7145,11 @@ els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
 els.viewport.addEventListener("drop", (event) => {
-  if (handledCanvasDrops.has(event)) return;
   const hasFiles = dataTransferHasFiles(event.dataTransfer);
   clearDropOverlay();
   if (!hasFiles) return;
   event.preventDefault();
-  uploadFiles(event.dataTransfer.files, canvasDropPoint(event));
+  uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
 });
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);

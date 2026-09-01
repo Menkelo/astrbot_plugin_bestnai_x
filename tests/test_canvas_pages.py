@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.8"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.9"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -30,26 +30,19 @@ class CanvasPageBridgeTest(unittest.TestCase):
     def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        self.assertIn('ondragover="event.preventDefault()', html)
-        self.assertIn('dropzone="copy"', html)
-        self.assertIn('document.body?.addEventListener("dragover"', editor)
         self.assertIn('includes("Files")', editor)
         self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
         self.assertIn("uploadFiles(event.dataTransfer.files", editor)
-        self.assertIn("const handledCanvasDrops = new WeakSet()", editor)
-        self.assertIn("function canvasDropPoint(event)", editor)
-        self.assertIn("function acceptDocumentFileDrag(event)", editor)
-        self.assertIn('document.addEventListener("dragover", acceptDocumentFileDrag, true)', editor)
-        self.assertIn('window.addEventListener("dragover", acceptDocumentFileDrag, true)', editor)
-        self.assertIn('document.addEventListener("drop", (event) => {', editor)
-        self.assertIn("if (handledCanvasDrops.has(event)) return;", editor)
+        self.assertNotIn("handledCanvasDrops", editor)
+        self.assertNotIn("acceptDocumentFileDrag", editor)
         self.assertNotIn('els.viewport.addEventListener("dragenter"', editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
     def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
-        self.assertIn('document.addEventListener("dragstart"', editor)
+        self.assertNotIn('document.addEventListener("dragstart"', editor)
+        self.assertIn('id="imageViewerImage" alt="" draggable="false"', (PAGE_ROOT / "editor.html").read_text(encoding="utf-8"))
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
@@ -920,8 +913,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.8", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.8"', constants)
+        self.assertIn("version: 4.6.9", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

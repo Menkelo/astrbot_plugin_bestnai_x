@@ -11,7 +11,7 @@ models/config.py，不在这里重复，避免两处数值对不上。
 # 插件基本信息
 PLUGIN_NAME = "astrbot_plugin_bestnai_x"
 PLUGIN_DISPLAY_NAME = "NAI Diffusion X"
-PLUGIN_VERSION = "4.6.8"
+PLUGIN_VERSION = "4.6.9"
 PLUGIN_AUTHOR = "Menkelo"
 PLUGIN_REPO = "https://github.com/Menkelo/astrbot_plugin_bestnai_x"
 
