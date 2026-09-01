@@ -7124,6 +7124,16 @@ document.addEventListener("drop", (event) => {
   uploadFiles(files, canvasDropPoint(event));
 }, true);
 
+function acceptDocumentFileDrag(event) {
+  if (!dataTransferHasFiles(event.dataTransfer)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  els.viewport.classList.add("drag-over");
+}
+
+document.addEventListener("dragenter", acceptDocumentFileDrag, true);
+document.addEventListener("dragover", acceptDocumentFileDrag, true);
+
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   const selection = window.getSelection?.();

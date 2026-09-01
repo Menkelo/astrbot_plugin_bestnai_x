@@ -96,16 +96,22 @@ def _build_character_fields(
     use_order: bool,
 ) -> Dict[str, Any]:
     """Build the native V4+ character fields from normalized entries."""
+    v4_prompt: Dict[str, Any] = {
+        "caption": {
+            "base_caption": prompt,
+            "char_captions": _char_captions(entries, "prompt"),
+        },
+        "use_coords": bool(use_coords),
+    }
+    # Some OpenAI-compatible NAI relays accept only the true/default value and
+    # reject ``v4_prompt.use_order=false``. Coordinates already select the
+    # alternative placement mode, so omit the false flag there.
+    if use_order:
+        v4_prompt["use_order"] = True
+
     fields: Dict[str, Any] = {
         "use_coords": bool(use_coords),
-        "v4_prompt": {
-            "caption": {
-                "base_caption": prompt,
-                "char_captions": _char_captions(entries, "prompt"),
-            },
-            "use_coords": bool(use_coords),
-            "use_order": bool(use_order),
-        },
+        "v4_prompt": v4_prompt,
         "v4_negative_prompt": {
             "legacy_uc": False,
             "caption": {

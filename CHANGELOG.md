@@ -2,6 +2,18 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.5] - 2026-09-01
+
+### 修复
+
+- **允许插件 WebView 接收外部文件**：在 document 捕获阶段同时处理文件 `dragenter` 与 `dragover` 并调用 `preventDefault()`，解决宿主把拖动目标报告为 `body/document` 时出现禁止投放光标、无法产生 `drop` 的问题。
+- **修复坐标分区参数报错**：按坐标分区时保留 `use_coords=true` 和角色 `centers`，但不再发送部分网关拒绝的 `v4_prompt.use_order=false`；按出场顺序仍发送 `use_order=true`。
+- **更新画布缓存键**：静态资源切换到 `v=4.6.5`，确保插件页加载最新拖放处理代码。
+
+### 测试
+
+- 全量测试通过，并新增坐标模式省略 `use_order=false`、顺序模式保留 `use_order=true` 的载荷测试。
+
 ## [4.6.4] - 2026-09-01
 
 ### 修复

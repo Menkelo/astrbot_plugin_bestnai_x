@@ -274,13 +274,19 @@ class CharacterPayloadTest(unittest.TestCase):
             "lowres, bad hands",
         )
 
-    def test_use_coords_and_use_order_are_written_in_both_places(self) -> None:
+    def test_coordinate_mode_omits_rejected_false_use_order(self) -> None:
         parameters = self._parameters(use_coords=True, use_order=False)
 
         self.assertIs(parameters["use_coords"], True)
         self.assertNotIn("use_order", parameters)
         self.assertIs(parameters["v4_prompt"]["use_coords"], True)
-        self.assertIs(parameters["v4_prompt"]["use_order"], False)
+        self.assertNotIn("use_order", parameters["v4_prompt"])
+
+    def test_order_mode_keeps_true_use_order(self) -> None:
+        parameters = self._parameters(use_coords=False, use_order=True)
+
+        self.assertIs(parameters["v4_prompt"]["use_coords"], False)
+        self.assertIs(parameters["v4_prompt"]["use_order"], True)
 
     def test_without_characters_the_caption_arrays_are_empty_not_missing(self) -> None:
         parameters = build_generate_payload("1girl", BASE)["parameters"]
