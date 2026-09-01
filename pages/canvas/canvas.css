@@ -2385,9 +2385,12 @@ select:focus-visible {
   }
   .image-viewer.layout-bottom .image-viewer-image-frame,
   .image-viewer.layout-bottom .image-viewer-details {
-    width: auto;
+    width: 100%;
     max-width: none;
     height: 100%;
+  }
+  .image-viewer.layout-bottom .image-viewer-details {
+    width: auto;
   }
   .image-viewer.layout-bottom .image-viewer-details {
     overflow: auto;
