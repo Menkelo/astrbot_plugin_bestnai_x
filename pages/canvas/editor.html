@@ -215,9 +215,26 @@
         </div>
         <figcaption id="imageViewerDetails" class="image-viewer-details">
           <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true" aria-label="折叠 Prompt Tags" title="折叠 Prompt Tags"><i data-lucide="chevron-up"></i></button>
+          <header class="image-viewer-header">
+            <h2 id="imageViewerTitle">图片预览</h2>
+            <p id="imageViewerMeta">--</p>
+          </header>
+          <div class="image-viewer-actions">
+            <button id="imageViewerCopyAllBtn" class="image-viewer-action-btn" type="button" title="复制全部提示词"><i data-lucide="copy"></i><span>复制全部</span></button>
+            <button id="imageViewerDownloadBtn" class="image-viewer-action-btn" type="button" title="下载原图"><i data-lucide="download"></i><span>下载原图</span></button>
+            <button id="imageViewerRetagBtn" class="image-viewer-action-btn" type="button" title="反推此图"><i data-lucide="scan-search"></i><span>反推此图</span></button>
+          </div>
           <div class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>Prompt Tags / 提示词标签</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
+            <div class="image-viewer-copy-head"><span>正向 Tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
             <div id="imageViewerTags" class="image-viewer-tag-grid" role="group" aria-label="可复制的 Prompt Tags" data-copy-text=""></div>
+          </div>
+          <div id="imageViewerNegativeSection" class="image-viewer-copy" hidden>
+            <div class="image-viewer-copy-head"><span>Negative</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerNegative" title="复制负面提示词" aria-label="复制负面提示词"><i data-lucide="copy"></i></button></div>
+            <div id="imageViewerNegative" class="image-viewer-note" data-copy-text=""></div>
+          </div>
+          <div id="imageViewerNoteSection" class="image-viewer-copy" hidden>
+            <div class="image-viewer-copy-head"><span>Note</span></div>
+            <div id="imageViewerNote" class="image-viewer-note"></div>
           </div>
         </figcaption>
       </figure>

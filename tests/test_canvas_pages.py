@@ -324,7 +324,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('id="imageViewerPrompt"', html)
         self.assertNotIn('id="imageViewerPromptSection"', html)
         self.assertNotIn("提示词 / Prompt", html)
-        self.assertIn("Prompt Tags / 提示词标签", html)
+        self.assertIn("正向 Tags", html)
+        self.assertIn('id="imageViewerNegative"', html)
+        self.assertIn('id="imageViewerNote"', html)
         self.assertNotIn("<span>Tags 标签</span>", html)
         self.assertIn('aria-label="折叠 Prompt Tags"', html)
         self.assertNotIn("中文 Tags / Chinese Tags", html)
@@ -411,10 +413,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer {", styles)
         viewer_stage = styles.split("\n.image-viewer-stage {", 1)[1].split("}", 1)[0]
         self.assertIn("width: 100%;", viewer_stage)
-        self.assertIn("max-width: 1600px;", viewer_stage)
+        self.assertIn("max-width: 1900px;", viewer_stage)
         self.assertIn("height: 100%;", viewer_stage)
         self.assertIn("min-height: 0;", viewer_stage)
-        self.assertIn("grid-template-rows: minmax(0, 1fr) auto;", viewer_stage)
+        self.assertIn("grid-template-rows: minmax(0, 1fr);", viewer_stage)
         image_frame_html = html.split('class="image-viewer-image-frame"', 1)[1].split("</div>", 1)[0]
         self.assertIn('id="imageViewerPlaceBtn"', image_frame_html)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
@@ -434,7 +436,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
         self.assertIn("align-content: start;", viewer_details)
-        self.assertIn("scrollbar-color: rgba(148, 163, 184, .42) transparent;", viewer_details)
+        self.assertIn("scrollbar-color: rgba(100, 116, 139, .42) transparent;", viewer_details)
         self.assertIn("scrollbar-gutter: auto;", viewer_details)
         self.assertIn("scrollbar-width: thin;", viewer_details)
         self.assertNotIn("calc(100vh - 300px)", styles)
@@ -891,8 +893,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.5.8", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.5.8"', constants)
+        self.assertIn("version: 4.5.9", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.5.9"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

@@ -51,6 +51,15 @@ const els = {
   imageViewerDetails: document.getElementById("imageViewerDetails"),
   imageViewerDetailsToggle: document.getElementById("imageViewerDetailsToggle"),
   imageViewerTags: document.getElementById("imageViewerTags"),
+  imageViewerTitle: document.getElementById("imageViewerTitle"),
+  imageViewerMeta: document.getElementById("imageViewerMeta"),
+  imageViewerNegativeSection: document.getElementById("imageViewerNegativeSection"),
+  imageViewerNegative: document.getElementById("imageViewerNegative"),
+  imageViewerNoteSection: document.getElementById("imageViewerNoteSection"),
+  imageViewerNote: document.getElementById("imageViewerNote"),
+  imageViewerCopyAllBtn: document.getElementById("imageViewerCopyAllBtn"),
+  imageViewerDownloadBtn: document.getElementById("imageViewerDownloadBtn"),
+  imageViewerRetagBtn: document.getElementById("imageViewerRetagBtn"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
   assetLibraryBtn: document.getElementById("assetLibraryBtn"),
   mobileAssetLibraryBtn: document.getElementById("mobileAssetLibraryBtn"),
@@ -5745,11 +5754,39 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   setImageViewerDetailsCollapsed(false);
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.alt = node.title || "画布图片";
+  els.imageViewerTitle.textContent = node.title || "图片预览";
+  els.imageViewerMeta.textContent = [
+    meta.width && meta.height ? `${meta.width}×${meta.height}` : "",
+    meta.ratio || "",
+    meta.seed ? `Seed ${meta.seed}` : "",
+  ].filter(Boolean).join(" / ") || "可查看 NovelAI 参数";
   const tags = stripImageViewerControlTags(
     meta.tags || meta.finalPrompt || "",
     meta.artist || "",
   );
   renderImageViewerTags(tags);
+  const negative = String(meta.negativePrompt || meta.negative_prompt || "").trim();
+  els.imageViewerNegative.textContent = negative || "";
+  els.imageViewerNegative.dataset.copyText = negative;
+  els.imageViewerNegativeSection.hidden = !negative;
+  const note = [
+    meta.steps ? `Steps: ${meta.steps}` : "",
+    meta.scale ? `CFG scale: ${meta.scale}` : "",
+    meta.sampler ? `Sampler: ${meta.sampler}` : "",
+    meta.cfgRescale != null ? `CFG rescale: ${meta.cfgRescale}` : "",
+  ].filter(Boolean).join(" · ");
+  els.imageViewerNote.textContent = note;
+  els.imageViewerNoteSection.hidden = !note;
+  els.imageViewerCopyAllBtn.onclick = () => copyPlainText(
+    [tags, negative].filter(Boolean).join("\nNegative prompt: "),
+    "复制全部提示词",
+    () => els.imageViewer.focus({ preventScroll: true }),
+  );
+  els.imageViewerDownloadBtn.onclick = () => downloadImage(node);
+  els.imageViewerRetagBtn.onclick = () => {
+    if (node.type === "image") return retagFromNode(node.id, false);
+    return null;
+  };
   state.viewerLibraryAsset = libraryAsset;
   const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
@@ -5766,6 +5803,13 @@ function closeImageViewer() {
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
   renderImageViewerTags("");
+  els.imageViewerTitle.textContent = "图片预览";
+  els.imageViewerMeta.textContent = "--";
+  els.imageViewerNegative.textContent = "";
+  els.imageViewerNegative.dataset.copyText = "";
+  els.imageViewerNegativeSection.hidden = true;
+  els.imageViewerNote.textContent = "";
+  els.imageViewerNoteSection.hidden = true;
   setImageViewerDetailsCollapsed(false);
   state.viewerImageDimensions = { width: 0, height: 0 };
   applyImageViewerLayout(0, 0);
