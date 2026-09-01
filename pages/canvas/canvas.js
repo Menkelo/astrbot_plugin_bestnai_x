@@ -101,7 +101,7 @@ const OPERATION_LOG_LIMIT = 240;
 // 这份 JS 自己的版本号。顶栏版本号来自后端 API，只能证明 Python 侧更新了，
 // 无法说明浏览器加载的是哪一份 canvas.js。启动时以 warning 级写入「操作记录」
 //（info 级会被 isImportantOperation 过滤掉），用来确认回退是否真的生效。
-const CANVAS_SCRIPT_VERSION = "4.6.16";
+const CANVAS_SCRIPT_VERSION = "4.6.17";
 const OPERATION_VISIBLE_LIMIT = 9;
 const IMPORTANT_OPERATION_ACTIONS = new Set([
   "记录器已清空",
@@ -7012,6 +7012,34 @@ document.addEventListener("copy", (event) => {
 document.addEventListener("cut", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
+
+// 拖放探针：纯观察，不调用 preventDefault，不改变任何拖放语义。
+// dragenter 在拖动进入页面的瞬间就触发，早于浏览器判定能否投放，因此即使
+// 光标显示禁止符号也一定会记录。宿主 WebView 里没有控制台，这是唯一能确认
+// 事件是否送达页面的手段。用 warning 级，info 级会被 isImportantOperation
+// 过滤出操作记录面板。
+let dragProbeActive = false;
+
+function describeDragEvent(event) {
+  const types = Array.from(event.dataTransfer?.types || []).join(", ") || "（空）";
+  const target = event.target instanceof Element
+    ? (event.target.id || event.target.className || event.target.tagName)
+    : String(event.target);
+  const inBoard = event.target instanceof Node && els.viewport.contains(event.target);
+  return `types=[${types}] files=${event.dataTransfer?.files?.length ?? 0} 目标=${target} 在画布内=${inBoard ? "是" : "否"}`;
+}
+
+// 每次拖动只记一条 dragenter，避免高频事件把记录刷满。
+document.addEventListener("dragenter", (event) => {
+  if (dragProbeActive) return;
+  dragProbeActive = true;
+  recordOperation("拖入探针 dragenter", describeDragEvent(event), "warning");
+}, true);
+document.addEventListener("dragleave", () => { dragProbeActive = false; }, true);
+document.addEventListener("drop", (event) => {
+  dragProbeActive = false;
+  recordOperation("拖入探针 drop", describeDragEvent(event), "warning");
+}, true);
 
 els.viewport.addEventListener("dragover", (event) => {
   if (!dataTransferHasFiles(event.dataTransfer)) {

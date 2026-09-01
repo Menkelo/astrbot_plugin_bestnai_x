@@ -2,6 +2,16 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.17] - 2026-09-02
+
+### 新增
+
+- **在 4.5.8 画布上加回拖放探针**：`dragenter` 与 `drop` 以 warning 级把 `DataTransfer.types`、文件数、事件目标、是否落在画布内写入「操作记录」。探针为纯观察，不调用 `preventDefault()`，不改变任何拖放语义。
+
+### 说明
+
+- 已确认 `29df49e`、`ced0aee`、`e8b37e1`、`26287c3` 四个提交均位于 4.5.8 之后且只改动 `pages/canvas` 与测试，4.6.16 的回退已将其全部排除；当前画布前端与 4.5.8 逐字节相同，仅多出版本自报与缓存键。故障不在本仓库前端代码内。
+
 ## [4.6.16] - 2026-09-02
 
 ### 变更
