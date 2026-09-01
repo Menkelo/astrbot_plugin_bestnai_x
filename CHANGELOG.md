@@ -2,6 +2,12 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.15] - 2026-09-02
+
+### 修复
+
+- **拖放探针不再被操作记录过滤**：`makeOperationLogPanel` 通过 `isImportantOperation` 过滤掉全部 info 级条目，4.6.13 写入的两条探针因此从未显示。改为 warning 级。探针记录的是 `dragenter`，该事件在拖动进入页面时即触发，与光标是否显示禁止、能否成功放下无关。
+
 ## [4.6.14] - 2026-09-02
 
 ### 新增

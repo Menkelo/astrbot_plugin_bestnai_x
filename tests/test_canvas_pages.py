@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.14"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.15"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -53,8 +53,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 脚本必须自报版本，否则无法区分「代码没生效」和「代码有问题」。
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         constants = (ROOT / "constants.py").read_text(encoding="utf-8")
-        self.assertIn('const CANVAS_SCRIPT_VERSION = "4.6.14";', editor)
-        self.assertIn('PLUGIN_VERSION = "4.6.14"', constants)
+        self.assertIn('const CANVAS_SCRIPT_VERSION = "4.6.15";', editor)
+        self.assertIn('PLUGIN_VERSION = "4.6.15"', constants)
         self.assertIn(
             'recordOperation("画布脚本版本", `canvas.js ${CANVAS_SCRIPT_VERSION}`, "warning")',
             editor,
@@ -65,8 +65,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         # 里看到，否则无法判断事件到底有没有送达。
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         self.assertIn("function describeDragEvent(event)", editor)
-        self.assertIn('recordOperation("拖入探针 dragenter", describeDragEvent(event))', editor)
-        self.assertIn('recordOperation("拖入探针 drop", describeDragEvent(event))', editor)
+        # info 级条目会被 isImportantOperation 过滤出操作记录面板，探针必须用
+        # warning 级，否则写了也看不到。
+        self.assertIn('recordOperation("拖入探针 dragenter", describeDragEvent(event), "warning")', editor)
+        self.assertIn('recordOperation("拖入探针 drop", describeDragEvent(event), "warning")', editor)
         # dragenter 每次拖动只记一条，否则日志会被高频事件刷满。
         self.assertIn("if (dragProbeActive) return;", editor)
 
@@ -945,8 +947,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.14", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.14"', constants)
+        self.assertIn("version: 4.6.15", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.15"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

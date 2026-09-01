@@ -116,7 +116,7 @@ const OPERATION_LOG_LIMIT = 240;
 // 顶栏版本号来自后端 API，只能证明 Python 侧更新了；浏览器仍可能在跑缓存
 // 里的旧脚本。启动时把这个常量写进「操作记录」，就能看出实际加载的是哪一
 // 份 canvas.js。
-const CANVAS_SCRIPT_VERSION = "4.6.14";
+const CANVAS_SCRIPT_VERSION = "4.6.15";
 const OPERATION_VISIBLE_LIMIT = 9;
 const IMPORTANT_OPERATION_ACTIONS = new Set([
   "记录器已清空",
@@ -7155,12 +7155,12 @@ function describeDragEvent(event) {
 document.addEventListener("dragenter", (event) => {
   if (dragProbeActive) return;
   dragProbeActive = true;
-  recordOperation("拖入探针 dragenter", describeDragEvent(event));
+  recordOperation("拖入探针 dragenter", describeDragEvent(event), "warning");
 }, true);
 document.addEventListener("dragleave", () => { dragProbeActive = false; }, true);
 document.addEventListener("drop", (event) => {
   dragProbeActive = false;
-  recordOperation("拖入探针 drop", describeDragEvent(event));
+  recordOperation("拖入探针 drop", describeDragEvent(event), "warning");
 }, true);
 
 // 以下四个监听与 4.5.0 完全一致。4.6.x 期间累积的 document 捕获监听、
