@@ -5744,6 +5744,8 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
   setImageViewerDetailsCollapsed(false);
   els.imageViewerImage.src = node.dataUrl;
+  els.imageViewerImage.draggable = true;
+  els.imageViewerImage.title = "拖动图片分享到 QQ";
   els.imageViewerImage.alt = node.title || "画布图片";
   const tags = stripImageViewerControlTags(
     meta.tags || meta.finalPrompt || "",
@@ -5765,6 +5767,8 @@ function closeImageViewer() {
   state.viewerTagLookupSequence += 1;
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
+  els.imageViewerImage.draggable = false;
+  els.imageViewerImage.removeAttribute("title");
   renderImageViewerTags("");
   setImageViewerDetailsCollapsed(false);
   state.viewerImageDimensions = { width: 0, height: 0 };
@@ -7005,7 +7009,20 @@ function isSelectableTextTarget(target) {
   );
 }
 
+els.imageViewerImage.addEventListener("dragstart", (event) => {
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer || !els.imageViewerImage.src) return;
+  const source = els.imageViewerImage.src;
+  const filename = "bestnai-image.png";
+  dataTransfer.effectAllowed = "copy";
+  dataTransfer.setData("text/uri-list", source);
+  dataTransfer.setData("text/plain", source);
+  dataTransfer.setData("text/html", `<img src="${source}" alt="${filename}">`);
+  // Chromium understands DownloadURL when dragging an image to a native app.
+  dataTransfer.setData("DownloadURL", `image/png:${filename}:${source}`);
+});
 document.addEventListener("dragstart", (event) => {
+  if (event.target === els.imageViewerImage) return;
   event.preventDefault();
   clearDropOverlay();
 });
