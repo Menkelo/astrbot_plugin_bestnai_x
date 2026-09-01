@@ -265,6 +265,8 @@ const state = {
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
   viewerImageDimensions: { width: 0, height: 0 },
+  viewerDragFile: null,
+  viewerDragSource: "",
   viewerFrameSyncHandle: 0,
   viewerBottomLayoutLock: null,
   viewerTagLookupSequence: 0,
@@ -5745,7 +5747,7 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   setImageViewerDetailsCollapsed(false);
   els.imageViewerImage.src = node.dataUrl;
   els.imageViewerImage.draggable = true;
-  els.imageViewerImage.title = "拖动图片分享到 QQ";
+  els.imageViewerImage.title = "正在准备拖拽分享…";
   els.imageViewerImage.alt = node.title || "画布图片";
   const tags = stripImageViewerControlTags(
     meta.tags || meta.finalPrompt || "",
@@ -5753,6 +5755,9 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   );
   renderImageViewerTags(tags);
   state.viewerLibraryAsset = libraryAsset;
+  state.viewerDragFile = null;
+  state.viewerDragSource = String(node.dataUrl || "");
+  void prepareViewerDragFile(state.viewerDragSource);
   const lookupSequence = ++state.viewerTagLookupSequence;
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
@@ -5769,6 +5774,8 @@ function closeImageViewer() {
   els.imageViewerImage.removeAttribute("src");
   els.imageViewerImage.draggable = false;
   els.imageViewerImage.removeAttribute("title");
+  state.viewerDragFile = null;
+  state.viewerDragSource = "";
   renderImageViewerTags("");
   setImageViewerDetailsCollapsed(false);
   state.viewerImageDimensions = { width: 0, height: 0 };
@@ -6878,6 +6885,23 @@ function nodeEditorOwnsWheel(target) {
   return !!editor && document.activeElement === editor;
 }
 
+async function prepareViewerDragFile(source) {
+  const value = String(source || "");
+  if (!value) return;
+  try {
+    const response = await fetch(value);
+    if (!response.ok) throw new Error("图片读取失败");
+    const blob = await response.blob();
+    if (state.viewerDragSource !== value || els.imageViewer.hidden) return;
+    const mime = blob.type || "image/png";
+    state.viewerDragFile = new File([blob], "bestnai-image.png", { type: mime });
+    els.imageViewerImage.title = "拖动图片分享到 QQ";
+  } catch (_) {
+    state.viewerDragFile = null;
+    els.imageViewerImage.title = "图片暂不可拖拽，请使用下载按钮";
+  }
+}
+
 els.viewport.addEventListener("wheel", (event) => {
   if (nodeEditorOwnsWheel(event.target)) return;
   // 平移进行中忽略滚轮：中键平移按拖拽起点的快照绝对覆写偏移，
@@ -7011,15 +7035,21 @@ function isSelectableTextTarget(target) {
 
 els.imageViewerImage.addEventListener("dragstart", (event) => {
   const dataTransfer = event.dataTransfer;
-  if (!dataTransfer || !els.imageViewerImage.src) return;
-  const source = els.imageViewerImage.src;
+  if (!dataTransfer || !state.viewerDragFile) {
+    // Never let Chromium start its default data-URL drag. Serializing a large
+    // base64 image here can block the renderer and freeze the canvas.
+    event.preventDefault();
+    return;
+  }
   const filename = "bestnai-image.png";
   dataTransfer.effectAllowed = "copy";
-  dataTransfer.setData("text/uri-list", source);
-  dataTransfer.setData("text/plain", source);
-  dataTransfer.setData("text/html", `<img src="${source}" alt="${filename}">`);
-  // Chromium understands DownloadURL when dragging an image to a native app.
-  dataTransfer.setData("DownloadURL", `image/png:${filename}:${source}`);
+  try {
+    dataTransfer.items.add(state.viewerDragFile);
+  } catch (_) {
+    // Some embedded browsers do not expose DataTransferItemList.add(File).
+    // Keep the drag cancelled rather than falling back to a huge data URL.
+    event.preventDefault();
+  }
 });
 document.addEventListener("dragstart", (event) => {
   if (event.target === els.imageViewerImage) return;
