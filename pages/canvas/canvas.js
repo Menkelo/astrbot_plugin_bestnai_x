@@ -7097,6 +7097,15 @@ function dataTransferHasFiles(dataTransfer) {
     || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
+function filesFromDataTransfer(dataTransfer) {
+  const files = Array.from(dataTransfer?.files || []);
+  if (files.length) return files;
+  return Array.from(dataTransfer?.items || [])
+    .filter((item) => item?.kind === "file")
+    .map((item) => item.getAsFile?.())
+    .filter(Boolean);
+}
+
 function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
@@ -7115,9 +7124,8 @@ function canvasDropPoint(event) {
 // observe it. Capture the same 4.5.9 FileList at document level, but keep the
 // event propagating for the host and mark it so the board cannot upload twice.
 document.addEventListener("drop", (event) => {
-  if (!dataTransferHasFiles(event.dataTransfer)) return;
-  const files = event.dataTransfer?.files;
-  if (!files?.length) return;
+  const files = filesFromDataTransfer(event.dataTransfer);
+  if (!files.length) return;
   event.preventDefault();
   handledCanvasDrops.add(event);
   clearDropOverlay();
@@ -7125,7 +7133,9 @@ document.addEventListener("drop", (event) => {
 }, true);
 
 function acceptDocumentFileDrag(event) {
-  if (!dataTransferHasFiles(event.dataTransfer)) return;
+  // WebViews often expose an empty `types` list until the actual drop. Keep
+  // the browser's drop target alive for every drag over the canvas, then
+  // validate the payload only when `drop` fires.
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   els.viewport.classList.add("drag-over");

@@ -959,6 +959,27 @@ class BestNAIPlugin(Star):
         raw_char_prompts = payload.get("retagCharPrompts")
         char_prompts = normalize_char_entries(raw_char_prompts)
         if char_prompts:
+            # Character fields live in their own structured payload and used to
+            # bypass the prompt card's Chinese translation path. Translate each
+            # character caption with the same translator, while preserving the
+            # original text when translation is unavailable.
+            translated_char_prompts = []
+            for entry in char_prompts:
+                translated_entry = dict(entry)
+                for field in ("prompt", "negative_prompt"):
+                    value = str(translated_entry.get(field) or "").strip()
+                    if not value or not has_chinese(value):
+                        continue
+                    translated, reason = await self._translate_prompt_with_reason(
+                        value,
+                        apply_safety_filter=False,
+                    )
+                    if translated:
+                        translated_entry[field] = translated
+                    else:
+                        trace.note("角色提示词翻译失败", reason or "保留原文")
+                translated_char_prompts.append(translated_entry)
+            char_prompts = translated_char_prompts
             # 站位只有在 use_coords 为真时才生效，否则 NovelAI 按出场顺序排布、
             # 忽略坐标。前端现在总会发送 retagUseCoords；它一旦存在就是权威值。
             # 只有旧版客户端完全没有这个字段时，才根据显式 position 兼容推断。

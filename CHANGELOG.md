@@ -2,6 +2,21 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.6] - 2026-09-01
+
+### 新增
+
+- **角色提示词翻译**：角色模块的正面与负面文本现在沿用提示词卡片的翻译器，逐项翻译中文角色描述；翻译失败时保留原文并写入调试记录。
+
+### 修复
+
+- **修复插件页外部拖入**：在 document 捕获阶段无条件接管画布范围内的 `dragenter/dragover`，并在 `drop` 时从 `DataTransfer.files` 或 `items.getAsFile()` 读取文件，兼容 AstrBot WebView 的宿主事件分发。
+- **更新画布缓存键**：静态资源切换到 `v=4.6.6`，确保插件页加载最新拖放代码。
+
+### 测试
+
+- 全量测试通过：481 passed，203 subtests passed。
+
 ## [4.6.5] - 2026-09-01
 
 ### 修复
