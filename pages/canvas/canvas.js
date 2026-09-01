@@ -5780,6 +5780,7 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     els.imageViewerFoldBtn.title = "收起信息栏";
   }
   els.imageViewerImage.src = node.dataUrl;
+  els.imageViewerImage.draggable = false;
   els.imageViewerImage.alt = node.title || "画布图片";
   els.imageViewerTitle.textContent = node.title || "图片预览";
   els.imageViewerMeta.textContent = [
@@ -7102,9 +7103,11 @@ function clearDropOverlay() {
 
 const handledCanvasDrops = new WeakSet();
 
-function eventTargetsCanvas(event) {
-  const target = event.target;
-  return target instanceof Node && els.viewport.contains(target);
+function canvasDropPoint(event) {
+  const rect = els.viewport.getBoundingClientRect();
+  const clientX = clamp(Number(event.clientX) || rect.left + rect.width / 2, rect.left, rect.right);
+  const clientY = clamp(Number(event.clientY) || rect.top + rect.height / 2, rect.top, rect.bottom);
+  return clientToWorld(clientX, clientY);
 }
 
 // AstrBot embeds the page in a WebView. Some versions dispatch the native
@@ -7112,13 +7115,13 @@ function eventTargetsCanvas(event) {
 // observe it. Capture the same 4.5.9 FileList at document level, but keep the
 // event propagating for the host and mark it so the board cannot upload twice.
 document.addEventListener("drop", (event) => {
-  if (!eventTargetsCanvas(event) || !dataTransferHasFiles(event.dataTransfer)) return;
+  if (!dataTransferHasFiles(event.dataTransfer)) return;
   const files = event.dataTransfer?.files;
   if (!files?.length) return;
   event.preventDefault();
   handledCanvasDrops.add(event);
   clearDropOverlay();
-  uploadFiles(files, clientToWorld(event.clientX, event.clientY));
+  uploadFiles(files, canvasDropPoint(event));
 }, true);
 
 function isSelectableTextTarget(target) {
@@ -7174,7 +7177,7 @@ els.viewport.addEventListener("drop", (event) => {
   clearDropOverlay();
   if (!hasFiles) return;
   event.preventDefault();
-  uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
+  uploadFiles(event.dataTransfer.files, canvasDropPoint(event));
 });
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);

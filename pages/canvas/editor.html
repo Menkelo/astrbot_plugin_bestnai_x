@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BestNAI 无限画布</title>
-    <link rel="stylesheet" href="./canvas.css?v=4.6.3" />
+    <link rel="stylesheet" href="./canvas.css?v=4.6.4" />
     <script src="./vendor/lucide.js"></script>
   </head>
   <body>
@@ -212,7 +212,7 @@
       <button id="imageViewerNextBtn" class="image-viewer-nav image-viewer-nav-next" type="button" aria-label="下一张"><i data-lucide="chevron-right"></i></button>
       <div id="imageViewerStage" class="image-viewer-stage">
         <div class="image-viewer-image-frame">
-          <img id="imageViewerImage" alt="" />
+          <img id="imageViewerImage" alt="" draggable="false" />
           <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </div>
       </div>
@@ -245,6 +245,6 @@
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>
-    <script type="module" src="./canvas.js?v=4.6.3"></script>
+    <script type="module" src="./canvas.js?v=4.6.4"></script>
   </body>
 </html>
