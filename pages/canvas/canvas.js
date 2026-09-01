@@ -7092,19 +7092,8 @@ els.viewport.addEventListener("contextmenu", (event) => {
 });
 
 function dataTransferHasFiles(dataTransfer) {
-  if (!dataTransfer) return false;
-  const types = Array.from(dataTransfer.types || []).map((type) => String(type).toLowerCase());
-  if (types.includes("files") || Number(dataTransfer.files?.length || 0) > 0) return true;
-  return Array.from(dataTransfer.items || []).some((item) => item?.kind === "file");
-}
-
-function filesFromDataTransfer(dataTransfer) {
-  const files = Array.from(dataTransfer?.files || []);
-  if (files.length) return files;
-  return Array.from(dataTransfer?.items || [])
-    .filter((item) => item?.kind === "file")
-    .map((item) => item.getAsFile?.())
-    .filter(Boolean);
+  return Array.from(dataTransfer?.types || []).includes("Files")
+    || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
 function clearDropOverlay() {
@@ -7133,8 +7122,6 @@ function isSelectableTextTarget(target) {
 }
 
 document.addEventListener("dragstart", (event) => {
-  // This event only originates from draggable content already inside the
-  // document. External files enter through dragenter/dragover instead.
   event.preventDefault();
   clearDropOverlay();
 });
@@ -7148,30 +7135,24 @@ document.addEventListener("cut", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 
-function acceptCanvasFileDrag(event) {
-  // Some Windows WebViews expose files only at drop time. The browser must
-  // still see preventDefault during dragenter/dragover or it will reject the
-  // eventual file drop before DataTransfer.files becomes available.
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-  els.viewport.classList.add("drag-over");
-}
-
-els.viewport.addEventListener("dragenter", acceptCanvasFileDrag);
 els.viewport.addEventListener("dragover", (event) => {
-  acceptCanvasFileDrag(event);
+  if (!dataTransferHasFiles(event.dataTransfer)) {
+    clearDropOverlay();
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  els.viewport.classList.add("drag-over");
 });
 els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
 els.viewport.addEventListener("drop", (event) => {
-  event.preventDefault();
-  event.stopPropagation();
+  const hasFiles = dataTransferHasFiles(event.dataTransfer);
   clearDropOverlay();
-  const files = filesFromDataTransfer(event.dataTransfer);
-  if (!files.length && !dataTransferHasFiles(event.dataTransfer)) return;
-  uploadFiles(files, clientToWorld(event.clientX, event.clientY));
+  if (!hasFiles) return;
+  event.preventDefault();
+  uploadFiles(event.dataTransfer.files, clientToWorld(event.clientX, event.clientY));
 });
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);

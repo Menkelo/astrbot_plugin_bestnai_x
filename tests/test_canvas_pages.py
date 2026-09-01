@@ -29,14 +29,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
-        self.assertIn('types.includes("files")', editor)
-        self.assertIn('item?.kind === "file"', editor)
-        self.assertIn('els.viewport.addEventListener("dragenter", acceptCanvasFileDrag)', editor)
-        self.assertIn("Some Windows WebViews expose files only at drop time", editor)
-        self.assertIn("function filesFromDataTransfer(dataTransfer)", editor)
-        self.assertIn("item.getAsFile?.()", editor)
-        self.assertIn("const files = filesFromDataTransfer(event.dataTransfer)", editor)
-        self.assertIn("event.stopPropagation();", editor)
+        self.assertIn('includes("Files")', editor)
+        self.assertIn("if (!dataTransferHasFiles(event.dataTransfer))", editor)
+        self.assertIn("uploadFiles(event.dataTransfer.files", editor)
+        self.assertNotIn('els.viewport.addEventListener("dragenter"', editor)
+        self.assertNotIn("filesFromDataTransfer", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
     def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
@@ -419,12 +416,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
         fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:18px;", fold)
+        self.assertIn("right:363px;", fold)
         next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
         self.assertIn("right:394px;", next_button)
         prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
         self.assertIn("left:36px;", prev_button)
-        self.assertIn("border-radius:50%;", fold)
+        self.assertIn("border-radius:13px;", fold)
         self.assertIn("white-space:nowrap;", styles)
         self.assertIn("text-overflow:ellipsis;", styles)
         self.assertIn("const importedTitle = `导入图片", editor)
@@ -443,7 +440,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("position: relative;", image_frame)
         self.assertIn("height: 100%;", image_frame)
         self.assertIn("min-height: 0;", image_frame)
-        self.assertIn("overflow: hidden;", image_frame)
+        self.assertIn("overflow: visible;", image_frame)
         viewer_image = styles.split("\n.image-viewer-stage img {", 1)[1].split("}", 1)[0]
         self.assertIn("width: auto;", viewer_image)
         self.assertIn("height: auto;", viewer_image)
@@ -452,7 +449,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("object-fit: contain;", viewer_image)
         self.assertIn("border-radius: var(--image-viewer-radius);", viewer_image)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
-        self.assertIn("clip-path: inset(0 round var(--image-viewer-radius));", image_frame)
+        self.assertNotIn("clip-path:", image_frame)
         viewer_details = styles.split("\n.image-viewer-details {", 1)[1].split("}", 1)[0]
         self.assertIn("border-radius: 12px;", viewer_details)
         self.assertIn("align-content: start;", viewer_details)
@@ -912,8 +909,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.1", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.1"', constants)
+        self.assertIn("version: 4.6.2", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.2"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
