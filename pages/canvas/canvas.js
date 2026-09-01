@@ -111,6 +111,12 @@ const RECORDER_OPEN_KEY = "bestnaiCanvasRecorderOpen";
 const ASSET_LIBRARY_PREFS_KEY = "bestnaiCanvasAssetLibraryPrefs";
 const ASSET_RECENT_LIMIT = 24;
 const OPERATION_LOG_LIMIT = 240;
+
+// 这份 JS 自己的版本号，和 constants.py 的 PLUGIN_VERSION 分开维护。
+// 顶栏版本号来自后端 API，只能证明 Python 侧更新了；浏览器仍可能在跑缓存
+// 里的旧脚本。启动时把这个常量写进「操作记录」，就能看出实际加载的是哪一
+// 份 canvas.js。
+const CANVAS_SCRIPT_VERSION = "4.6.14";
 const OPERATION_VISIBLE_LIMIT = 9;
 const IMPORTANT_OPERATION_ACTIONS = new Set([
   "记录器已清空",
@@ -7617,6 +7623,7 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 
+recordOperation("画布脚本版本", `canvas.js ${CANVAS_SCRIPT_VERSION}`, "warning");
 renderDebugBar();
 refreshIcons();
 setupOverlayAlignment();

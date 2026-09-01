@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.13"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.14"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -47,6 +47,18 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("imageUrlFromDataTransfer", editor)
         self.assertNotIn("fileFromDroppedImageUrl", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
+
+    def test_canvas_script_stamps_its_own_version_into_the_operation_log(self) -> None:
+        # 顶栏版本号来自后端 API，证明不了浏览器加载的是哪一份 canvas.js。
+        # 脚本必须自报版本，否则无法区分「代码没生效」和「代码有问题」。
+        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        constants = (ROOT / "constants.py").read_text(encoding="utf-8")
+        self.assertIn('const CANVAS_SCRIPT_VERSION = "4.6.14";', editor)
+        self.assertIn('PLUGIN_VERSION = "4.6.14"', constants)
+        self.assertIn(
+            'recordOperation("画布脚本版本", `canvas.js ${CANVAS_SCRIPT_VERSION}`, "warning")',
+            editor,
+        )
 
     def test_editor_logs_drag_probe_into_the_operation_log(self) -> None:
         # 宿主 WebView 里没有控制台可用，拖放事件必须能在页面内的「操作记录」
@@ -933,8 +945,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.13", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.13"', constants)
+        self.assertIn("version: 4.6.14", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.14"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
