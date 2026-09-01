@@ -7399,6 +7399,7 @@ els.imageViewerFoldBtn?.addEventListener("click", (event) => {
 els.imageViewerPrevBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(-1); });
 els.imageViewerNextBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(1); });
 els.imageViewer.addEventListener("pointerdown", (event) => {
+  // Keep the original selector contract: event.target.closest(".image-viewer-details, .image-viewer-place-btn")
   if (
     event.button !== 0
     || event.target.closest(
