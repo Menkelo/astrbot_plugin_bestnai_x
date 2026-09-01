@@ -279,6 +279,7 @@ const state = {
   contextMenuNodeId: "",
   viewerLibraryAsset: null,
   viewerNodeId: "",
+  viewerNavItems: [],
   viewerImageDimensions: { width: 0, height: 0 },
   viewerFrameSyncHandle: 0,
   viewerBottomLayoutLock: null,
@@ -5817,6 +5818,7 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   const navItems = libraryAsset
     ? state.library.images
     : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
+  state.viewerNavItems = navItems;
   const navEnabled = navItems.length > 1;
   [els.imageViewerPrevBtn, els.imageViewerNextBtn].forEach((button) => {
     if (!button) return;
@@ -5842,9 +5844,10 @@ async function stepImageViewer(delta) {
     await openLibraryImageViewer(target);
     return;
   }
-  const items = state.nodes.filter((item) => item.type === "image" && item.dataUrl);
-  const currentNode = state.nodes.find((item) => item.dataUrl === els.imageViewerImage.src || item.id === state.viewerNodeId);
-  const index = items.findIndex((item) => item === currentNode || item.dataUrl === els.imageViewerImage.src);
+  const items = Array.isArray(state.viewerNavItems)
+    ? state.viewerNavItems
+    : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
+  const index = items.findIndex((item) => item.id === state.viewerNodeId);
   if (index < 0 || items.length < 2) return;
   openImageViewer(items[(index + delta + items.length) % items.length]);
 }
@@ -5868,6 +5871,7 @@ function closeImageViewer() {
   applyImageViewerLayout(0, 0);
   state.viewerLibraryAsset = null;
   state.viewerNodeId = "";
+  state.viewerNavItems = [];
   els.imageViewerPlaceBtn.hidden = true;
   if (wasOpen) recordOperation("关闭图片预览");
 }
@@ -7397,7 +7401,9 @@ els.imageViewerNextBtn?.addEventListener("click", (event) => { event.stopPropaga
 els.imageViewer.addEventListener("pointerdown", (event) => {
   if (
     event.button !== 0
-    || event.target.closest(".image-viewer-details, .image-viewer-place-btn")
+    || event.target.closest(
+      ".image-viewer-details, .image-viewer-place-btn, .image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs",
+    )
   ) return;
   if (imageViewerPointHitsRenderedImage(event.clientX, event.clientY)) return;
   closeImageViewer();
