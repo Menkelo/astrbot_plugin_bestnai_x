@@ -2,6 +2,19 @@
 
 本文件记录 NAI Diffusion X 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [4.6.12] - 2026-09-02
+
+### 修复
+
+- **修复外部图片无法拖入画布**：4.6.9 移除了 document 捕获阶段的拖放监听，只在 `#board` 上保留冒泡监听。AstrBot 的 WebView 并不总把原生拖放派发到画布子树内，导致 `dragover` 从未触发、没有任何 `preventDefault()`，Chromium 直接显示禁止投放光标，虚线遮罩与 `drop` 都不会出现。现在重新在 document 捕获阶段接住 `dragenter`/`dragover`/`drop`，并用 `WeakSet` 标记已处理的 drop，避免与画布自身的冒泡监听重复上传。
+- **兼容 `DataTransfer.files` 为空的宿主**：恢复从 `DataTransfer.items` 提取文件的兜底路径。
+- **不再把无法识别的投放交还宿主**：拖入内容看起来是图片但未能取出文件时同样吞掉事件，防止 WebView 跳转到被拖动的文件。
+- **刷新画布缓存键**：静态资源切换到 `v=4.6.12`。
+
+### 测试
+
+- `test_editor_only_opens_drop_overlay_for_supported_images` 改为正向断言 document 捕获阶段的拖放监听与 `handledCanvasDrops` 去重，防止该修复再次被回退。
+
 ## [4.6.11] - 2026-09-02
 
 ### 修复

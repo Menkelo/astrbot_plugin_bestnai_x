@@ -7097,6 +7097,17 @@ function dataTransferHasFiles(dataTransfer) {
     || Number(dataTransfer?.files?.length || 0) > 0;
 }
 
+function filesFromDataTransfer(dataTransfer) {
+  const files = Array.from(dataTransfer?.files || []);
+  if (files.length) return files;
+  // Some WebViews leave DataTransfer.files empty and only expose the payload
+  // through the item list.
+  return Array.from(dataTransfer?.items || [])
+    .filter((item) => item?.kind === "file")
+    .map((item) => item.getAsFile?.())
+    .filter(Boolean);
+}
+
 function imageUrlFromDataTransfer(dataTransfer) {
   if (!dataTransfer) return "";
   const uri = String(dataTransfer.getData?.("text/uri-list") || "")
@@ -7114,8 +7125,7 @@ function dataTransferHasImage(dataTransfer) {
   const types = Array.from(dataTransfer?.types || []).map((type) => String(type).toLowerCase());
   return dataTransferHasFiles(dataTransfer)
     || types.includes("text/uri-list")
-    || types.includes("text/html")
-    || !!imageUrlFromDataTransfer(dataTransfer);
+    || types.includes("text/html");
 }
 
 async function fileFromDroppedImageUrl(url) {
@@ -7175,35 +7185,63 @@ document.addEventListener("cut", (event) => {
   if (!isSelectableTextTarget(event.target)) event.preventDefault();
 });
 
-els.viewport.addEventListener("dragover", (event) => {
+// AstrBot embeds this page in a WebView that does not always route the native
+// drag through the board's subtree, so a listener bound to els.viewport alone
+// never runs and the browser paints the forbidden-drop cursor. Accept the drag
+// at document level in the capture phase, then validate the real payload when
+// `drop` fires.
+function acceptDocumentFileDrag(event) {
   // Sandboxed WebViews may hide DataTransfer.types until drop. Always keep
   // this surface droppable, then validate the actual payload in the drop
   // handler and uploadFiles().
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   els.viewport.classList.add("drag-over");
-});
+}
+
+document.addEventListener("dragenter", acceptDocumentFileDrag, true);
+document.addEventListener("dragover", acceptDocumentFileDrag, true);
+els.viewport.addEventListener("dragover", acceptDocumentFileDrag);
 els.viewport.addEventListener("dragleave", (event) => {
   if (!els.viewport.contains(event.relatedTarget)) clearDropOverlay();
 });
-els.viewport.addEventListener("drop", async (event) => {
-  const hasImage = dataTransferHasImage(event.dataTransfer);
+
+// Drops are handled once, at document level, and marked so the board's own
+// bubbling listener cannot upload the same payload twice.
+const handledCanvasDrops = new WeakSet();
+
+function canvasDropPoint(event) {
+  const rect = els.viewport.getBoundingClientRect();
+  const clientX = clamp(Number(event.clientX) || rect.left + rect.width / 2, rect.left, rect.right);
+  const clientY = clamp(Number(event.clientY) || rect.top + rect.height / 2, rect.top, rect.bottom);
+  return clientToWorld(clientX, clientY);
+}
+
+async function handleCanvasDrop(event) {
+  if (handledCanvasDrops.has(event)) return;
+  const files = filesFromDataTransfer(event.dataTransfer);
+  const imageUrl = files.length ? "" : imageUrlFromDataTransfer(event.dataTransfer);
   clearDropOverlay();
-  if (!hasImage) return;
+  if (!files.length && !imageUrl && !dataTransferHasImage(event.dataTransfer)) return;
+  handledCanvasDrops.add(event);
+  // Swallow the drop even when nothing usable came through, so the host
+  // WebView cannot navigate away to the dragged file.
   event.preventDefault();
-  const point = clientToWorld(event.clientX, event.clientY);
-  const files = Array.from(event.dataTransfer.files || []);
+  const point = canvasDropPoint(event);
   if (files.length) {
     await uploadFiles(files, point);
     return;
   }
   try {
-    await uploadFiles([await fileFromDroppedImageUrl(imageUrlFromDataTransfer(event.dataTransfer))], point);
+    await uploadFiles([await fileFromDroppedImageUrl(imageUrl)], point);
   } catch (error) {
     recordOperation("拖入图片失败", error.message || "无法读取拖入图片", "error");
     toast(error.message || "无法读取拖入图片", "error");
   }
-});
+}
+
+document.addEventListener("drop", handleCanvasDrop, true);
+els.viewport.addEventListener("drop", handleCanvasDrop);
 window.addEventListener("dragend", clearDropOverlay);
 window.addEventListener("drop", clearDropOverlay, true);
 window.addEventListener("blur", clearDropOverlay);
