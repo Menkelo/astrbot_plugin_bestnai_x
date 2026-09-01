@@ -4972,6 +4972,12 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     || meta.retagAssetId !== sourceImage.assetId
     || !Object.keys(tagGroups).length
   ) return null;
+  // Older workspaces only persisted the control-stripped prompt. In raw mode
+  // that cache is incomplete, so refresh once to recover the full metadata
+  // prompt before generating.
+  if (node.raw && meta.retagFromMetadata && !String(meta.retagRawPrompt || "").trim()) {
+    return null;
+  }
   const cachedSeed = normalizeNaiSeed(meta.retagSeed);
   // A legacy workspace may have cached tags but no seed even though the
   // source image now carries one (for example after restoring it from the
