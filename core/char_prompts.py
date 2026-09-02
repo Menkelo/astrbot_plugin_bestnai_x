@@ -206,3 +206,15 @@ def normalize_char_entries(raw: Any) -> List[Dict[str, Any]]:
         result.append(entry)
 
     return result
+
+
+def automatic_char_layout(raw_entries: Any) -> tuple[bool, bool]:
+    """Derive NovelAI's layout flags from the number of effective characters.
+
+    A single character has no region to disambiguate and some relays reject
+    ``use_coords=true`` unless at least two character prompts are enabled.
+    Multiple characters always use their stored centers.
+    """
+    character_count = len(normalize_char_entries(raw_entries))
+    use_coords = character_count >= 2
+    return use_coords, not use_coords

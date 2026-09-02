@@ -22,7 +22,7 @@ from .constants import (
     normalize_nai_seed,
 )
 from .core.api_errors import describe_api_error, strip_error_subject
-from .core.char_prompts import has_explicit_positions, normalize_char_entries
+from .core.char_prompts import automatic_char_layout, normalize_char_entries
 from .core.debug_trace import DebugTrace
 from .core.generator import (
     APIKeyError,
@@ -53,6 +53,7 @@ from .models.config import (
     SUPPORTED_SAMPLERS,
     GenerationConfig,
     PluginConfig,
+    migrate_legacy_prompt_block_words,
     model_supports_cjk,
     resolve_model_choice,
 )
@@ -174,6 +175,20 @@ class BestNAIPlugin(Star):
         super().__init__(context)
 
         self.context = context
+        safety_config = config.get("safety_config", {})
+        if isinstance(safety_config, dict):
+            migrated_words = migrate_legacy_prompt_block_words(
+                safety_config.get("prompt_block_words")
+            )
+            if migrated_words is not None:
+                safety_config["prompt_block_words"] = migrated_words
+                config["safety_config"] = safety_config
+                save_config = getattr(config, "save_config", None)
+                if callable(save_config):
+                    try:
+                        save_config()
+                    except Exception as exc:
+                        logger.warning(f"[BestNAI] 敏感词配置迁移保存失败: {exc}")
         self.plugin_config = PluginConfig.from_dict(config)
 
         self.runtime_state = RuntimeStateService(PLUGIN_NAME)
@@ -980,19 +995,10 @@ class BestNAIPlugin(Star):
                         trace.note("角色提示词翻译失败", reason or "保留原文")
                 translated_char_prompts.append(translated_entry)
             char_prompts = translated_char_prompts
-            # 站位只有在 use_coords 为真时才生效，否则 NovelAI 按出场顺序排布、
-            # 忽略坐标。前端现在总会发送 retagUseCoords；它一旦存在就是权威值。
-            # 只有旧版客户端完全没有这个字段时，才根据显式 position 兼容推断。
-            # 不能把规范化过程中由 center 推导出的 B3/C3/D3 当成用户选择，
-            # 否则会把官方元数据里的 use_coords=false 错误改成 true。
-            use_coords = (
-                bool(payload.get("retagUseCoords"))
-                if "retagUseCoords" in payload
-                else has_explicit_positions(raw_char_prompts)
-            )
-            # The canvas exposes these as one mutually-exclusive layout mode.
-            # Prefer coordinates when a legacy workspace contains both flags.
-            use_order = bool(payload.get("retagUseOrder", True)) and not use_coords
+            # Layout is derived from enabled, non-empty entries. A singleton
+            # always uses order mode because relays reject coordinate mode
+            # unless at least two character prompts are enabled.
+            use_coords, use_order = automatic_char_layout(char_prompts)
             gen_config = replace(
                 gen_config,
                 characters=char_prompts,
@@ -2288,11 +2294,14 @@ class BestNAIPlugin(Star):
 
             character_entries = normalize_char_entries(characters)
             if character_entries:
+                automatic_use_coords, automatic_use_order = automatic_char_layout(
+                    character_entries
+                )
                 gen_config = replace(
                     gen_config,
                     characters=character_entries,
-                    use_coords=bool(use_coords),
-                    use_order=bool(use_order),
+                    use_coords=automatic_use_coords,
+                    use_order=automatic_use_order,
                 )
 
         except Exception as e:

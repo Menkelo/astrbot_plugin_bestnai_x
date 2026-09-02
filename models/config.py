@@ -64,6 +64,72 @@ DEFAULT_DANBOORU_API_URL = "https://sakizuki-danboorusearch.hf.space"
 # NovelAI 官方生图主机。自建或第三方站点在配置面板里改成自己的地址。
 DEFAULT_OFFICIAL_API_URL = "https://image.novelai.net"
 
+LEGACY_OVERBROAD_PROMPT_BLOCK_WORDS = {
+    "裸",
+    "本子",
+    "凌辱",
+    "调教",
+    "援交",
+    "走光",
+    "低胸",
+    "乳沟",
+    "内衣",
+    "情趣内衣",
+    "透视装",
+    "透明衣服",
+    "比基尼",
+    "泳装",
+    "高叉",
+    "诱惑姿势",
+    "臀部特写",
+    "胸部特写",
+    "胯部特写",
+    "涩涩",
+    "色色",
+    "性感",
+    "诱惑",
+    "成人内容",
+    "成人向",
+    "擦边",
+    "breasts",
+    "breast",
+    "cleavage",
+    "underwear",
+    "panties",
+    "panty",
+    "panties aside",
+    "wet panties",
+    "torn panties",
+    "panty pull",
+    "lingerie",
+    "bikini",
+    "swimsuit",
+    "see-through",
+    "transparent clothes",
+    "torn clothes",
+    "spread legs",
+    "man on top",
+    "woman on top",
+    "missionary",
+    "doggystyle",
+    "cowgirl position",
+    "reverse cowgirl",
+    "groin focus",
+    "ass focus",
+    "breast focus",
+    "erotic",
+    "suggestive",
+    "sexy",
+    "seductive",
+    "questionable",
+    "ecchi",
+    "loli",
+    "shota",
+}
+_LEGACY_OVERBROAD_PROMPT_BLOCK_KEYS = {
+    word.casefold() for word in LEGACY_OVERBROAD_PROMPT_BLOCK_WORDS
+}
+
 DEFAULT_ARTIST_PRESET_LIST = [
     "可爱:artist:ciloranko , [artist:sho_(sho_lwlw)], [[artist:tianliang_duohe_fangdongye]],[[[[[[artist:kani_biimu]]]]]]",
     "幼态:artist: ciloranko, [artist: tianliang duohe fangdongye], [artist: sho_(sho_lwlw)], [artist: baku-p], [artist:tsubasa_tsubasa], [[artist:as109]], [[artist:rhasta]]",
@@ -269,7 +335,7 @@ class PluginConfig:
         prompt_block_words = (
             None
             if raw_prompt_block_words is None
-            else _normalize_string_list(raw_prompt_block_words)
+            else _normalize_prompt_block_words(raw_prompt_block_words)
         )
 
         if not raw_artist_presets:
@@ -463,6 +529,40 @@ def _normalize_string_list(raw) -> List[str]:
         return [line.strip() for line in text.splitlines() if line.strip()]
 
     return []
+
+
+def _normalize_prompt_block_words(raw) -> List[str]:
+    """Read the current multiline field and legacy list/comma formats."""
+    if isinstance(raw, list):
+        return _normalize_string_list(raw)
+
+    if not isinstance(raw, str):
+        return []
+
+    text = raw.strip()
+    if not text:
+        return []
+
+    lines = text.splitlines()
+    if len(lines) == 1 and "," in text:
+        lines = text.split(",")
+    return [line.strip() for line in lines if line.strip()]
+
+
+def migrate_legacy_prompt_block_words(raw) -> str | None:
+    """Convert the old list widget value to the new pruned multiline text."""
+    if not isinstance(raw, list):
+        return None
+
+    result: List[str] = []
+    seen: set[str] = set()
+    for word in _normalize_string_list(raw):
+        key = word.casefold()
+        if key in seen or key in _LEGACY_OVERBROAD_PROMPT_BLOCK_KEYS:
+            continue
+        seen.add(key)
+        result.append(word)
+    return "\n".join(result)
 
 
 def _first_artist_preset_name(items: List[str]) -> str:

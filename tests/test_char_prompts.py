@@ -10,6 +10,7 @@ if str(workspace_dir) not in sys.path:
     sys.path.insert(0, str(workspace_dir))
 
 from astrbot_plugin_bestnai_x.core.char_prompts import (  # noqa: E402
+    automatic_char_layout,
     char_grid_position,
     default_char_position,
     has_explicit_positions,
@@ -80,6 +81,22 @@ class HasExplicitPositionsTest(unittest.TestCase):
         for value in (None, "x", {}, 42):
             with self.subTest(value=value):
                 self.assertFalse(has_explicit_positions(value))
+
+
+class AutomaticCharLayoutTest(unittest.TestCase):
+    def test_zero_or_one_effective_character_uses_order(self) -> None:
+        for entries in ([], [{"prompt": "solo"}], [{"prompt": ""}, None]):
+            with self.subTest(entries=entries):
+                self.assertEqual(automatic_char_layout(entries), (False, True))
+
+    def test_two_or_more_effective_characters_use_coordinates(self) -> None:
+        entries = [
+            {"prompt": "first"},
+            {"prompt": ""},
+            {"prompt": "second"},
+        ]
+
+        self.assertEqual(automatic_char_layout(entries), (True, False))
 
 
 class NormalizeCharEntriesTest(unittest.TestCase):

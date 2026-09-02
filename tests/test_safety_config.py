@@ -19,7 +19,10 @@ from astrbot_plugin_bestnai_x.core.safety import (  # noqa: E402
     SafetyModerator,
     filter_sensitive_prompt,
 )
-from astrbot_plugin_bestnai_x.models.config import PluginConfig  # noqa: E402
+from astrbot_plugin_bestnai_x.models.config import (  # noqa: E402
+    PluginConfig,
+    migrate_legacy_prompt_block_words,
+)
 
 
 class SafetyPromptWordsTest(unittest.TestCase):
@@ -32,7 +35,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertFalse(blocked.safe)
         self.assertTrue(allowed.safe)
 
-    def test_custom_words_extend_builtin_detection_words(self) -> None:
+    def test_configured_words_replace_builtin_defaults(self) -> None:
         moderator = SafetyModerator(
             SimpleNamespace(
                 prompt_block_enabled=True,
@@ -42,7 +45,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         result = moderator.check_prompt("nude, custom blocked, portrait")
 
-        self.assertNotIn("nude", result.filtered_prompt)
+        self.assertIn("nude", result.filtered_prompt)
         self.assertNotIn("custom blocked", result.filtered_prompt)
 
     def test_detection_mode_keeps_prompt_intact(self) -> None:
@@ -56,14 +59,14 @@ class SafetyPromptWordsTest(unittest.TestCase):
         result = moderator.detect_prompt("nude, custom blocked, portrait")
 
         self.assertEqual(result.filtered_prompt, "nude, custom blocked, portrait")
-        self.assertIn("nude", result.reason)
+        self.assertNotIn("nude", result.reason)
         self.assertIn("custom blocked", result.reason)
 
-    def test_empty_custom_list_keeps_builtin_protection(self) -> None:
+    def test_empty_configured_list_disables_word_detection(self) -> None:
         filtered, removed = filter_sensitive_prompt("nude portrait", [])
 
-        self.assertEqual(filtered, "")
-        self.assertIn("nude", removed)
+        self.assertEqual(filtered, "nude portrait")
+        self.assertEqual(removed, [])
 
     def test_missing_custom_list_keeps_builtin_compatibility(self) -> None:
         filtered, removed = filter_sensitive_prompt("nude portrait", None)
@@ -86,41 +89,49 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertIn("nude", removed)
         self.assertIn("explicit", removed)
 
-    def test_explicit_qq_tags_remove_the_whole_tag_without_risky_residue(self) -> None:
+    def test_explicit_tags_are_removed_but_soft_tags_remain(self) -> None:
         filtered, removed = filter_sensitive_prompt(
             "girl, school uniform, torn clothes, torn panties, wet panties, "
             "panties aside, pussy, vaginal, sex, deep penetration, lying on back, "
             "on bed, bedroom, man on top, rough sex, exposed breasts, nipples, "
             "spread legs, blush, heavy breathing, looking at viewer, from above, "
             "close-up, dim lighting",
-            [],
+            None,
         )
 
-        self.assertEqual(
-            filtered,
-            "girl, school uniform, lying on back, on bed, bedroom, blush, "
-            "heavy breathing, looking at viewer, from above, close-up, dim lighting",
-        )
         for word in (
-            "torn clothes",
-            "torn panties",
-            "wet panties",
-            "panties aside",
             "pussy",
             "vaginal",
             "sex",
             "deep penetration",
-            "man on top",
             "rough sex",
-            "breasts",
+            "exposed breasts",
             "nipples",
-            "spread legs",
         ):
             with self.subTest(word=word):
                 self.assertIn(word, removed)
 
-        self.assertNotIn("rough", filtered)
-        self.assertNotIn("exposed", filtered)
+        for tag in (
+            "torn clothes",
+            "torn panties",
+            "wet panties",
+            "panties aside",
+            "man on top",
+            "spread legs",
+        ):
+            with self.subTest(tag=tag):
+                self.assertIn(tag, filtered)
+
+    def test_removed_overbroad_defaults_no_longer_trigger(self) -> None:
+        prompt = (
+            "泳装, 比基尼, 内衣, 性感, 诱惑, swimsuit, bikini, underwear, "
+            "sexy, suggestive, breast focus, loli, shota"
+        )
+
+        filtered, removed = filter_sensitive_prompt(prompt, None)
+
+        self.assertEqual(removed, [])
+        self.assertEqual(filtered, prompt)
 
     def test_zero_width_characters_cannot_bypass_filter(self) -> None:
         filtered, removed = filter_sensitive_prompt("n\u200bude, portrait", None)
@@ -136,12 +147,35 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertFalse(moderator._parse_result('{"verdict":"unsafe"}').safe)
         self.assertFalse(moderator._parse_result("图片不安全，存在裸露").safe)
 
-    def test_plugin_config_preserves_an_explicit_empty_list(self) -> None:
+    def test_plugin_config_preserves_an_explicit_empty_textbox(self) -> None:
         config = PluginConfig.from_dict(
-            {"safety_config": {"prompt_block_words": []}}
+            {"safety_config": {"prompt_block_words": ""}}
         )
 
         self.assertEqual(config.safety.prompt_block_words, [])
+
+    def test_plugin_config_parses_textbox_and_legacy_list(self) -> None:
+        text_config = PluginConfig.from_dict(
+            {"safety_config": {"prompt_block_words": "first word\nsecond_word\n"}}
+        )
+        legacy_config = PluginConfig.from_dict(
+            {"safety_config": {"prompt_block_words": ["first word", "second_word"]}}
+        )
+        comma_config = PluginConfig.from_dict(
+            {"safety_config": {"prompt_block_words": "first word,second_word"}}
+        )
+
+        self.assertEqual(text_config.safety.prompt_block_words, ["first word", "second_word"])
+        self.assertEqual(legacy_config.safety.prompt_block_words, ["first word", "second_word"])
+        self.assertEqual(comma_config.safety.prompt_block_words, ["first word", "second_word"])
+
+    def test_legacy_widget_migration_prunes_soft_words_and_keeps_custom_words(self) -> None:
+        migrated = migrate_legacy_prompt_block_words(
+            ["nude", "泳装", "custom blocked", "SEXY", "nude"]
+        )
+
+        self.assertEqual(migrated, "nude\ncustom blocked")
+        self.assertIsNone(migrate_legacy_prompt_block_words("nude\ncustom blocked"))
 
     def test_visual_review_provider_was_removed_from_schema(self) -> None:
         config = PluginConfig.from_dict({})
@@ -168,12 +202,12 @@ class SafetyPromptWordsTest(unittest.TestCase):
             ["{hokori sakuni}, {ciloranko}", "masterpiece, highres"],
         )
 
-    def test_schema_exposes_the_current_builtin_words(self) -> None:
+    def test_schema_exposes_builtin_words_as_multiline_text(self) -> None:
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
         prompt_words = schema["safety_config"]["items"]["prompt_block_words"]
 
-        self.assertEqual(prompt_words["type"], "list")
-        self.assertEqual(prompt_words["default"], HARD_BLOCK_WORDS)
+        self.assertEqual(prompt_words["type"], "text")
+        self.assertEqual(prompt_words["default"].splitlines(), HARD_BLOCK_WORDS)
 
     def test_schema_exposes_generation_providers(self) -> None:
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))

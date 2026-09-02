@@ -19,7 +19,7 @@ import zipfile
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
-from .char_prompts import char_entry_center, normalize_char_entries
+from .char_prompts import automatic_char_layout, char_entry_center, normalize_char_entries
 from ..constants import normalize_nai_seed
 from ..models.config import GenerationConfig, model_supports_variety_boost
 
@@ -92,10 +92,9 @@ def _build_character_fields(
     prompt: str,
     negative_prompt: str,
     entries: List[Dict[str, Any]],
-    use_coords: bool,
-    use_order: bool,
 ) -> Dict[str, Any]:
     """Build the native V4+ character fields from normalized entries."""
+    use_coords, use_order = automatic_char_layout(entries)
     v4_prompt: Dict[str, Any] = {
         "caption": {
             "base_caption": prompt,
@@ -141,8 +140,6 @@ def build_character_payload(
     prompt: str,
     negative_prompt: str,
     raw_entries: Any,
-    use_coords: bool,
-    use_order: bool,
 ) -> Dict[str, Any]:
     """Return native NovelAI V4+ fields for any supported character input."""
     entries = normalize_char_entries(raw_entries)
@@ -150,8 +147,6 @@ def build_character_payload(
         prompt,
         negative_prompt,
         entries,
-        use_coords,
-        use_order,
     )
 
 
@@ -202,8 +197,6 @@ def build_generate_payload(
             prompt,
             gen_config.negative_prompt or "",
             entries,
-            gen_config.use_coords,
-            gen_config.use_order,
         )
     )
 

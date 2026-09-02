@@ -282,9 +282,22 @@ class CharacterPayloadTest(unittest.TestCase):
         self.assertIs(parameters["v4_prompt"]["use_coords"], True)
         self.assertNotIn("use_order", parameters["v4_prompt"])
 
-    def test_order_mode_keeps_true_use_order(self) -> None:
+    def test_multiple_characters_ignore_legacy_order_mode(self) -> None:
         parameters = self._parameters(use_coords=False, use_order=True)
 
+        self.assertIs(parameters["v4_prompt"]["use_coords"], True)
+        self.assertNotIn("use_order", parameters["v4_prompt"])
+
+    def test_single_character_ignores_legacy_coordinate_mode(self) -> None:
+        gen_config = replace(
+            BASE,
+            characters=[{"prompt": "ganyu", "position": "B2"}],
+            use_coords=True,
+            use_order=False,
+        )
+        parameters = build_generate_payload("1girl", gen_config)["parameters"]
+
+        self.assertIs(parameters["use_coords"], False)
         self.assertIs(parameters["v4_prompt"]["use_coords"], False)
         self.assertIs(parameters["v4_prompt"]["use_order"], True)
 

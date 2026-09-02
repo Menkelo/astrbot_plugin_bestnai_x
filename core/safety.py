@@ -1,8 +1,8 @@
 """QQ 防封安全模块。
 
-主流程使用提示词敏感词过滤和安全负面词追加；命中过滤词后，发送层会
-对图片副本做本地混淆。``check_image`` 保留用于旧调用方兼容，但不再由
-主生图流程调用，也不再需要视觉审核提供商。
+主流程只检测提示词并把命中结果作为图片混淆触发器，不改写生成提示词。
+``check_prompt``、``append_safe_negative`` 和 ``check_image`` 保留用于旧调用方
+兼容，但不再由主生图流程调用，也不再需要视觉审核提供商。
 """
 
 from __future__ import annotations
@@ -46,7 +46,6 @@ SAFE_NEGATIVE_TAGS = (
 
 HARD_BLOCK_WORDS = [
     # 中文 explicit
-    "裸",
     "裸体",
     "全裸",
     "露点",
@@ -67,17 +66,12 @@ HARD_BLOCK_WORDS = [
     "涩图",
     "色图",
     "r18",
-    "R18",
     "18禁",
-    "本子",
     "自慰",
     "口交",
     "内射",
     "射精",
     "强奸",
-    "凌辱",
-    "调教",
-    "援交",
     "萝莉色情",
     "幼女色情",
     "儿童色情",
@@ -86,31 +80,10 @@ HARD_BLOCK_WORDS = [
     "露胸",
     "裸胸",
     "胸部裸露",
-    "走光",
-    "低胸",
-    "乳沟",
-    "内衣",
-    "情趣内衣",
-    "透视装",
-    "透明衣服",
-    "比基尼",
-    "泳装",
-    "高叉",
     "开裆",
     "无内裤",
     "无胸罩",
-    "诱惑姿势",
     "色情姿势",
-    "臀部特写",
-    "胸部特写",
-    "胯部特写",
-    "涩涩",
-    "色色",
-    "性感",
-    "诱惑",
-    "成人内容",
-    "成人向",
-    "擦边",
 
     # English explicit
     "nsfw",
@@ -160,44 +133,11 @@ HARD_BLOCK_WORDS = [
     "child sexualization",
     "topless",
     "bottomless",
-    "breasts",
-    "breast",
-    "cleavage",
-    "underwear",
-    "panties",
-    "panty",
-    "panties aside",
-    "wet panties",
-    "torn panties",
-    "panty pull",
-    "lingerie",
-    "bikini",
-    "swimsuit",
-    "see-through",
-    "transparent clothes",
-    "torn clothes",
+    "exposed breasts",
     "cameltoe",
-    "spread legs",
-    "man on top",
-    "woman on top",
-    "missionary",
-    "doggystyle",
-    "cowgirl position",
-    "reverse cowgirl",
-    "groin focus",
-    "ass focus",
-    "breast focus",
-    "erotic",
-    "suggestive",
-    "sexy",
-    "seductive",
-    "questionable",
-    "ecchi",
     "pornographic",
     "lolicon",
     "shotacon",
-    "loli",
-    "shota",
 ]
 
 
@@ -239,10 +179,10 @@ def filter_sensitive_prompt(
     filtered = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", filtered)
     removed_words: list[str] = []
     removed_keys: set[str] = set()
-    # Built-in high-risk terms are always enforced while prompt filtering is
-    # enabled. User-configured terms extend this baseline, so an old saved
-    # configuration cannot silently miss newly added QQ protection rules.
-    words = [*HARD_BLOCK_WORDS, *(blocked_words or [])]
+    # ``None`` means the setting does not exist yet and receives the built-in
+    # defaults. An explicit list, including an empty one, is the complete
+    # user-edited list from the configuration text box.
+    words = HARD_BLOCK_WORDS if blocked_words is None else blocked_words
     normalized_words: list[str] = []
     seen_words: set[str] = set()
     for raw_word in words:

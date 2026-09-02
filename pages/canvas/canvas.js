@@ -1782,6 +1782,12 @@ function activeRetagCharPromptEntries(node) {
     .filter(Boolean);
 }
 
+function automaticRetagCharLayout(node) {
+  const entries = activeRetagCharPromptEntries(node);
+  const useCoords = entries.length >= 2;
+  return { entries, useCoords, useOrder: !useCoords };
+}
+
 function charGridCenter(position) {
   const match = String(position || "").trim().toUpperCase().match(/^([A-E])([1-5])$/);
   if (!match) return null;
@@ -2263,11 +2269,9 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     if (droppedTags) parts.push(`划掉 ${droppedTags} 条`);
     summary.textContent = parts.join(" · ");
     if (characterSummary) {
-      const activeCount = charPrompts.length - retagCharDisabledIndexes(node).filter(
-        (index) => index < charPrompts.length,
-      ).length;
-      characterSummary.textContent = `${activeCount}/${charPrompts.length} 启用${
-        node.meta?.retagUseCoords ? " · 按坐标" : " · 按顺序"
+      const { entries, useCoords } = automaticRetagCharLayout(node);
+      characterSummary.textContent = `${entries.length}/${charPrompts.length} 有效${
+        useCoords ? " · 按坐标" : " · 按顺序"
       }`;
     }
   };
@@ -2276,12 +2280,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const originalCharPrompts = Array.isArray(node.meta?.retagCharPromptsOriginal)
       ? normalizeCharPromptEntries(node.meta.retagCharPromptsOriginal, { keepEmpty: true })
       : (sourceImage ? charPrompts.map(cloneCharPromptEntry) : []);
-    const originalUseCoords = typeof node.meta?.retagUseCoordsOriginal === "boolean"
-      ? node.meta.retagUseCoordsOriginal
-      : !!node.meta?.retagUseCoords;
-    const originalUseOrder = typeof node.meta?.retagUseOrderOriginal === "boolean"
-      ? node.meta.retagUseOrderOriginal
-      : node.meta?.retagUseOrder !== false;
 
     const characterPanel = document.createElement("section");
     characterPanel.className = "retag-character-panel";
@@ -2291,52 +2289,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
 
     const characterOptions = document.createElement("div");
     characterOptions.className = "retag-character-options";
-
-    const modeSwitch = document.createElement("div");
-    modeSwitch.className = "retag-character-mode-switch";
-    modeSwitch.setAttribute("role", "radiogroup");
-    modeSwitch.setAttribute("aria-label", "角色布局模式");
-    const modeButtons = new Map();
-    const activeMode = node.meta?.retagUseCoords ? "coords" : "order";
-    const setCharacterMode = (mode, persist = true) => {
-      const useCoords = mode === "coords";
-      if (persist) pushHistory();
-      node.meta = {
-        ...(node.meta || {}),
-        retagUseCoords: useCoords,
-        retagUseOrder: !useCoords,
-      };
-      modeButtons.forEach((button, key) => {
-        const active = key === mode;
-        button.classList.toggle("active", active);
-        button.setAttribute("aria-checked", String(active));
-      });
-      if (persist) {
-        clearDebugTrace(node);
-        refreshSummary();
-        scheduleSave();
-      }
-    };
-    [
-      ["coords", "按坐标分区", "按每个角色的精确 center 坐标布局"],
-      ["order", "按出场顺序", "忽略坐标，按角色提示词的出场顺序布局"],
-    ].forEach(([mode, labelText, titleText]) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "retag-character-mode";
-      button.textContent = labelText;
-      button.title = titleText;
-      button.setAttribute("role", "radio");
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (mode === (node.meta?.retagUseCoords ? "coords" : "order")) return;
-        setCharacterMode(mode);
-      });
-      modeButtons.set(mode, button);
-      modeSwitch.appendChild(button);
-    });
-    characterOptions.appendChild(modeSwitch);
-    setCharacterMode(activeMode, false);
 
     const restoreCharacters = document.createElement("button");
     restoreCharacters.type = "button";
@@ -2355,8 +2307,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
           ...(item.center ? { center: { ...item.center } } : {}),
         })),
         retagCharDisabled: [],
-        retagUseCoords: originalUseCoords,
-        retagUseOrder: originalUseOrder,
         retagCharacterExpanded: true,
       };
       clearDebugTrace(node);
@@ -2424,8 +2374,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         node.meta = {
           ...(node.meta || {}),
           retagCharPromptsOriginal: serializeCharacterEntries(),
-          retagUseCoordsOriginal: !!node.meta?.retagUseCoords,
-          retagUseOrderOriginal: node.meta?.retagUseOrder !== false,
         };
       }
       charPrompts.push({
@@ -2437,7 +2385,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       node.meta = {
         ...(node.meta || {}),
         retagCharPrompts: serializeCharacterEntries(),
-        retagUseCoords: true,
         retagCharacterExpanded: true,
       };
       node._characterModuleSelectedIndex = charPrompts.length - 1;
@@ -2601,7 +2548,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
           ...item,
           ...(item.center ? { center: { ...item.center } } : {}),
         })),
-        retagUseCoords: true,
       };
       clearDebugTrace(node);
       syncCharacterPreview();
@@ -2756,7 +2702,6 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
             y: clamp((moveEvent.clientY - rect.top) / rect.height, 0, 1),
           };
           updateCharacterEntry(index, { center, position: "" });
-          node.meta = { ...(node.meta || {}), retagUseCoords: true };
           syncCharacterPreview();
           refreshSummary();
         };
@@ -4665,48 +4610,49 @@ async function generateFromNode(id, {
       ? retagLayerCategoryLists(node)
       : { preserve: [], drop: [] };
     const totalCount = clamp(Math.round(Number(node.meta?.count)) || 1, 1, 4);
-    const buildPayload = (callSeed) => ({
-      prompt: workingPrompt,
-      model: node.model || state.config.defaultModel || "",
-      // 优先级：节点高级参数卡 > 反推命中的原图参数 > 插件默认
-      steps: node.meta?.steps || node.meta?.retagSteps || undefined,
-      scale: node.meta?.scale || node.meta?.retagScale || undefined,
-      cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined,
-      noise_schedule: node.meta?.retagNoiseSchedule || undefined,
-      // 手动高级参数优先于反推命中的原图采样器。
-      sampler: node.meta?.sampler || node.meta?.retagSampler || undefined,
-      // Legacy source contract (kept for old integrations): sampler: node.meta?.retagSampler || undefined
-      varietyPlus: !!node.meta?.varietyBoost,
-      retagPrompt: (node.raw && node.meta?.retagRawPrompt)
-        ? String(node.meta.retagRawPrompt).trim()
-        : requestRetagPrompt,
-      retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
-      retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
-      ratio: node.ratio,
-      artist: node.artist,
-      retagPreserveCategories: retagLayerCategories.preserve,
-      retagDropCategories: retagLayerCategories.drop,
-      retagDropTags: retagDroppedTags(node),
-      raw: !!node.raw,
-      // 只有 raw 打开时这个开关才有意义，关掉 raw 就不该把它带出去
-      rawTranslate: rawTranslateOn,
-      translationSource,
-      cachedTranslationSource: node.meta?.translationSource || "",
-      cachedTranslation: node.meta?.translationResult || "",
-      cachedTranslationCharacter: node.meta?.translationCharacter || "",
-      cachedTranslationSeries: node.meta?.translationSeries || "",
-      debug: debugModeEnabled(),
-      retagCharPrompts: activeRetagCharPromptEntries(node),
-      retagUseCoords: !!node.meta?.retagUseCoords,
-      // Old workspaces do not have retagUseOrder; NovelAI's default is true.
-      // Do not turn a missing legacy value into false via !!undefined.
-      retagUseOrder: node.meta?.retagUseOrder !== false,
-      // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
-      // A seed collected from an image belongs to the retag flow.  If the
-      // source connection was removed, a plain prompt generation must not
-      // silently inherit that old seed.
-      seed: callSeed,
-    });
+    const buildPayload = (callSeed) => {
+      const characterLayout = automaticRetagCharLayout(node);
+      return {
+        prompt: workingPrompt,
+        model: node.model || state.config.defaultModel || "",
+        // 优先级：节点高级参数卡 > 反推命中的原图参数 > 插件默认
+        steps: node.meta?.steps || node.meta?.retagSteps || undefined,
+        scale: node.meta?.scale || node.meta?.retagScale || undefined,
+        cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined,
+        noise_schedule: node.meta?.retagNoiseSchedule || undefined,
+        // 手动高级参数优先于反推命中的原图采样器。
+        sampler: node.meta?.sampler || node.meta?.retagSampler || undefined,
+        // Legacy source contract (kept for old integrations): sampler: node.meta?.retagSampler || undefined
+        varietyPlus: !!node.meta?.varietyBoost,
+        retagPrompt: (node.raw && node.meta?.retagRawPrompt)
+          ? String(node.meta.retagRawPrompt).trim()
+          : requestRetagPrompt,
+        retagCharacter: retagged ? String(node.meta?.retagCharacter || "").trim() : "",
+        retagSeries: retagged ? String(node.meta?.retagSeries || "").trim() : "",
+        ratio: node.ratio,
+        artist: node.artist,
+        retagPreserveCategories: retagLayerCategories.preserve,
+        retagDropCategories: retagLayerCategories.drop,
+        retagDropTags: retagDroppedTags(node),
+        raw: !!node.raw,
+        // 只有 raw 打开时这个开关才有意义，关掉 raw 就不该把它带出去
+        rawTranslate: rawTranslateOn,
+        translationSource,
+        cachedTranslationSource: node.meta?.translationSource || "",
+        cachedTranslation: node.meta?.translationResult || "",
+        cachedTranslationCharacter: node.meta?.translationCharacter || "",
+        cachedTranslationSeries: node.meta?.translationSeries || "",
+        debug: debugModeEnabled(),
+        retagCharPrompts: characterLayout.entries,
+        retagUseCoords: characterLayout.useCoords,
+        retagUseOrder: characterLayout.useOrder,
+        // 原图自带种子时沿用它，配合原图 prompt 才能真正还原这张图
+        // A seed collected from an image belongs to the retag flow.  If the
+        // source connection was removed, a plain prompt generation must not
+        // silently inherit that old seed.
+        seed: callSeed,
+      };
+    };
     const baseStatus = willTranslate
       ? (canReuseTranslation
         ? "正在复用英文 tags 并生成图片"
@@ -5019,8 +4965,6 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     tagGroups,
     tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
     charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts),
-    charUseCoords: !!meta.retagUseCoords,
-    charUseOrder: meta.retagUseOrder !== false,
     steps: clampMetaNumber(meta.retagSteps, ADV_RANGES.steps.min, ADV_RANGES.steps.max),
     scale: clampMetaNumber(meta.retagScale, ADV_RANGES.scale.min, ADV_RANGES.scale.max),
     cfgRescale: clampMetaNumber(
@@ -5108,12 +5052,6 @@ async function retagFromNode(
     const originalCharPrompts = Array.isArray(node.meta?.retagCharPromptsOriginal)
       ? normalizeCharPromptEntries(node.meta.retagCharPromptsOriginal)
       : incomingCharPrompts;
-    const originalUseCoords = typeof node.meta?.retagUseCoordsOriginal === "boolean"
-      ? node.meta.retagUseCoordsOriginal
-      : !!result?.charUseCoords;
-    const originalUseOrder = typeof node.meta?.retagUseOrderOriginal === "boolean"
-      ? node.meta.retagUseOrderOriginal
-      : result?.charUseOrder !== false;
 
     pushHistory();
     node.meta = {
@@ -5139,14 +5077,6 @@ async function retagFromNode(
       retagCharPrompts: nextCharPrompts,
       retagCharPromptsOriginal: originalCharPrompts,
       retagCharDisabled: normalizeRetagCharIndexes(node.meta?.retagCharDisabled),
-      retagUseCoords: incomingCharPrompts.length
-        ? !!result?.charUseCoords
-        : !!node.meta?.retagUseCoords,
-      retagUseOrder: incomingCharPrompts.length
-        ? result?.charUseOrder !== false
-        : node.meta?.retagUseOrder !== false,
-      retagUseCoordsOriginal: originalUseCoords,
-      retagUseOrderOriginal: originalUseOrder,
       // 采样参数直接来自对原图文件的元数据解析，和 prompt 从哪来无关。
       // fromMetadata 只说明"prompt 是内嵌的"，命中画布缓存时它是 false，
       // 可图片里的 steps/sampler 依然有效——拿它当门禁等于整批丢掉。

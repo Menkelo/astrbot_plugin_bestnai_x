@@ -14,7 +14,7 @@ from PIL import Image as PILImage
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
-from .char_prompts import normalize_char_entries
+from .char_prompts import automatic_char_layout, normalize_char_entries
 from .novelai_api import (
     build_character_payload,
     build_generate_payload,
@@ -265,6 +265,7 @@ class ImageGenerator:
         # available in the native payload below.
         character_entries = normalize_char_entries(gen_config.characters)
         if character_entries:
+            use_coords, use_order = automatic_char_layout(character_entries)
             user_payload["characters"] = [
                 {
                     "prompt": entry.get("prompt", ""),
@@ -275,15 +276,13 @@ class ImageGenerator:
             ]
             # These two top-level keys are part of the established relay
             # dialect. The native payload below has its own nested flags.
-            user_payload["use_coords"] = bool(gen_config.use_coords)
-            user_payload["use_order"] = bool(gen_config.use_order)
+            user_payload["use_coords"] = use_coords
+            user_payload["use_order"] = use_order
             user_payload.update(
                 build_character_payload(
                     prompt,
                     gen_config.negative_prompt or "",
                     character_entries,
-                    gen_config.use_coords,
-                    gen_config.use_order,
                 )
             )
 

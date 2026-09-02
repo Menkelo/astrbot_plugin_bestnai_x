@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.18"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.19"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -923,8 +923,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.18", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.18"', constants)
+        self.assertIn("version: 4.6.19", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.19"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
@@ -1142,26 +1142,25 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
         self.assertIn("const incomingCharPrompts = normalizeCharPromptEntries(result?.charPrompts)", editor)
-        self.assertIn("? result?.charUseOrder !== false", editor)
         self.assertIn("charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts)", editor)
-        self.assertIn("charUseOrder: meta.retagUseOrder !== false", editor)
         self.assertIn(
-            "retagCharPrompts: activeRetagCharPromptEntries(node)",
+            "retagCharPrompts: characterLayout.entries",
             editor,
         )
         self.assertNotIn("retagCharPrompts: retagged ?", editor)
-        self.assertIn(
-            "retagUseOrder: node.meta?.retagUseOrder !== false",
-            editor,
-        )
         self.assertIn("function normalizeCharCenter", editor)
         self.assertIn("function activeRetagCharPromptEntries", editor)
+        self.assertIn("function automaticRetagCharLayout", editor)
+        self.assertIn("const useCoords = entries.length >= 2", editor)
+        self.assertIn("retagUseCoords: characterLayout.useCoords", editor)
+        self.assertIn("retagUseOrder: characterLayout.useOrder", editor)
         self.assertIn("retagCharDisabled: []", editor)
         self.assertIn("retagCharPromptsOriginal", editor)
-        self.assertIn("retagUseCoordsOriginal", editor)
-        self.assertIn("retagUseOrderOriginal", editor)
         self.assertIn("角色模块", editor)
-        self.assertIn("按坐标分区", editor)
+        self.assertNotIn("角色布局模式", editor)
+        self.assertNotIn('button.textContent = "按坐标分区"', editor)
+        self.assertNotIn('button.textContent = "按出场顺序"', editor)
+        self.assertNotIn(".retag-character-mode", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn("恢复原图参数", editor)
         self.assertIn("retagCharacterCard", editor)
         self.assertIn("roleStack.appendChild(retagCharacterCard)", editor)
@@ -1190,7 +1189,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("selectCharacter(index, true)", editor)
         self.assertIn("if (center) {", editor)
         self.assertIn("const position = String(item.position || \"\").trim().toUpperCase();", editor)
-        self.assertIn('if "retagUseCoords" in payload', main_source)
+        self.assertIn("use_coords, use_order = automatic_char_layout(char_prompts)", main_source)
         self.assertIn('if getattr(self.plugin_config, "use_official_api", False)', main_source)
 
     def test_canvas_generate_reuses_source_sampling_params(self) -> None:

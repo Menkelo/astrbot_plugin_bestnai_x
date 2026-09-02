@@ -71,6 +71,21 @@ def chat_user_payload(gen_config: GenerationConfig) -> dict:
 
 
 class VarietyBoostPayloadTest(unittest.TestCase):
+    def test_single_character_chat_payload_uses_order_mode(self) -> None:
+        gen_config = replace(
+            GenerationConfig(),
+            characters=[{"prompt": "ganyu", "position": "B2"}],
+            use_coords=True,
+            use_order=False,
+        )
+
+        user_payload = chat_user_payload(gen_config)
+
+        self.assertIs(user_payload["use_coords"], False)
+        self.assertIs(user_payload["use_order"], True)
+        self.assertIs(user_payload["v4_prompt"]["use_coords"], False)
+        self.assertIs(user_payload["v4_prompt"]["use_order"], True)
+
     def test_chat_payload_keeps_relay_compatibility_and_native_centers(self) -> None:
         gen_config = replace(
             GenerationConfig(),
