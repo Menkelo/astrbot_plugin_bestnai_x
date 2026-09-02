@@ -196,8 +196,8 @@
       "prompt_block_words": {
         "description": "提示词敏感词",
         "type": "text",
-        "hint": "在大文本框中直接编辑，敏感词之间使用中文逗号“，”分隔。这里是完整生效列表；清空文本框则不检测任何词。英文词按完整单词匹配，中文词按包含匹配。",
-        "default": "裸体，全裸，露点，乳头，乳晕，下体，阴部，阴道，阴茎，性器，生殖器，性交，做爱，性爱，色情，黄片，黄图，涩图，色图，r18，18禁，自慰，口交，内射，射精，强奸，萝莉色情，幼女色情，儿童色情，正太色情，幼态色情，露胸，裸胸，胸部裸露，开裆，无内裤，无胸罩，色情姿势，nsfw，explicit，nude，naked，nipples，nipple，areola，pussy，penis，vagina，vaginal，vulva，clitoris，clit，genitals，genitalia，anus，anal，sex，sexual content，vaginal sex，anal sex，rough sex，sex position，penetration，deep penetration，vaginal penetration，anal penetration，multiple penetration，porn，hentai，masturbation，ejaculation，cum，cumshot，creampie，oral sex，blowjob，handjob，fingering，intercourse，rape，loli porn，child porn，child sexualization，topless，bottomless，exposed breasts，cameltoe，pornographic，lolicon，shotacon"
+        "hint": "在大文本框中直接编辑，敏感词之间使用中文逗号“，”分隔。这里是完整生效列表；清空文本框则不检测任何词。英文词按完整单词匹配，中文词按包含匹配。默认只拦性器官、下体和露点，泳装、内衣、透视等轻度暴露不触发混淆。",
+        "default": "裸体，全裸，露点，乳头，乳晕，下体，阴部，阴道，阴茎，性器，生殖器，裸胸，胸部裸露，开裆，性交，做爱，性爱，自慰，口交，内射，射精，强奸，萝莉色情，幼女色情，儿童色情，正太色情，幼态色情，nude，naked，nipples，nipple，areola，pussy，penis，vagina，vaginal，vulva，clitoris，clit，genitals，genitalia，anus，anal，topless，bottomless，exposed breasts，cameltoe，sex，sexual content，penetration，masturbation，ejaculation，cum，cumshot，creampie，blowjob，handjob，fingering，intercourse，rape，loli porn，child porn，child sexualization，lolicon，shotacon"
       }
     }
   }

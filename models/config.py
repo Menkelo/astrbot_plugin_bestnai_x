@@ -130,6 +130,28 @@ _LEGACY_OVERBROAD_PROMPT_BLOCK_KEYS = {
     word.casefold() for word in LEGACY_OVERBROAD_PROMPT_BLOCK_WORDS
 }
 
+# 4.6.19 / 4.6.20 的内置默认词表（换行版与中文逗号版内容相同）。配置里原样
+# 保留着它，说明用户没编辑过敏感词，升级时可以直接换成 4.6.21 的精简默认值。
+_PREVIOUS_DEFAULT_PROMPT_BLOCK_KEYS = {
+    word.casefold()
+    for word in (
+        "裸体 全裸 露点 乳头 乳晕 下体 阴部 阴道 阴茎 性器 生殖器 性交 做爱 性爱 色情 黄片"
+        " 黄图 涩图 色图 r18 18禁 自慰 口交 内射 射精 强奸 萝莉色情 幼女色情 儿童色情"
+        " 正太色情 幼态色情 露胸 裸胸 胸部裸露 开裆 无内裤 无胸罩 色情姿势"
+    ).split()
+} | {
+    word.casefold()
+    for word in (
+        "nsfw|explicit|nude|naked|nipples|nipple|areola|pussy|penis|vagina|vaginal|vulva"
+        "|clitoris|clit|genitals|genitalia|anus|anal|sex|sexual content|vaginal sex"
+        "|anal sex|rough sex|sex position|penetration|deep penetration"
+        "|vaginal penetration|anal penetration|multiple penetration|porn|hentai"
+        "|masturbation|ejaculation|cum|cumshot|creampie|oral sex|blowjob|handjob"
+        "|fingering|intercourse|rape|loli porn|child porn|child sexualization|topless"
+        "|bottomless|exposed breasts|cameltoe|pornographic|lolicon|shotacon"
+    ).split("|")
+}
+
 DEFAULT_ARTIST_PRESET_LIST = [
     "可爱:artist:ciloranko , [artist:sho_(sho_lwlw)], [[artist:tianliang_duohe_fangdongye]],[[[[[[artist:kani_biimu]]]]]]",
     "幼态:artist: ciloranko, [artist: tianliang duohe fangdongye], [artist: sho_(sho_lwlw)], [artist: baku-p], [artist:tsubasa_tsubasa], [[artist:as109]], [[artist:rhasta]]",
@@ -547,12 +569,18 @@ def _normalize_prompt_block_words(raw) -> List[str]:
     return [item.strip() for item in normalized.splitlines() if item.strip()]
 
 
-def migrate_legacy_prompt_block_words(raw) -> str | None:
-    """Convert legacy arrays/newline text to Chinese-comma-separated text."""
+def migrate_legacy_prompt_block_words(raw, current_default: str = "") -> str | None:
+    """Convert legacy arrays/newline text to Chinese-comma-separated text.
+
+    ``current_default`` is this version's built-in list. When the stored value
+    is still an untouched 4.6.19/4.6.20 default it is replaced wholesale, so
+    the pruned list reaches existing installs. A list the user has edited keeps
+    every word it has — only the built-in default is swapped.
+    """
     if isinstance(raw, list):
         words = _normalize_string_list(raw)
         prune_legacy_soft_words = True
-    elif isinstance(raw, str) and any(separator in raw for separator in ("\r", "\n", ",")):
+    elif isinstance(raw, str):
         words = _normalize_prompt_block_words(raw)
         prune_legacy_soft_words = False
     else:
@@ -568,7 +596,12 @@ def migrate_legacy_prompt_block_words(raw) -> str | None:
             continue
         seen.add(key)
         result.append(word)
-    return "，".join(result)
+
+    if current_default and seen == _PREVIOUS_DEFAULT_PROMPT_BLOCK_KEYS:
+        return current_default
+
+    migrated = "，".join(result)
+    return migrated if migrated != str(raw).strip() else None
 
 
 def _first_artist_preset_name(items: List[str]) -> str:

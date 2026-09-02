@@ -44,8 +44,12 @@ SAFE_NEGATIVE_TAGS = (
     "suggestive, sexual content, child sexualization, lolicon, shotacon"
 )
 
+# 只拦「画面上会出现性器官、下体或露点」的提示词，以及未成年/非自愿红线。
+# 分级元标签（nsfw / explicit / r18 / hentai / 色情 …）和暗示性服饰词不在此列：
+# 它们不点名部位，拦下来会把泳装、内衣、透视这类轻度暴露也一并混淆。
+# 派生形态要各自列出——英文按整词匹配，``nipple`` 不覆盖 ``nipples``。
 HARD_BLOCK_WORDS = [
-    # 中文 explicit
+    # 中文：裸露与性器官
     "裸体",
     "全裸",
     "露点",
@@ -57,37 +61,28 @@ HARD_BLOCK_WORDS = [
     "阴茎",
     "性器",
     "生殖器",
+    "裸胸",
+    "胸部裸露",
+    "开裆",
+
+    # 中文：性行为与红线
     "性交",
     "做爱",
     "性爱",
-    "色情",
-    "黄片",
-    "黄图",
-    "涩图",
-    "色图",
-    "r18",
-    "18禁",
     "自慰",
     "口交",
     "内射",
     "射精",
     "强奸",
+    # 未成年红线。``色情`` 作为分级元标签被放行，不能再靠它兜底，
+    # 这几个组合词必须各自列出。
     "萝莉色情",
     "幼女色情",
     "儿童色情",
     "正太色情",
     "幼态色情",
-    "露胸",
-    "裸胸",
-    "胸部裸露",
-    "开裆",
-    "无内裤",
-    "无胸罩",
-    "色情姿势",
 
-    # English explicit
-    "nsfw",
-    "explicit",
+    # English：裸露与性器官
     "nude",
     "naked",
     "nipples",
@@ -104,38 +99,32 @@ HARD_BLOCK_WORDS = [
     "genitalia",
     "anus",
     "anal",
+    "topless",
+    "bottomless",
+    "exposed breasts",
+    "cameltoe",
+
+    # English：性行为与红线
+    # ``sex`` 与 ``penetration`` 已覆盖 ``oral sex``、``deep penetration``
+    # 一类组合，分隔符按 [\s_-]+ 等价，不必重复列出。
     "sex",
     "sexual content",
-    "vaginal sex",
-    "anal sex",
-    "rough sex",
-    "sex position",
     "penetration",
-    "deep penetration",
-    "vaginal penetration",
-    "anal penetration",
-    "multiple penetration",
-    "porn",
-    "hentai",
     "masturbation",
     "ejaculation",
     "cum",
     "cumshot",
     "creampie",
-    "oral sex",
     "blowjob",
     "handjob",
     "fingering",
     "intercourse",
     "rape",
+    # 未成年红线。``porn`` 已被放行，``loli porn`` / ``child porn``
+    # 不再被它覆盖，必须单独保留。
     "loli porn",
     "child porn",
     "child sexualization",
-    "topless",
-    "bottomless",
-    "exposed breasts",
-    "cameltoe",
-    "pornographic",
     "lolicon",
     "shotacon",
 ]

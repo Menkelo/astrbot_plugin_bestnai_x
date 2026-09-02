@@ -76,7 +76,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
     def test_danbooru_separator_variants_are_filtered(self) -> None:
         filtered, removed = filter_sensitive_prompt(
-            "1girl, oral_sex, nude_female, blue_hair, rating:explicit",
+            "1girl, oral_sex, nude_female, blue_hair, rating:nude",
             None,
         )
 
@@ -84,10 +84,21 @@ class SafetyPromptWordsTest(unittest.TestCase):
         self.assertIn("blue_hair", filtered)
         self.assertNotIn("oral_sex", filtered)
         self.assertNotIn("nude", filtered)
+        # 命名空间连同被拦的词一起吃掉，不留下 ``rating:`` 这样的残词。
         self.assertNotIn("rating:", filtered)
-        self.assertIn("oral sex", removed)
+        self.assertIn("sex", removed)
         self.assertIn("nude", removed)
-        self.assertIn("explicit", removed)
+
+    def test_rating_meta_tags_are_allowed(self) -> None:
+        filtered, removed = filter_sensitive_prompt(
+            "1girl, rating:explicit, nsfw, blue_hair",
+            None,
+        )
+
+        # 分级元标签不点名部位，放行以免泳装、透视这类轻度暴露被一并混淆。
+        self.assertEqual(removed, [])
+        self.assertIn("rating:explicit", filtered)
+        self.assertIn("nsfw", filtered)
 
     def test_explicit_tags_are_removed_but_soft_tags_remain(self) -> None:
         filtered, removed = filter_sensitive_prompt(
@@ -99,17 +110,22 @@ class SafetyPromptWordsTest(unittest.TestCase):
             None,
         )
 
+        # ``deep penetration`` / ``rough sex`` 由 ``penetration`` / ``sex`` 覆盖，
+        # 词条照样被剔除，只是上报的命中词是更短的那个。
         for word in (
             "pussy",
             "vaginal",
             "sex",
-            "deep penetration",
-            "rough sex",
+            "penetration",
             "exposed breasts",
             "nipples",
         ):
             with self.subTest(word=word):
                 self.assertIn(word, removed)
+
+        for tag in ("deep penetration", "rough sex"):
+            with self.subTest(dropped=tag):
+                self.assertNotIn(tag, filtered)
 
         for tag in (
             "torn clothes",
@@ -187,6 +203,78 @@ class SafetyPromptWordsTest(unittest.TestCase):
             "nude，custom blocked",
         )
         self.assertIsNone(migrate_legacy_prompt_block_words("nude，custom blocked"))
+
+    def test_untouched_previous_default_is_replaced_by_current_default(self) -> None:
+        current_default = "，".join(HARD_BLOCK_WORDS)
+        previous_default = (
+            "裸体，全裸，露点，乳头，乳晕，下体，阴部，阴道，阴茎，性器，生殖器，性交，做爱，"
+            "性爱，色情，黄片，黄图，涩图，色图，r18，18禁，自慰，口交，内射，射精，强奸，"
+            "萝莉色情，幼女色情，儿童色情，正太色情，幼态色情，露胸，裸胸，胸部裸露，开裆，"
+            "无内裤，无胸罩，色情姿势，nsfw，explicit，nude，naked，nipples，nipple，areola，"
+            "pussy，penis，vagina，vaginal，vulva，clitoris，clit，genitals，genitalia，anus，"
+            "anal，sex，sexual content，vaginal sex，anal sex，rough sex，sex position，"
+            "penetration，deep penetration，vaginal penetration，anal penetration，"
+            "multiple penetration，porn，hentai，masturbation，ejaculation，cum，cumshot，"
+            "creampie，oral sex，blowjob，handjob，fingering，intercourse，rape，loli porn，"
+            "child porn，child sexualization，topless，bottomless，exposed breasts，cameltoe，"
+            "pornographic，lolicon，shotacon"
+        )
+
+        # 4.6.20 的中文逗号版和 4.6.19 的换行版都会换成新默认值。
+        self.assertEqual(
+            migrate_legacy_prompt_block_words(previous_default, current_default),
+            current_default,
+        )
+        self.assertEqual(
+            migrate_legacy_prompt_block_words(
+                previous_default.replace("，", "\n"), current_default
+            ),
+            current_default,
+        )
+        # 用户改过的列表按原样保留，不会被换成默认值。
+        self.assertIsNone(
+            migrate_legacy_prompt_block_words(
+                previous_default + "，我自己加的词", current_default
+            )
+        )
+        # 已经是新默认值时不再重复写回。
+        self.assertIsNone(
+            migrate_legacy_prompt_block_words(current_default, current_default)
+        )
+
+    def test_builtin_words_block_organs_but_allow_mild_exposure(self) -> None:
+        for prompt in (
+            "pussy", "penis", "vagina", "clitoris", "genitals", "anus",
+            "阴部", "阴道", "下体", "性器", "生殖器",
+            "nipples", "nipple", "areola", "露点", "乳头", "胸部裸露",
+            "topless", "bottomless", "cameltoe", "开裆",
+            "nude", "naked", "裸体", "全裸",
+            "rape", "强奸", "lolicon", "shotacon", "child sexualization",
+            # 这几条曾靠 ``色情`` / ``porn`` 覆盖，两者作为元标签放行后必须自带条目。
+            "儿童色情", "萝莉色情", "幼女色情", "正太色情", "幼态色情",
+            "loli porn", "child porn",
+        ):
+            with self.subTest(blocked=prompt):
+                self.assertTrue(filter_sensitive_prompt(prompt, None)[1])
+
+        for prompt in (
+            "bikini", "swimsuit", "lingerie", "see-through", "sideboob",
+            "no bra", "cleavage", "suggestive", "ecchi",
+            "泳装", "内衣", "性感", "露肩",
+            # 分级元标签本身不点名部位，放行以免轻度暴露也被混淆。
+            "nsfw", "explicit", "r18", "hentai", "涩图", "色情",
+        ):
+            with self.subTest(allowed=prompt):
+                self.assertFalse(filter_sensitive_prompt(prompt, None)[1])
+
+    def test_builtin_words_have_no_redundant_entries(self) -> None:
+        for word in HARD_BLOCK_WORDS:
+            rest = [other for other in HARD_BLOCK_WORDS if other != word]
+            with self.subTest(word=word):
+                self.assertFalse(
+                    filter_sensitive_prompt(word, rest)[1],
+                    f"{word} 已被列表中其它词覆盖，应当删除",
+                )
 
     def test_visual_review_provider_was_removed_from_schema(self) -> None:
         config = PluginConfig.from_dict({})

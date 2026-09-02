@@ -34,7 +34,7 @@ from .core.generator import (
 )
 from .core.image_retagger import ImageRetagError, ImageRetagger, strip_control_tags
 from .core.prompt_tokens import expand_prompt_tokens, normalize_count_tokens
-from .core.safety import SafetyModerator
+from .core.safety import HARD_BLOCK_WORDS, SafetyModerator
 from .core.translator import (
     apply_character_candidate,
     DanbooruTagRetriever,
@@ -178,7 +178,8 @@ class BestNAIPlugin(Star):
         safety_config = config.get("safety_config", {})
         if isinstance(safety_config, dict):
             migrated_words = migrate_legacy_prompt_block_words(
-                safety_config.get("prompt_block_words")
+                safety_config.get("prompt_block_words"),
+                "，".join(HARD_BLOCK_WORDS),
             )
             if migrated_words is not None:
                 safety_config["prompt_block_words"] = migrated_words
