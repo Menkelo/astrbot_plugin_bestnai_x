@@ -532,7 +532,7 @@ def _normalize_string_list(raw) -> List[str]:
 
 
 def _normalize_prompt_block_words(raw) -> List[str]:
-    """Read the current multiline field and legacy list/comma formats."""
+    """Read the Chinese-comma text field and legacy delimiters."""
     if isinstance(raw, list):
         return _normalize_string_list(raw)
 
@@ -543,26 +543,32 @@ def _normalize_prompt_block_words(raw) -> List[str]:
     if not text:
         return []
 
-    lines = text.splitlines()
-    if len(lines) == 1 and "," in text:
-        lines = text.split(",")
-    return [line.strip() for line in lines if line.strip()]
+    normalized = text.replace("\r", "\n").replace("，", "\n").replace(",", "\n")
+    return [item.strip() for item in normalized.splitlines() if item.strip()]
 
 
 def migrate_legacy_prompt_block_words(raw) -> str | None:
-    """Convert the old list widget value to the new pruned multiline text."""
-    if not isinstance(raw, list):
+    """Convert legacy arrays/newline text to Chinese-comma-separated text."""
+    if isinstance(raw, list):
+        words = _normalize_string_list(raw)
+        prune_legacy_soft_words = True
+    elif isinstance(raw, str) and any(separator in raw for separator in ("\r", "\n", ",")):
+        words = _normalize_prompt_block_words(raw)
+        prune_legacy_soft_words = False
+    else:
         return None
 
     result: List[str] = []
     seen: set[str] = set()
-    for word in _normalize_string_list(raw):
+    for word in words:
         key = word.casefold()
-        if key in seen or key in _LEGACY_OVERBROAD_PROMPT_BLOCK_KEYS:
+        if key in seen or (
+            prune_legacy_soft_words and key in _LEGACY_OVERBROAD_PROMPT_BLOCK_KEYS
+        ):
             continue
         seen.add(key)
         result.append(word)
-    return "\n".join(result)
+    return "，".join(result)
 
 
 def _first_artist_preset_name(items: List[str]) -> str:

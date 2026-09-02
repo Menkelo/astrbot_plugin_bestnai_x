@@ -154,7 +154,10 @@ class SafetyPromptWordsTest(unittest.TestCase):
 
         self.assertEqual(config.safety.prompt_block_words, [])
 
-    def test_plugin_config_parses_textbox_and_legacy_list(self) -> None:
+    def test_plugin_config_parses_chinese_comma_and_legacy_formats(self) -> None:
+        chinese_comma_config = PluginConfig.from_dict(
+            {"safety_config": {"prompt_block_words": "first word，second_word"}}
+        )
         text_config = PluginConfig.from_dict(
             {"safety_config": {"prompt_block_words": "first word\nsecond_word\n"}}
         )
@@ -165,6 +168,10 @@ class SafetyPromptWordsTest(unittest.TestCase):
             {"safety_config": {"prompt_block_words": "first word,second_word"}}
         )
 
+        self.assertEqual(
+            chinese_comma_config.safety.prompt_block_words,
+            ["first word", "second_word"],
+        )
         self.assertEqual(text_config.safety.prompt_block_words, ["first word", "second_word"])
         self.assertEqual(legacy_config.safety.prompt_block_words, ["first word", "second_word"])
         self.assertEqual(comma_config.safety.prompt_block_words, ["first word", "second_word"])
@@ -174,8 +181,12 @@ class SafetyPromptWordsTest(unittest.TestCase):
             ["nude", "泳装", "custom blocked", "SEXY", "nude"]
         )
 
-        self.assertEqual(migrated, "nude\ncustom blocked")
-        self.assertIsNone(migrate_legacy_prompt_block_words("nude\ncustom blocked"))
+        self.assertEqual(migrated, "nude，custom blocked")
+        self.assertEqual(
+            migrate_legacy_prompt_block_words("nude\ncustom blocked"),
+            "nude，custom blocked",
+        )
+        self.assertIsNone(migrate_legacy_prompt_block_words("nude，custom blocked"))
 
     def test_visual_review_provider_was_removed_from_schema(self) -> None:
         config = PluginConfig.from_dict({})
@@ -202,12 +213,12 @@ class SafetyPromptWordsTest(unittest.TestCase):
             ["{hokori sakuni}, {ciloranko}", "masterpiece, highres"],
         )
 
-    def test_schema_exposes_builtin_words_as_multiline_text(self) -> None:
+    def test_schema_exposes_builtin_words_as_chinese_comma_text(self) -> None:
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
         prompt_words = schema["safety_config"]["items"]["prompt_block_words"]
 
         self.assertEqual(prompt_words["type"], "text")
-        self.assertEqual(prompt_words["default"].splitlines(), HARD_BLOCK_WORDS)
+        self.assertEqual(prompt_words["default"].split("，"), HARD_BLOCK_WORDS)
 
     def test_schema_exposes_generation_providers(self) -> None:
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))

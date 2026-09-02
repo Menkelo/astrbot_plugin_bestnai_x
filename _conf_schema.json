@@ -196,8 +196,8 @@
       "prompt_block_words": {
         "description": "提示词敏感词",
         "type": "text",
-        "hint": "一行一个检测词，可直接增删。这里是完整生效列表；清空文本框则不检测任何词。英文词按完整单词匹配，中文词按包含匹配。",
-        "default": "裸体\n全裸\n露点\n乳头\n乳晕\n下体\n阴部\n阴道\n阴茎\n性器\n生殖器\n性交\n做爱\n性爱\n色情\n黄片\n黄图\n涩图\n色图\nr18\n18禁\n自慰\n口交\n内射\n射精\n强奸\n萝莉色情\n幼女色情\n儿童色情\n正太色情\n幼态色情\n露胸\n裸胸\n胸部裸露\n开裆\n无内裤\n无胸罩\n色情姿势\nnsfw\nexplicit\nnude\nnaked\nnipples\nnipple\nareola\npussy\npenis\nvagina\nvaginal\nvulva\nclitoris\nclit\ngenitals\ngenitalia\nanus\nanal\nsex\nsexual content\nvaginal sex\nanal sex\nrough sex\nsex position\npenetration\ndeep penetration\nvaginal penetration\nanal penetration\nmultiple penetration\nporn\nhentai\nmasturbation\nejaculation\ncum\ncumshot\ncreampie\noral sex\nblowjob\nhandjob\nfingering\nintercourse\nrape\nloli porn\nchild porn\nchild sexualization\ntopless\nbottomless\nexposed breasts\ncameltoe\npornographic\nlolicon\nshotacon"
+        "hint": "在大文本框中直接编辑，敏感词之间使用中文逗号“，”分隔。这里是完整生效列表；清空文本框则不检测任何词。英文词按完整单词匹配，中文词按包含匹配。",
+        "default": "裸体，全裸，露点，乳头，乳晕，下体，阴部，阴道，阴茎，性器，生殖器，性交，做爱，性爱，色情，黄片，黄图，涩图，色图，r18，18禁，自慰，口交，内射，射精，强奸，萝莉色情，幼女色情，儿童色情，正太色情，幼态色情，露胸，裸胸，胸部裸露，开裆，无内裤，无胸罩，色情姿势，nsfw，explicit，nude，naked，nipples，nipple，areola，pussy，penis，vagina，vaginal，vulva，clitoris，clit，genitals，genitalia，anus，anal，sex，sexual content，vaginal sex，anal sex，rough sex，sex position，penetration，deep penetration，vaginal penetration，anal penetration，multiple penetration，porn，hentai，masturbation，ejaculation，cum，cumshot，creampie，oral sex，blowjob，handjob，fingering，intercourse，rape，loli porn，child porn，child sexualization，topless，bottomless，exposed breasts，cameltoe，pornographic，lolicon，shotacon"
       }
     }
   }
