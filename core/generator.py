@@ -63,6 +63,13 @@ class ImageGenerator:
     def __init__(self, config: PluginConfig) -> None:
         self.config = config
         self.timeout = 180
+        # 代理透传: 从插件配置读取 proxy(http://host:port), 留空则直连。
+        # 兼容顶层与 api_config 分组两种写法; 不改配置模型, 用 raw_config 透读。
+        raw = getattr(config, "raw_config", None) or {}
+        proxy = raw.get("proxy") or (raw.get("api_config") or {}).get("proxy") or ""
+        self._proxy = str(proxy).strip() or None
+        if self._proxy:
+            logger.info(f"[BestNAI] 已启用代理透传: {self._proxy}")
 
     @staticmethod
     def _endpoint(api_base: str, path: str) -> str:
@@ -404,6 +411,7 @@ class ImageGenerator:
                     endpoint,
                     headers=headers,
                     json=payload,
+                    proxy=self._proxy,
                 ) as resp:
                     logger.info(
                         "[BestNAI] official_response "
@@ -509,6 +517,7 @@ class ImageGenerator:
                     endpoint,
                     headers=headers,
                     json=payload,
+                    proxy=self._proxy,
                 ) as resp:
                     text = await resp.text()
 
@@ -1011,7 +1020,7 @@ class ImageGenerator:
         timeout = aiohttp.ClientTimeout(total=self.timeout)
 
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as resp:
+            async with session.get(url, headers=headers, proxy=self._proxy) as resp:
                 if resp.status < 200 or resp.status >= 300:
                     text = await resp.text()
                     raw = f"HTTP {resp.status}: {text[:200]}"
