@@ -2720,6 +2720,11 @@ class BestNAIPlugin(Star):
                         user_character, user_series = (
                             await self._resolve_prompt_identity(desc_part)
                         )
+                        if show_messages:
+                            # 中文路径会把翻译结果追加进反推结果一起展示；英文
+                            # 输入没有翻译环节，这里补上原文，反推结果里才能
+                            # 看到用户追加的标签（合并本身不受影响）。
+                            show_messages[0] += f"\n{desc_part}"
 
                 if raw_mode:
                     # Raw mode is literal: do not translate, resolve identity,

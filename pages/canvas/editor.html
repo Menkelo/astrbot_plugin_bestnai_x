@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BestNAI 无限画布</title>
-    <link rel="stylesheet" href="./canvas.css?v=4.6.21" />
+    <link rel="stylesheet" href="./canvas.css?v=4.6.22" />
     <script src="./vendor/lucide.js"></script>
   </head>
   <body>
@@ -230,11 +230,18 @@
             <button id="imageViewerRetagBtn" class="image-viewer-action-btn" type="button" title="反推此图"><i data-lucide="scan-search"></i><span>反推此图</span></button>
           </div>
           <div class="image-viewer-copy">
-            <div class="image-viewer-copy-head"><span>正向 Tags</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制英文 Tags" aria-label="复制英文 Tags"><i data-lucide="copy"></i></button></div>
-            <div id="imageViewerTags" class="image-viewer-tag-grid" role="group" aria-label="可复制的 Prompt Tags" data-copy-text=""></div>
+            <div class="image-viewer-copy-head">
+              <span>正向 tags</span>
+              <button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerTags" title="复制正向 Tags" aria-label="复制正向 Tags">复制正向</button>
+              <label class="image-viewer-filter-toggle" title="开启后过滤质量词与画师串，只看内容标签">
+                <input id="imageViewerFilterToggle" type="checkbox" />
+                <span>过滤</span>
+              </label>
+            </div>
+            <div id="imageViewerTags" class="image-viewer-tag-text" role="group" aria-label="可复制的正向 Tags" data-copy-text=""></div>
           </div>
           <div id="imageViewerNegativeSection" class="image-viewer-copy" hidden>
-            <div class="image-viewer-copy-head"><span>Negative</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerNegative" title="复制负面提示词" aria-label="复制负面提示词"><i data-lucide="copy"></i></button></div>
+            <div class="image-viewer-copy-head"><span>Negative</span><button type="button" class="image-viewer-copy-btn copy-negative" data-copy-target="imageViewerNegative" title="复制负面提示词" aria-label="复制负面提示词">复制负面</button></div>
             <div id="imageViewerNegative" class="image-viewer-note" data-copy-text=""></div>
           </div>
           <div id="imageViewerNoteSection" class="image-viewer-copy" hidden>
@@ -245,6 +252,6 @@
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>
-    <script type="module" src="./canvas.js?v=4.6.21"></script>
+    <script type="module" src="./canvas.js?v=4.6.22"></script>
   </body>
 </html>

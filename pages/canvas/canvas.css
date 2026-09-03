@@ -893,6 +893,8 @@ select:focus-visible {
   color: var(--text);
   font-size: 13px;
   line-height: 1.6;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* 卡片收缩时由文本框让出空间，下面的选项、按钮和状态行都不参与压缩。
@@ -1936,6 +1938,9 @@ select:focus-visible {
   /* Match the prompt card's main textarea typography. */
   font-size: 11px;
   line-height: 1.5;
+  /* 节点容器是 user-select: none，文本域内必须显式恢复，否则内容选不中也复制不了 */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .retag-character-field textarea:focus {
@@ -2207,6 +2212,9 @@ select:focus-visible {
   z-index: 1000;
   inset: 0;
   --image-viewer-radius: clamp(12px, 2vmin, 28px);
+  /* 信息栏宽度要在舞台右缩进、导航按钮和信息栏之间保持一致，
+     否则 28vw 超过 358px 时图片会顶到信息卡上（原 376px 固定值只够放 340px 栏） */
+  --image-viewer-rail-w: clamp(280px, 28vw, 360px);
   display: block;
   padding: 0;
   overflow: hidden;
@@ -2224,7 +2232,7 @@ select:focus-visible {
   position: absolute;
   left: 18px;
   top: 18px;
-  right: 376px;
+  right: calc(var(--image-viewer-rail-w) + 36px);
   bottom: 18px;
   display: flex;
   width: auto;
@@ -2275,7 +2283,7 @@ select:focus-visible {
   right:18px;
   bottom:18px;
   display:grid;
-  width:340px;
+  width:var(--image-viewer-rail-w);
   max-width:none;
   align-content: start;
   gap: 10px;
@@ -2304,7 +2312,7 @@ select:focus-visible {
 .image-viewer-nav:hover { border-color:#6366f1; color:#4338ca; background:#fff; }
 .image-viewer-nav svg { width:20px; height:20px; }
 .image-viewer-nav-prev { left:36px; }
-.image-viewer-nav-next { right:394px; }
+.image-viewer-nav-next { right: calc(var(--image-viewer-rail-w) + 54px); }
 .image-viewer.folded .image-viewer-nav-next { right:76px; }
 
 .image-viewer.layout-bottom .image-viewer-stage {
@@ -2348,16 +2356,16 @@ select:focus-visible {
 .image-viewer.layout-side .image-viewer-details {
   display: flex;
   flex-direction: column;
-  width: clamp(280px, 28vw, 360px);
+  width: var(--image-viewer-rail-w);
   min-width: 0;
   max-height: 100%;
-  flex: 0 0 clamp(280px, 28vw, 360px);
+  flex: 0 0 var(--image-viewer-rail-w);
   align-self: stretch;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-.image-viewer.layout-side .image-viewer-tag-grid {
+.image-viewer.layout-side .image-viewer-tag-text {
   /* The details panel already has a viewport-bounded height. Let tags use
      the remaining space instead of creating a short nested scrollbar with a
      large empty area below it. */
@@ -2408,14 +2416,14 @@ select:focus-visible {
 }
 
 .image-viewer-copy-head > span {
-  color: #64748b;
-  font-size: 9.5px;
+  color: #0f172a;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .image-viewer-copy {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .image-viewer-copy[hidden] {
@@ -2425,88 +2433,107 @@ select:focus-visible {
 .image-viewer-copy-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* 区块标题旁的胶囊复制按钮（正向=靛蓝，负面=品红） */
 .image-viewer-copy-btn {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, .14);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, .06);
-  color: #64748b;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #6366f1;
+  color: #fff;
   cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+  transition: background .15s ease, transform .15s ease;
 }
 
 .image-viewer-copy-btn:hover {
-  border-color: rgba(255, 255, 255, .28);
-  background: rgba(255, 255, 255, .12);
-  color: #4338ca;
+  background: #4f46e5;
 }
 
-.image-viewer-copy-btn svg {
-  width: 12px;
-  height: 12px;
+.image-viewer-copy-btn:active {
+  transform: translateY(1px);
 }
 
-.image-viewer-tag-grid {
-  display: flex;
-  max-height: 210px;
-  flex-wrap: wrap;
-  align-content: flex-start;
+.image-viewer-copy-btn.copy-negative {
+  background: #ec4899;
+}
+
+.image-viewer-copy-btn.copy-negative:hover {
+  background: #db2777;
+}
+
+/* 正向 tags 过滤开关：默认关闭＝完整原始 tags，打开＝过滤后的内容标签 */
+.image-viewer-filter-toggle {
+  display: inline-flex;
+  margin-left: auto;
+  align-items: center;
   gap: 5px;
-  overflow: auto;
-  padding: 1px;
-  scrollbar-color: rgba(148, 163, 184, .55) transparent;
-  scrollbar-width: thin;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
 }
 
-.image-viewer-tag-chip {
-  max-width: 100%;
-  padding: 4px 7px;
-  overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, .22);
-  border-radius: 7px;
+.image-viewer-filter-toggle input {
+  appearance: none;
+  width: 26px;
+  height: 15px;
+  margin: 0;
+  position: relative;
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+
+.image-viewer-filter-toggle input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .25);
+  transition: left .15s ease;
+}
+
+.image-viewer-filter-toggle input:checked {
+  background: #6366f1;
+}
+
+.image-viewer-filter-toggle input:checked::after {
+  left: 13px;
+}
+
+/* 正向 tags 文本块：等宽字体、可选中复制 */
+.image-viewer-tag-text {
+  max-height: 210px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
   background: #f8fafc;
   color: #334155;
-  cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: 11px;
+  line-height: 1.6;
   overflow-wrap: anywhere;
-  text-align: left;
-  text-overflow: ellipsis;
-  transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease;
-  white-space: normal;
-  appearance: none;
+  scrollbar-color: rgba(148, 163, 184, .55) transparent;
+  scrollbar-width: thin;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
-.image-viewer-tag-chip.bilingual {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4338ca;
-}
-
-.image-viewer-tag-chip:hover,
-.image-viewer-tag-chip:focus-visible {
-  border-color: #818cf8;
-  background: #e0e7ff;
-  color: #312e81;
-  outline: none;
-}
-
-.image-viewer-tag-chip:focus-visible {
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, .28);
-}
-
-.image-viewer-tag-chip:active {
-  transform: translateY(1px);
+.image-viewer-tag-cn {
+  color: #94a3b8;
 }
 
 .image-viewer-tag-empty {
@@ -2516,18 +2543,18 @@ select:focus-visible {
 }
 
 .image-viewer-details::-webkit-scrollbar,
-.image-viewer-tag-grid::-webkit-scrollbar {
+.image-viewer-tag-text::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .image-viewer-details::-webkit-scrollbar-track,
-.image-viewer-tag-grid::-webkit-scrollbar-track {
+.image-viewer-tag-text::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .image-viewer-details::-webkit-scrollbar-thumb,
-.image-viewer-tag-grid::-webkit-scrollbar-thumb {
+.image-viewer-tag-text::-webkit-scrollbar-thumb {
   border: 1px solid transparent;
   border-radius: 999px;
   background: rgba(148, 163, 184, .42);
@@ -2536,14 +2563,14 @@ select:focus-visible {
 
 .image-viewer-details:hover::-webkit-scrollbar-thumb,
 .image-viewer-details:focus-within::-webkit-scrollbar-thumb,
-.image-viewer-tag-grid:hover::-webkit-scrollbar-thumb,
-.image-viewer-tag-grid:focus-within::-webkit-scrollbar-thumb {
+.image-viewer-tag-text:hover::-webkit-scrollbar-thumb,
+.image-viewer-tag-text:focus-within::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, .68);
   background-clip: padding-box;
 }
 
 .image-viewer-details::-webkit-scrollbar-button,
-.image-viewer-tag-grid::-webkit-scrollbar-button {
+.image-viewer-tag-text::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
@@ -4075,6 +4102,14 @@ select:focus-visible {
     flex: 1;
   }
 
+  .image-viewer-details.collapsed .image-viewer-copy {
+    display: none;
+  }
+
+}
+/* 与布局切换阈值（760px）对齐：整个底部布局区间都用底部抽屉呈现信息栏，
+   避免 621-760px 之间出现卡在右上角、内容被 38vh 截断的迷你信息卡 */
+@media (max-width: 760px) {
   .image-viewer {
     padding: 0;
   }
@@ -4082,9 +4117,10 @@ select:focus-visible {
   .image-viewer-stage,
   .image-viewer.layout-side .image-viewer-stage {
     display: grid;
-    width: 100%;
+    width: auto;
+    right: 18px;
     max-width: 100%;
-    height: 100%;
+    height: auto;
     grid-template-areas:
       "viewer-image"
       "viewer-details";
@@ -4121,11 +4157,8 @@ select:focus-visible {
   .image-viewer-fold:hover { transform:translateY(-50%); }
   .image-viewer.folded .image-viewer-fold { right:10px; bottom:auto; }
 
-  .image-viewer-details.collapsed .image-viewer-copy {
-    display: none;
-  }
-
 }
+
 
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -66,6 +66,7 @@ const els = {
   imageViewerStage: document.getElementById("imageViewerStage"),
   imageViewerThumbs: document.getElementById("imageViewerThumbs"),
   imageViewerPlaceBtn: document.getElementById("imageViewerPlaceBtn"),
+  imageViewerFilterToggle: document.getElementById("imageViewerFilterToggle"),
   assetLibraryBtn: document.getElementById("assetLibraryBtn"),
   mobileAssetLibraryBtn: document.getElementById("mobileAssetLibraryBtn"),
   assetPanel: document.getElementById("assetPanel"),
@@ -286,6 +287,11 @@ const state = {
   viewerBottomLayoutLock: null,
   viewerTagLookupSequence: 0,
   viewerTagTranslationCache: new Map(),
+  // 正向 tags 过滤开关：默认关闭＝完整展示原始 tags；打开＝只看过滤后的内容标签
+  viewerShowFilteredTags: false,
+  viewerTagsFull: "",
+  viewerTagsFiltered: "",
+  viewerNodeRef: null,
   retagRequestSequence: 0,
   retagRequests: new Map(),
 };
@@ -2739,14 +2745,21 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     characterCard.className = "retag-layer-card retag-character-card";
     characterCard.dataset.nodeId = node.id;
     characterCard.addEventListener("pointerdown", (event) => {
+      // 中键拖动要继续冒泡到画布，让附加卡片区域也能平移画布。
       if (event.button === 1) return;
       event.stopPropagation();
+      bringNodeToFront(node.id, nodeElement);
       if (!isNodeSelected(node.id)) selectNode(node.id);
     });
     const characterToggle = document.createElement("button");
     characterToggle.type = "button";
     characterToggle.className = "retag-layer-toggle";
     characterToggle.setAttribute("aria-expanded", "false");
+    // 阻断冒泡：卡片 pointerdown 会 bringNodeToFront 移动 DOM，
+    // 移动会让随后到来的 click 落空，折叠就"点了没反应"
+    characterToggle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 1) event.stopPropagation();
+    });
     const characterToggleTitle = document.createElement("span");
     characterToggleTitle.className = "retag-layer-title";
     characterToggleTitle.append(icon("users-round"), document.createTextNode("角色模块"));
@@ -5274,11 +5287,6 @@ function applyImageViewerBottomLayoutLock() {
   if (!lock || !frame) return false;
   frame.style.width = `${lock.frameWidth}px`;
   frame.style.height = `${lock.frameHeight}px`;
-  els.imageViewerDetails.style.width = `${lock.detailsWidth}px`;
-  els.imageViewerDetails.style.maxWidth = `${lock.detailsWidth}px`;
-  els.imageViewerDetails.style.height = `${lock.detailsHeight}px`;
-  els.imageViewerDetails.style.minHeight = `${lock.detailsHeight}px`;
-  els.imageViewerDetails.style.maxHeight = `${lock.detailsHeight}px`;
   return true;
 }
 
@@ -5287,18 +5295,15 @@ function lockImageViewerBottomLayout() {
   const frame = els.imageViewerImageFrame;
   if (!frame) return;
   const frameRect = frame.getBoundingClientRect();
-  const detailsRect = els.imageViewerDetails.getBoundingClientRect();
-  if (!frameRect.width || !frameRect.height || !detailsRect.width || !detailsRect.height) return;
+  if (!frameRect.width || !frameRect.height) return;
   state.viewerBottomLayoutLock = {
     frameWidth: frameRect.width,
     frameHeight: frameRect.height,
-    detailsWidth: detailsRect.width,
-    detailsHeight: detailsRect.height,
   };
   applyImageViewerBottomLayoutLock();
 }
 
-function syncImageViewerFrameSize(settling = false) {
+function syncImageViewerFrameSize() {
   const frame = els.imageViewerImageFrame;
   if (!frame) return;
   if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) {
@@ -5320,27 +5325,14 @@ function syncImageViewerFrameSize(settling = false) {
   const stage = frame.closest(".image-viewer-stage");
   if (!stage) return;
   const stageRect = stage.getBoundingClientRect();
-  const detailsRect = els.imageViewerDetails.getBoundingClientRect();
-  const stageStyles = window.getComputedStyle(stage);
-  const rowGap = parseFloat(stageStyles.rowGap || stageStyles.gap) || 0;
   const maxWidth = Math.max(0, stageRect.width);
-  const maxHeight = Math.max(0, stageRect.height - detailsRect.height - rowGap);
+  // 信息卡是悬浮在舞台右侧之外的独立图层，不占舞台空间，图片可以用满整个舞台
+  const maxHeight = Math.max(0, stageRect.height);
   if (!maxWidth || !maxHeight) return;
 
   const scale = Math.min(maxWidth / imageWidth, maxHeight / imageHeight);
-  const frameWidth = imageWidth * scale;
-  const frameHeight = imageHeight * scale;
-  const previousDetailsWidth = parseFloat(els.imageViewerDetails.style.width) || 0;
-  frame.style.width = `${frameWidth}px`;
-  frame.style.height = `${frameHeight}px`;
-  els.imageViewerDetails.style.width = `${frameWidth}px`;
-  els.imageViewerDetails.style.maxWidth = `${frameWidth}px`;
-
-  // Changing the Tags width can alter chip wrapping and therefore its height.
-  // Run one settling pass so the image still uses the exact remaining space.
-  if (!settling && Math.abs(previousDetailsWidth - frameWidth) > .5) {
-    window.requestAnimationFrame(() => syncImageViewerFrameSize(true));
-  }
+  frame.style.width = `${imageWidth * scale}px`;
+  frame.style.height = `${imageHeight * scale}px`;
 }
 
 function scheduleImageViewerFrameSync() {
@@ -5633,21 +5625,42 @@ function renderImageViewerTags(tags, pairs = [], translations = {}) {
     els.imageViewerTags.appendChild(empty);
     return;
   }
-  entries.forEach(({ tag, cnName }) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "image-viewer-tag-chip";
-    chip.dataset.copyText = tag;
-    chip.textContent = cnName ? `${tag} / ${cnName}` : tag;
-    chip.title = `复制英文 Tag：${tag}`;
-    chip.setAttribute("aria-label", `复制英文 Tag：${tag}`);
-    chip.classList.toggle("bilingual", !!cnName);
-    chip.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await copyPlainText(tag, `复制英文 Tag：${tag}`, () => chip.focus({ preventScroll: true }));
-    });
-    els.imageViewerTags.appendChild(chip);
+  entries.forEach(({ tag, cnName }, index) => {
+    if (index) els.imageViewerTags.appendChild(document.createTextNode(", "));
+    const item = document.createElement("span");
+    item.className = "image-viewer-tag-item";
+    item.textContent = tag;
+    if (cnName) {
+      const cn = document.createElement("span");
+      cn.className = "image-viewer-tag-cn";
+      cn.textContent = ` / ${cnName}`;
+      item.title = `${tag} / ${cnName}`;
+      item.appendChild(cn);
+    } else {
+      item.title = tag;
+    }
+    els.imageViewerTags.appendChild(item);
   });
+}
+
+// 按信息栏开关决定正向 tags 展示哪一版：关闭＝完整原始 tags（含质量词与
+// 画师串），打开＝过滤后的内容标签（带中文注释，按需翻译）。
+function applyImageViewerTagsView(lookupSequence = null) {
+  const showFiltered = state.viewerShowFilteredTags;
+  const node = state.viewerNodeRef;
+  const tags = showFiltered ? state.viewerTagsFiltered : state.viewerTagsFull;
+  if (!showFiltered) {
+    // 切回完整视图时作废未完成的翻译回填，避免旧内容盖掉纯文本
+    state.viewerTagLookupSequence += 1;
+    renderImageViewerTags(tags, [], {});
+    return;
+  }
+  if (!tags || !node) {
+    renderImageViewerTags(tags, [], {});
+    return;
+  }
+  const sequence = lookupSequence ?? ++state.viewerTagLookupSequence;
+  void hydrateImageViewerChineseTags(node, tags, sequence);
 }
 
 async function hydrateImageViewerChineseTags(node, tags, lookupSequence) {
@@ -5719,11 +5732,13 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     meta.ratio || "",
     meta.seed ? `Seed ${meta.seed}` : "",
   ].filter(Boolean).join(" / ") || "可查看 NovelAI 参数";
-  const tags = stripImageViewerControlTags(
-    meta.tags || meta.finalPrompt || "",
+  // 完整 tags 原样保留；过滤版（去质量词/画师串）按信息栏开关展示
+  state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();
+  state.viewerTagsFiltered = stripImageViewerControlTags(
+    state.viewerTagsFull,
     meta.artist || "",
   );
-  renderImageViewerTags(tags);
+  state.viewerNodeRef = node;
   const negative = String(meta.negativePrompt || meta.negative_prompt || "").trim();
   els.imageViewerNegative.textContent = negative || "";
   els.imageViewerNegative.dataset.copyText = negative;
@@ -5737,7 +5752,9 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   els.imageViewerNote.textContent = note;
   els.imageViewerNoteSection.hidden = !note;
   els.imageViewerCopyAllBtn.onclick = () => copyPlainText(
-    [tags, negative].filter(Boolean).join("\nNegative prompt: "),
+    [els.imageViewerTags.dataset.copyText, negative]
+      .filter(Boolean)
+      .join("\nNegative prompt: "),
     "复制全部提示词",
     () => els.imageViewer.focus({ preventScroll: true }),
   );
@@ -5758,11 +5775,14 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     button.disabled = !navEnabled;
   });
   const lookupSequence = ++state.viewerTagLookupSequence;
+  if (els.imageViewerFilterToggle) {
+    els.imageViewerFilterToggle.checked = state.viewerShowFilteredTags;
+  }
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
   scheduleImageViewerFrameSync();
-  if (tags) void hydrateImageViewerChineseTags(node, tags, lookupSequence);
+  applyImageViewerTagsView(lookupSequence);
   recordOperation(operationLabel, node.title || "图片");
 }
 
@@ -5800,6 +5820,9 @@ function closeImageViewer() {
   setImageViewerDetailsCollapsed(false);
   els.imageViewer.classList.remove("folded");
   state.viewerImageDimensions = { width: 0, height: 0 };
+  state.viewerTagsFull = "";
+  state.viewerTagsFiltered = "";
+  state.viewerNodeRef = null;
   applyImageViewerLayout(0, 0);
   state.viewerLibraryAsset = null;
   state.viewerNodeId = "";
@@ -7330,6 +7353,14 @@ els.imageViewerImage.addEventListener("load", () => {
   els.imageViewerDetailsToggle.addEventListener("click", () => {
     setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
   });
+els.imageViewerFilterToggle?.addEventListener("change", () => {
+  state.viewerShowFilteredTags = els.imageViewerFilterToggle.checked;
+  recordOperation(
+    "切换正向 Tags 过滤",
+    state.viewerShowFilteredTags ? "只看内容标签" : "展示全部 tags",
+  );
+  applyImageViewerTagsView();
+});
 els.imageViewerFoldBtn?.addEventListener("click", (event) => {
   event.stopPropagation();
   const folded = els.imageViewer.classList.toggle("folded");
@@ -7531,3 +7562,8 @@ loadInitialState().catch((error) => {
   toast(error.message, "error");
   renderAll();
 });
+
+
+
+
+

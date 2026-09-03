@@ -19,7 +19,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.21"></script>'
+        editor_script = '<script type="module" src="./canvas.js?v=4.6.22"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -341,13 +341,14 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('id="imageViewerPrompt"', html)
         self.assertNotIn('id="imageViewerPromptSection"', html)
         self.assertNotIn("提示词 / Prompt", html)
-        self.assertIn("正向 Tags", html)
+        self.assertIn("正向 tags", html)
+        self.assertIn('id="imageViewerFilterToggle"', html)
         self.assertIn('id="imageViewerNegative"', html)
         self.assertIn('id="imageViewerNote"', html)
         self.assertNotIn("<span>Tags 标签</span>", html)
         self.assertIn('aria-label="折叠 Prompt Tags"', html)
         self.assertNotIn("中文 Tags / Chinese Tags", html)
-        self.assertIn('class="image-viewer-tag-grid" role="group" aria-label="可复制的 Prompt Tags" data-copy-text=""', html)
+        self.assertIn('class="image-viewer-tag-text" role="group" aria-label="可复制的正向 Tags" data-copy-text=""', html)
         self.assertNotIn('id="imageViewerCaption"', html)
         self.assertNotIn('id="imageViewerArtist"', html)
         self.assertNotIn('id="imageViewerDimensions"', html)
@@ -396,11 +397,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function applyImageViewerBottomLayoutLock", editor)
         self.assertIn("lockImageViewerBottomLayout();", editor)
         self.assertIn("if (applyImageViewerBottomLayoutLock()) return;", editor)
-        self.assertIn('frame.style.width = `${frameWidth}px`', editor)
-        self.assertIn('frame.style.height = `${frameHeight}px`', editor)
-        self.assertIn('els.imageViewerDetails.style.width = `${frameWidth}px`', editor)
-        self.assertIn('els.imageViewerDetails.style.maxWidth = `${frameWidth}px`', editor)
-        self.assertIn("syncImageViewerFrameSize(true)", editor)
+        self.assertIn('frame.style.width = `${imageWidth * scale}px`', editor)
+        self.assertIn('frame.style.height = `${imageHeight * scale}px`', editor)
+        # 信息卡是右侧悬浮图层，底部布局下不允许 JS 再把它钉成与图片同宽
+        self.assertNotIn("els.imageViewerDetails.style.width =", editor)
+        self.assertNotIn("els.imageViewerDetails.style.maxWidth =", editor)
         self.assertIn(
             'event.target.closest(".image-viewer-details, .image-viewer-place-btn")',
             editor,
@@ -413,8 +414,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function stripImageViewerControlTags", editor)
         self.assertIn("function splitImageViewerPromptTokens", editor)
         self.assertIn("function imageViewerWeightedTokenParts", editor)
-        self.assertIn("const tags = stripImageViewerControlTags(", editor)
-        self.assertIn('meta.tags || meta.finalPrompt || "",', editor)
+        self.assertIn("state.viewerTagsFiltered = stripImageViewerControlTags(", editor)
+        self.assertIn('state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();', editor)
         self.assertIn('meta.artist || "",', editor)
         self.assertIn("retagControlPrompts: []", editor)
         self.assertIn('"retagControlPrompts": self.plugin_config.get_retag_control_prompts()', main)
@@ -422,17 +423,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("els.imageViewerChineseTags", editor)
         self.assertIn("els.imageViewerTags.dataset.copyText = rawTags", editor)
         self.assertIn("target?.dataset.copyText?.trim()", editor)
-        self.assertIn('chip.textContent = cnName ? `${tag} / ${cnName}` : tag', editor)
-        self.assertIn('const chip = document.createElement("button")', editor)
-        self.assertIn("chip.dataset.copyText = tag", editor)
-        self.assertIn('chip.setAttribute("aria-label", `复制英文 Tag：${tag}`)', editor)
-        self.assertIn('copyPlainText(tag, `复制英文 Tag：${tag}`', editor)
+        self.assertIn("cn.textContent = ` / ${cnName}`", editor)
+        self.assertIn('const item = document.createElement("span")', editor)
+        self.assertIn('item.className = "image-viewer-tag-item"', editor)
+        self.assertIn("function applyImageViewerTagsView", editor)
+        self.assertIn("state.viewerShowFilteredTags = els.imageViewerFilterToggle.checked", editor)
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
         fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
         self.assertIn("right:18px;", fold)
         next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:394px;", next_button)
+        self.assertIn("right: calc(var(--image-viewer-rail-w) + 54px);", next_button)
         prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
         self.assertIn("left:36px;", prev_button)
         self.assertIn("border-radius:13px;", fold)
@@ -505,18 +506,17 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("justify-content: flex-end;", details_toggle)
         self.assertIn(".image-viewer-details.collapsed .image-viewer-copy", styles)
         self.assertIn(".image-viewer-copy[hidden]", styles)
-        self.assertIn(".image-viewer-tag-grid {", styles)
-        self.assertIn(".image-viewer-tag-chip {", styles)
-        self.assertIn(".image-viewer-tag-chip.bilingual", styles)
-        tag_chip = styles.split("\n.image-viewer-tag-chip {", 1)[1].split("}", 1)[0]
-        self.assertIn("cursor: pointer;", tag_chip)
-        self.assertIn("appearance: none;", tag_chip)
-        self.assertIn(".image-viewer-tag-chip:focus-visible", styles)
+        self.assertIn(".image-viewer-tag-text {", styles)
+        self.assertIn(".image-viewer-tag-cn", styles)
+        self.assertIn(".image-viewer-copy-btn.copy-negative", styles)
+        tag_text = styles.split("\n.image-viewer-tag-text {", 1)[1].split("}", 1)[0]
+        self.assertIn("user-select: text;", tag_text)
+        self.assertIn("font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;", tag_text)
+        self.assertIn(".image-viewer-filter-toggle input:checked", styles)
         self.assertNotIn(".image-viewer-heading", styles)
         self.assertNotIn("#imageViewerArtist", styles)
-        self.assertIn("scrollbar-width: thin;", styles)
-        self.assertIn(".image-viewer-tag-grid::-webkit-scrollbar-thumb", styles)
-        self.assertIn(".image-viewer-tag-grid::-webkit-scrollbar-button", styles)
+        self.assertIn(".image-viewer-tag-text::-webkit-scrollbar-thumb", styles)
+        self.assertIn(".image-viewer-tag-text::-webkit-scrollbar-button", styles)
         self.assertIn(".image-viewer-details::-webkit-scrollbar-thumb", styles)
         self.assertIn(".image-viewer-details::-webkit-scrollbar-button", styles)
         mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
@@ -526,11 +526,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
             ".image-viewer.layout-bottom .image-viewer-details {", 1
         )[1].split("}", 1)[0]
         self.assertIn("min-height: min(38vh, 300px);", mobile_bottom_details)
-        self.assertIn("max-height: min(38vh, 300px);", mobile_bottom_details)
-        tag_grid = styles.split("\n.image-viewer-tag-grid {", 1)[1].split("}", 1)[0]
-        self.assertIn("-webkit-user-select: none;", tag_grid)
-        self.assertIn("user-select: none;", tag_grid)
-        self.assertNotIn("user-select: text;", tag_grid)
+        tag_text = styles.split("\n.image-viewer-tag-text {", 1)[1].split("}", 1)[0]
+        self.assertIn("-webkit-user-select: text;", tag_text)
+        self.assertIn("user-select: text;", tag_text)
         # 气泡的键盘触发必须走 :has(input:focus-visible)——:focus-within 在鼠标
         # 点击时也会命中，点一下复选框气泡就赖着不走
         self.assertNotIn(":focus-within::after", styles)
@@ -923,8 +921,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.21", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.21"', constants)
+        self.assertIn("version: 4.6.22", metadata)
+        self.assertIn('PLUGIN_VERSION = "4.6.22"', constants)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 
