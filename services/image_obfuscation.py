@@ -162,3 +162,71 @@ def obfuscate_image_bytes(image_bytes: bytes, key: float = 1.0) -> bytes:
 
         output.save(encoded, format="PNG", pnginfo=pnginfo, compress_level=0)
         return encoded.getvalue()
+
+
+def deobfuscate_image_bytes(image_bytes: bytes, key: float = 1.0) -> bytes:
+    """逆置换：把 Gilbert Curve 混淆过的 PNG 还原为原图。
+
+    混淆时 output[curve[i + offset]] = source[curve[i]]，
+    因此还原时 output[curve[i]] = input[curve[i + offset]]。
+    与 obfuscate_image_bytes 使用同一把密钥（插件发送副本固定 key=1.0，
+    与小番茄网页版默认一致），输出无损 PNG 并保留 NovelAI 元数据。
+    """
+    if not image_bytes:
+        raise ValueError("图片内容为空，无法解混淆")
+
+    try:
+        key = float(key)
+    except (TypeError, ValueError):
+        key = 1.0
+    if not 0 < key < 1.618:
+        raise ValueError("小番茄混淆密钥必须大于 0 且小于 1.618")
+
+    with Image.open(BytesIO(image_bytes)) as source:
+        source.load()
+        width, height = source.size
+        total = width * height
+        xs, ys = _gilbert_curve(width, height)
+        if len(xs) != total:
+            raise ValueError("Gilbert 曲线像素数量与图片尺寸不一致")
+
+        has_alpha = "A" in source.getbands()
+        source_pixels = source.convert("RGBA" if has_alpha else "RGB")
+        pixels = source_pixels.load()
+        output = Image.new(source_pixels.mode, (width, height))
+        output_pixels = output.load()
+        offset = floor(((sqrt(5) - 1) / 2) * total * key + 0.5)
+
+        for index in range(total):
+            dst_x = xs[index]
+            dst_y = ys[index]
+            src_index = (index + offset) % total
+            output_pixels[dst_x, dst_y] = pixels[xs[src_index], ys[src_index]]
+
+        encoded = BytesIO()
+        pnginfo = PngImagePlugin.PngInfo()
+        for name, value in source.info.items():
+            if name in {"Comment", "icc_profile", "exif", "transparency"}:
+                continue
+            if isinstance(value, bytes):
+                value = value.decode("utf-8", errors="ignore")
+            if isinstance(value, str) and value:
+                pnginfo.add_text(str(name), value)
+
+        metadata = source.info.get("Comment")
+        if isinstance(metadata, bytes):
+            metadata = metadata.decode("utf-8", errors="ignore")
+        if isinstance(metadata, str) and metadata.strip():
+            try:
+                json.loads(metadata)
+            except Exception:
+                metadata = ""
+        if metadata:
+            try:
+                json.loads(metadata)
+                pnginfo.add_text("Comment", metadata)
+            except Exception:
+                pass
+
+        output.save(encoded, format="PNG", pnginfo=pnginfo, compress_level=0)
+        return encoded.getvalue()

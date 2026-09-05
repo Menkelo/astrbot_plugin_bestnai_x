@@ -247,6 +247,8 @@ class SafetyConfig:
     provider_id: str = ""
     prompt_block_enabled: bool = True
     prompt_block_words: Optional[List[str]] = None
+    # NSFW 命中混淆后，把未混淆原图传 storage.to 并私聊补发链接（默认关）
+    nsfw_storage_link_enabled: bool = False
 
 
 @dataclass
@@ -401,6 +403,9 @@ class PluginConfig:
                 provider_id=safety_provider_id,
                 prompt_block_enabled=bool(safety_conf.get("prompt_block_enabled", True)),
                 prompt_block_words=prompt_block_words,
+                nsfw_storage_link_enabled=bool(
+                    safety_conf.get("nsfw_storage_link_enabled", False)
+                ),
             ),
             image_retag=ImageRetagConfig(
                 enabled=bool(image_retag_conf.get("enabled", False)),
