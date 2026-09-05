@@ -250,6 +250,25 @@ class NaiMetadataTest(unittest.TestCase):
         self.assertTrue(info["characterUseCoords"])
         self.assertTrue(info["characterUseOrder"])
 
+    def test_advanced_parameters_preserve_false_zero_and_v4_base_captions(self) -> None:
+        info = parse_nai_info({"Source": "NovelAI Diffusion V4.5", "Comment": json.dumps({
+            "v4_prompt": {"caption": {"base_caption": "landscape"}},
+            "v4_negative_prompt": {"caption": {"base_caption": "blurry"}},
+            "cfg_rescale": 0, "quality": False, "skip_cfg_above_sigma": 58, "uc_preset": 0,
+        })})
+        self.assertEqual(info["prompt"], "landscape")
+        self.assertEqual(info["negativePrompt"], "blurry")
+        self.assertEqual(info["cfg_rescale"], 0)
+        self.assertEqual(info["uc_preset"], "0")
+        self.assertFalse(info["quality"])
+        self.assertTrue(info["variety_boost"])
+        self.assertEqual(info["model"], "NovelAI Diffusion V4.5")
+        disabled = parse_nai_info({"Comment": json.dumps({"skip_cfg_above_sigma": None})})
+        self.assertFalse(disabled["variety_boost"])
+        absent = parse_nai_info({"Comment": json.dumps({"prompt": "landscape"})})
+        self.assertNotIn("variety_boost", absent)
+        self.assertNotIn("quality", absent)
+
     def test_char_captions_absent_without_v4_prompt_or_malformed_entries(self) -> None:
         # V4.5 之前的图没有 v4_prompt 结构
         self.assertNotIn(

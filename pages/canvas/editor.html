@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BestNAI 无限画布</title>
-    <link rel="stylesheet" href="./canvas.css?v=4.6.22" />
+    <link rel="stylesheet" href="./canvas.css?v=4.6.26" />
     <script src="./vendor/lucide.js"></script>
   </head>
   <body>
@@ -213,7 +213,6 @@
       <div id="imageViewerStage" class="image-viewer-stage">
         <div class="image-viewer-image-frame">
           <img id="imageViewerImage" alt="" draggable="false" />
-          <button id="imageViewerPlaceBtn" class="image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
         </div>
       </div>
       <button id="imageViewerFoldBtn" class="image-viewer-fold" type="button" title="收起 / 展开信息栏" aria-label="收起或展开信息栏"><i data-lucide="chevron-right"></i></button>
@@ -221,13 +220,15 @@
       <aside id="imageViewerDetails" class="image-viewer-details">
           <button id="imageViewerDetailsToggle" class="image-viewer-details-toggle" type="button" aria-expanded="true" aria-label="折叠 Prompt Tags" title="折叠 Prompt Tags"><i data-lucide="chevron-up"></i></button>
           <header class="image-viewer-header">
-            <h2 id="imageViewerTitle">图片预览</h2>
-            <p id="imageViewerMeta">--</p>
+            <h2 id="imageViewerTitle" class="image-viewer-copy-text">图片预览</h2>
+            <p id="imageViewerMeta" class="image-viewer-copy-text">--</p>
           </header>
           <div class="image-viewer-actions">
-            <button id="imageViewerCopyAllBtn" class="image-viewer-action-btn" type="button" title="复制全部提示词"><i data-lucide="copy"></i><span>复制全部</span></button>
+            <button id="imageViewerCopyAllBtn" class="image-viewer-action-btn" type="button" title="复制全部信息"><i data-lucide="copy"></i><span>复制全部</span></button>
             <button id="imageViewerDownloadBtn" class="image-viewer-action-btn" type="button" title="下载原图"><i data-lucide="download"></i><span>下载原图</span></button>
             <button id="imageViewerRetagBtn" class="image-viewer-action-btn" type="button" title="反推此图"><i data-lucide="scan-search"></i><span>反推此图</span></button>
+            <button id="imageViewerPlaceBtn" class="image-viewer-action-btn image-viewer-place-btn" type="button" hidden><i data-lucide="plus"></i><span>放入画布</span></button>
+            <button id="imageViewerSaveBtn" class="image-viewer-action-btn" type="button" title="收藏到素材库"><i data-lucide="bookmark"></i><span>收藏到素材库</span></button>
           </div>
           <div class="image-viewer-copy">
             <div class="image-viewer-copy-head">
@@ -238,20 +239,24 @@
                 <span>过滤</span>
               </label>
             </div>
-            <div id="imageViewerTags" class="image-viewer-tag-text" role="group" aria-label="可复制的正向 Tags" data-copy-text=""></div>
+            <div id="imageViewerTags" class="image-viewer-tag-text image-viewer-copy-text" role="group" aria-label="可复制的正向 Tags" data-copy-text=""></div>
           </div>
           <div id="imageViewerNegativeSection" class="image-viewer-copy" hidden>
             <div class="image-viewer-copy-head"><span>Negative</span><button type="button" class="image-viewer-copy-btn copy-negative" data-copy-target="imageViewerNegative" title="复制负面提示词" aria-label="复制负面提示词">复制负面</button></div>
-            <div id="imageViewerNegative" class="image-viewer-note" data-copy-text=""></div>
+            <div id="imageViewerNegative" class="image-viewer-note image-viewer-copy-text" data-copy-text=""></div>
+          </div>
+          <div id="imageViewerCharactersSection" class="image-viewer-copy" hidden>
+            <div class="image-viewer-copy-head"><span>角色参数</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerCharacters" title="复制角色参数">复制角色</button></div>
+            <div id="imageViewerCharacters" class="image-viewer-characters" data-copy-text=""></div>
           </div>
           <div id="imageViewerNoteSection" class="image-viewer-copy" hidden>
-            <div class="image-viewer-copy-head"><span>Note</span></div>
-            <div id="imageViewerNote" class="image-viewer-note"></div>
+            <div class="image-viewer-copy-head"><span>Note · 生成参数</span><button type="button" class="image-viewer-copy-btn" data-copy-target="imageViewerNote" title="复制生成参数">复制参数</button></div>
+            <div id="imageViewerNote" class="image-viewer-note image-viewer-copy-text" data-copy-text=""></div>
           </div>
       </aside>
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>
-    <script type="module" src="./canvas.js?v=4.6.22"></script>
+    <script type="module" src="./canvas.js?v=4.6.26"></script>
   </body>
 </html>

@@ -162,6 +162,9 @@ def parse_nai_info(info: Dict[str, Any]) -> Dict[str, Any]:
     software = info.get("Software")
     if isinstance(software, str) and software.strip():
         result["software"] = software.strip()
+    source = info.get("Source")
+    if "model" not in result and isinstance(source, str) and source.strip():
+        result["model"] = source.strip()
 
     return result
 
@@ -212,13 +215,27 @@ def _apply_comment_json(comment: Dict[str, Any]) -> Dict[str, Any]:
         if number is not None:
             result[key] = number
 
-    for key in ("sampler", "noise_schedule"):
+    for key in ("sampler", "noise_schedule", "model", "image_format"):
         value = comment.get(key)
         if isinstance(value, str) and value.strip():
             result[key] = value.strip()
 
+    for key in ("quality", "variety_boost"):
+        if isinstance(comment.get(key), bool):
+            result[key] = comment[key]
+    if "variety_boost" not in result and "skip_cfg_above_sigma" in comment:
+        sigma = _coerce_float(comment["skip_cfg_above_sigma"])
+        result["variety_boost"] = sigma is not None and sigma > 0
+    uc_preset = comment.get("uc_preset")
+    if isinstance(uc_preset, (str, int)) and not isinstance(uc_preset, bool):
+        result["uc_preset"] = str(uc_preset).strip()
+
     for key in ("prompt", "uc"):
         value = comment.get(key)
+        if not isinstance(value, str) or not value.strip():
+            v4 = comment.get("v4_prompt" if key == "prompt" else "v4_negative_prompt")
+            caption = v4.get("caption") if isinstance(v4, dict) else None
+            value = caption.get("base_caption") if isinstance(caption, dict) else None
         if isinstance(value, str) and value.strip():
             result["prompt" if key == "prompt" else "negativePrompt"] = value.strip()
 

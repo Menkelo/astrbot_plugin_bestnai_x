@@ -295,6 +295,33 @@ def _sanitize_char_prompts(
     return result
 
 
+def _sanitize_image_generation_meta(value: Any) -> Dict[str, Any]:
+    """Keep known generation parameters without inventing defaults for old images."""
+    if not isinstance(value, dict):
+        return {}
+    result: Dict[str, Any] = {}
+    for key, limit in (
+        ("sampler", 48), ("noiseSchedule", 32), ("ucPreset", 32),
+        ("model", 160), ("imageFormat", 16), ("negativePrompt", 6000),
+    ):
+        raw = value.get(key)
+        if isinstance(raw, str):
+            result[key] = raw[:limit].strip()
+    for key, maximum in (("steps", 200), ("scale", 100), ("cfgRescale", 1)):
+        raw = value.get(key)
+        if raw not in (None, "") and not isinstance(raw, bool):
+            result[key] = _bounded_number(raw, 0, 0, maximum)
+    for key in ("varietyBoost", "quality", "characterUseCoords", "characterUseOrder"):
+        if isinstance(value.get(key), bool):
+            result[key] = value[key]
+    if isinstance(value.get("characterPrompts"), list):
+        result["characterPrompts"] = _sanitize_char_prompts([
+            {"prompt": item} if isinstance(item, str) else item
+            for item in value["characterPrompts"][:MAX_CHAR_PROMPTS_STORED]
+        ])
+    return result
+
+
 def _sanitize_retag_tag_translations(value: Any) -> Dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -819,14 +846,9 @@ class CanvasStore:
                 # 单次生成张数（1-4），>1 时前端按两列网格排布
                 "count": int(_bounded_number(raw_meta.get("count"), 1, 1, 4)),
             }
-            for _key, _bound in (
-                ("steps", (0, 0, 200)),
-                ("scale", (0, 0, 100)),
-                ("cfgRescale", (0, 0, 1)),
-            ):
-                _raw_value = raw_meta.get(_key)
-                if _raw_value not in (None, ""):
-                    meta[_key] = _bounded_number(_raw_value, *_bound)
+            meta.update(_sanitize_image_generation_meta(raw_meta))
+            if node_type == "image" and "varietyBoost" not in raw_meta:
+                meta.pop("varietyBoost", None)
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
             if debug is not None:
                 meta["debug"] = debug
@@ -1063,6 +1085,31 @@ class CanvasStore:
         }.get(suffix, "application/octet-stream")
         return matches[0], mime_type
 
+    def asset_generation_meta(self, asset_id: str) -> Dict[str, Any]:
+        """Read embedded parameters only; opening a preview must never invoke vision."""
+        path, _ = self.get_asset(asset_id)
+        info = read_image_generation_info(path)
+        fields = {
+            "steps": "steps", "scale": "scale", "cfgRescale": "cfg_rescale",
+            "sampler": "sampler", "noiseSchedule": "noise_schedule",
+            "model": "model", "ucPreset": "uc_preset", "quality": "quality",
+            "varietyBoost": "variety_boost", "negativePrompt": "negativePrompt",
+            "characterPrompts": "characterPrompts",
+            "characterUseCoords": "characterUseCoords",
+            "characterUseOrder": "characterUseOrder",
+        }
+        result = _sanitize_image_generation_meta({
+            target: info[source] for target, source in fields.items() if source in info
+        })
+        if info:
+            result["imageFormat"] = path.suffix.lstrip(".")
+        if info.get("prompt"):
+            result["tags"] = _short_text(info["prompt"], 6000).strip()
+        seed = normalize_nai_seed(info.get("seed"))
+        if seed:
+            result["seed"] = seed
+        return result
+
     def asset_payload(self, asset_id: str) -> Dict[str, Any]:
         path, mime_type = self.get_asset(asset_id)
         if path.stat().st_size > MAX_UPLOAD_BYTES:
@@ -1180,6 +1227,7 @@ class CanvasStore:
         artist: Any = "",
         seed: Any = 0,
         tag_translations: Any = None,
+        generation_meta: Any = None,
     ) -> Dict[str, Any]:
         with self._lock:
             asset_id = str(asset.get("id") or "")
@@ -1219,6 +1267,10 @@ class CanvasStore:
             )
             if translations:
                 entry["tagTranslations"] = translations
+            params = _sanitize_image_generation_meta(entry.get("generationMeta"))
+            params.update(_sanitize_image_generation_meta(generation_meta))
+            if params:
+                entry["generationMeta"] = params
             if existing is None:
                 library["images"].insert(0, entry)
             self._write_json(self.library_path, library)
@@ -1340,6 +1392,7 @@ class CanvasService:
             ("workspace/export", self.export_workspace, ["GET"], "Infinite Canvas：导出工作区"),
             ("upload", self.upload_asset, ["POST"], "Infinite Canvas：上传图片"),
             ("asset", self.get_asset, ["GET"], "Infinite Canvas：读取图片"),
+            ("asset/params", self.get_asset_params, ["GET"], "Infinite Canvas：读取图片内嵌生成参数"),
             ("asset/download", self.download_asset, ["GET"], "Infinite Canvas：下载图片"),
             ("projects", self.list_projects, ["GET"], "Infinite Canvas：项目列表"),
             ("projects/create", self.create_project, ["POST"], "Infinite Canvas：创建项目"),
@@ -1504,6 +1557,7 @@ class CanvasService:
                 payload.get("artist"),
                 payload.get("seed"),
                 tag_translations=payload.get("tagTranslations"),
+                generation_meta=payload.get("generationMeta"),
             )
             return json_response({"image": entry, **asset_payload})
         except FileNotFoundError:
@@ -1728,6 +1782,16 @@ class CanvasService:
         asset_id = str(request.query.get("id", "") or "")
         try:
             return json_response(self.store.asset_payload(asset_id))
+        except FileNotFoundError:
+            return error_response("图片资源不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def get_asset_params(self) -> Any:
+        """Recover preview information for older or imported images."""
+        asset_id = str(request.query.get("id", "") or "")
+        try:
+            return json_response(await asyncio.to_thread(self.store.asset_generation_meta, asset_id))
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)
         except CanvasValidationError as exc:

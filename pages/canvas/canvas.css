@@ -2282,12 +2282,15 @@ select:focus-visible {
   top:18px;
   right:18px;
   bottom:18px;
-  display:grid;
+  display:flex;
+  flex-direction: column;
   width:var(--image-viewer-rail-w);
   max-width:none;
   align-content: start;
-  gap: 10px;
-  padding: 13px 15px;
+  gap: 16px;
+  padding: 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(148, 163, 184, .25);
   border-radius: 12px;
   border-radius: var(--image-viewer-radius);
@@ -2301,7 +2304,7 @@ select:focus-visible {
 }
 .image-viewer.folded .image-viewer-details { transform: translateX(calc(100% + 26px)); opacity: 0; pointer-events: none; }
 
-.image-viewer-fold { position:absolute; z-index:5; top:50%; right:18px; display:grid; width:26px; height:58px; place-items:center; border:1px solid rgba(148,163,184,.3); border-radius:13px; background:rgba(255,255,255,.82); color:#64748b; cursor:pointer; transform:translateY(-50%); box-shadow:0 8px 22px rgba(15,23,42,.15); backdrop-filter:blur(12px); transition:color .12s,border-color .12s,background .12s; }
+.image-viewer-fold { position:absolute; z-index:5; top:32px; right:30px; display:grid; width:30px; height:30px; place-items:center; border:1px solid rgba(148,163,184,.3); border-radius:10px; background:rgba(255,255,255,.82); color:#64748b; cursor:pointer; box-shadow:0 8px 22px rgba(15,23,42,.15); backdrop-filter:blur(12px); transition:color .12s,border-color .12s,background .12s; }
 .image-viewer-fold:hover { border-color:#818cf8; color:#4338ca; background:#fff; }
 .image-viewer-fold svg { width:18px; height:18px; transition:transform .2s var(--ease); }
 .image-viewer.folded .image-viewer-fold svg { transform: rotate(180deg); }
@@ -2328,7 +2331,7 @@ select:focus-visible {
 }
 
 .image-viewer.layout-bottom .image-viewer-details {
-  max-height: min(38vh, 300px);
+  max-height: none;
   flex: 0 1 auto;
   overflow: auto;
   overscroll-behavior: contain;
@@ -2365,27 +2368,25 @@ select:focus-visible {
   overscroll-behavior: contain;
 }
 
-.image-viewer.layout-side .image-viewer-tag-text {
-  /* The details panel already has a viewport-bounded height. Let tags use
-     the remaining space instead of creating a short nested scrollbar with a
-     large empty area below it. */
-  min-height: 0;
-  max-height: none;
-  flex: 1 1 auto;
-}
-
 @media (min-width: 761px) {
   .image-viewer-image-frame { width:100%; height:100%; }
 }
 
 .image-viewer-header { min-width:0; padding-right:46px; }
-.image-viewer-header h2 { display:block; max-width:100%; margin:0; overflow:hidden; color:#1e293b; font-size:18px; font-weight:850; white-space:nowrap; text-overflow:ellipsis; }
+.image-viewer-header h2 { display:block; max-width:100%; margin:0; color:#1e293b; font-size:18px; font-weight:850; overflow-wrap:anywhere; }
 .image-viewer-header p { margin: 4px 0 0; color: #94a3b8; font-size: 11px; line-height: 1.5; }
 .image-viewer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .image-viewer-action-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 11px; border: 1px solid #e2e8f0; border-radius: 999px; background: #f8fafc; color: #334155; cursor: pointer; font-size: 11px; font-weight: 750; }
 .image-viewer-action-btn:hover { border-color: #c7d2fe; background: #eef2ff; color: #4338ca; }
 .image-viewer-action-btn svg { width: 14px; height: 14px; }
-.image-viewer-note { max-height: 140px; overflow: auto; padding: 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; color: #475569; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.image-viewer-action-btn:disabled { cursor: default; opacity: .65; }
+.image-viewer-action-btn[aria-pressed="true"] { border-color: #c7d2fe; background: #eef2ff; color: #4338ca; }
+.image-viewer-action-btn[hidden] { display: none; }
+.image-viewer-copy-text { -webkit-user-select: text; user-select: text; cursor: text; }
+.image-viewer-note { padding: 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; color: #475569; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.image-viewer-characters { display: grid; gap: 12px; }
+.image-viewer-character { display: grid; min-width: 0; gap: 6px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+.image-viewer-character-position { margin: 0; color: #64748b; font-size: 11px; overflow-wrap: anywhere; }
 
 .image-viewer-details-toggle {
   display: none;
@@ -2397,7 +2398,7 @@ select:focus-visible {
   padding: 0 2px;
   border: 0;
   background: transparent;
-  color: #e5e7eb;
+  color: #64748b;
   cursor: pointer;
   font: inherit;
   font-size: 10px;
@@ -2423,6 +2424,8 @@ select:focus-visible {
 
 .image-viewer-copy {
   display: grid;
+  flex: 0 0 auto;
+  min-width: 0;
   gap: 6px;
 }
 
@@ -2433,6 +2436,7 @@ select:focus-visible {
 .image-viewer-copy-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -2525,6 +2529,7 @@ select:focus-visible {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   line-height: 1.6;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
   scrollbar-color: rgba(148, 163, 184, .55) transparent;
   scrollbar-width: thin;
@@ -2532,8 +2537,62 @@ select:focus-visible {
   user-select: text;
 }
 
-.image-viewer-tag-cn {
-  color: #94a3b8;
+.image-viewer-tag-grid {
+  display: flex;
+  max-height: 210px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 5px;
+  overflow: auto;
+  padding: 1px;
+  scrollbar-color: rgba(148, 163, 184, .55) transparent;
+  scrollbar-width: thin;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.image-viewer-tag-chip {
+  max-width: 100%;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-overflow: ellipsis;
+  transition: border-color .15s ease, background .15s ease, color .15s ease, transform .15s ease;
+  white-space: normal;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.image-viewer-tag-chip.bilingual {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.image-viewer-tag-chip:hover,
+.image-viewer-tag-chip:focus-visible {
+  border-color: #818cf8;
+  background: #e0e7ff;
+  color: #312e81;
+  outline: none;
+}
+
+.image-viewer-tag-chip:focus-visible {
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, .28);
+}
+
+.image-viewer-tag-chip:active {
+  transform: translateY(1px);
 }
 
 .image-viewer-tag-empty {
@@ -2577,34 +2636,13 @@ select:focus-visible {
 }
 
 .image-viewer-place-btn {
-  position: absolute;
-  z-index: 2;
-  left: 50%;
-  bottom: 16px;
-  display: inline-flex;
-  width: auto;
-  min-width: 112px;
-  max-width: calc(100% - 32px);
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 13px;
-  margin: 0;
-  border: 1px solid rgba(255, 255, 255, .2);
-  border-radius: 7px;
-  background: rgba(248, 250, 252, .68);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, .2);
-  color: #111827;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 850;
-  transform: translateX(-50%);
-  backdrop-filter: blur(8px);
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
 }
 
 .image-viewer-place-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, .82);
+  background: #e0e7ff;
 }
 
 .image-viewer-place-btn:disabled {
@@ -4107,54 +4145,59 @@ select:focus-visible {
   }
 
 }
-/* 与布局切换阈值（760px）对齐：整个底部布局区间都用底部抽屉呈现信息栏，
-   避免 621-760px 之间出现卡在右上角、内容被 38vh 截断的迷你信息卡 */
+/* 图片与抽屉共用同一个高度变量，窄屏不会留下空隙或相互覆盖。 */
 @media (max-width: 760px) {
   .image-viewer {
     padding: 0;
+    --image-viewer-sheet-h: 45dvh;
   }
 
   .image-viewer-stage,
   .image-viewer.layout-side .image-viewer-stage {
-    display: grid;
+    display: flex;
     width: auto;
-    right: 18px;
+    left: 10px;
+    right: 10px;
+    top: 10px;
+    bottom: calc(var(--image-viewer-sheet-h) + 20px);
     max-width: 100%;
     height: auto;
-    grid-template-areas:
-      "viewer-image"
-      "viewer-details";
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
-    gap: 10px;
   }
 
-  .image-viewer-details {
-    width: 100%;
-  }
-
+  .image-viewer-details,
   .image-viewer.layout-bottom .image-viewer-details {
-    min-height: min(38vh, 300px);
-    max-height: min(38vh, 300px);
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 10px;
+    width: auto;
+    height: var(--image-viewer-sheet-h);
+    min-height: 0;
+    max-height: var(--image-viewer-sheet-h);
+    padding: 12px 14px 14px;
+    border-radius: 20px 20px 16px 16px;
   }
 
-  .image-viewer.layout-bottom .image-viewer-details.collapsed {
-    min-height: 0;
+  .image-viewer.details-collapsed {
+    --image-viewer-sheet-h: min(45dvh, 176px);
+  }
+
+  .image-viewer-details.collapsed .image-viewer-copy {
+    display: none;
   }
 
   .image-viewer-details-toggle {
     display: flex;
   }
 
-  .image-viewer-stage { left: 10px; right: 10px; top: 10px; bottom: calc(45dvh + 20px); }
-  .image-viewer.folded .image-viewer-stage { right: 10px; bottom: 74px; }
-  .image-viewer-details { left: 10px; right: 10px; top: auto; bottom: 10px; width: auto; height: 45dvh; max-height: 45dvh; padding: 24px 14px 14px; border-radius: 20px 20px 16px 16px; }
+  .image-viewer.folded .image-viewer-stage { right: 10px; bottom: 10px; }
   .image-viewer.folded .image-viewer-details { transform: translateY(calc(100% + 20px)); }
-  .image-viewer-nav { width: 40px; height: 40px; }
+  .image-viewer-nav { top: calc((100dvh - var(--image-viewer-sheet-h) - 30px) / 2 + 10px); width: 40px; height: 40px; }
+  .image-viewer.folded .image-viewer-nav { top: 50%; }
   .image-viewer-nav-prev { left: 10px; }
   .image-viewer-nav-next, .image-viewer.folded .image-viewer-nav-next { right:10px; }
-  .image-viewer-fold { top:50%; left:auto; right:10px; bottom:auto; width:36px; height:52px; border-radius:13px; transform:translateY(-50%); }
-  .image-viewer-fold:hover { transform:translateY(-50%); }
+  .image-viewer-fold { top:10px; left:auto; right:10px; bottom:auto; width:30px; height:30px; border-radius:10px; transform:none; }
+  .image-viewer-fold:hover { transform:none; }
   .image-viewer.folded .image-viewer-fold { right:10px; bottom:auto; }
 
 }

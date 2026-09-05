@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -19,7 +20,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_loads_bridge_before_page_script(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor_script = '<script type="module" src="./canvas.js?v=4.6.22"></script>'
+        version = re.search(r"^version: (.+)$", (ROOT / "metadata.yaml").read_text(encoding="utf-8"), re.M)[1]
+        editor_script = f'<script type="module" src="./canvas.js?v={version}"></script>'
         self.assertIn(BRIDGE_SDK, html)
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
@@ -348,7 +350,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("<span>Tags 标签</span>", html)
         self.assertIn('aria-label="折叠 Prompt Tags"', html)
         self.assertNotIn("中文 Tags / Chinese Tags", html)
-        self.assertIn('class="image-viewer-tag-text" role="group" aria-label="可复制的正向 Tags" data-copy-text=""', html)
+        self.assertIn('class="image-viewer-tag-text image-viewer-copy-text" role="group" aria-label="可复制的正向 Tags" data-copy-text=""', html)
         self.assertNotIn('id="imageViewerCaption"', html)
         self.assertNotIn('id="imageViewerArtist"', html)
         self.assertNotIn('id="imageViewerDimensions"', html)
@@ -416,29 +418,29 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function imageViewerWeightedTokenParts", editor)
         self.assertIn("state.viewerTagsFiltered = stripImageViewerControlTags(", editor)
         self.assertIn('state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();', editor)
-        self.assertIn('meta.artist || "",', editor)
+        self.assertIn('meta.artist || ""', editor)
         self.assertIn("retagControlPrompts: []", editor)
         self.assertIn('"retagControlPrompts": self.plugin_config.get_retag_control_prompts()', main)
         self.assertIn('bridge.apiPost("canvas/tags/translate", { tags })', editor)
         self.assertNotIn("els.imageViewerChineseTags", editor)
-        self.assertIn("els.imageViewerTags.dataset.copyText = rawTags", editor)
+        self.assertIn("target.dataset.copyText = rawTags", editor)
         self.assertIn("target?.dataset.copyText?.trim()", editor)
-        self.assertIn("cn.textContent = ` / ${cnName}`", editor)
-        self.assertIn('const item = document.createElement("span")', editor)
-        self.assertIn('item.className = "image-viewer-tag-item"', editor)
+        self.assertIn('chip.textContent = cnName ? `${tag} / ${cnName}` : tag', editor)
+        self.assertIn('chip.className = "image-viewer-tag-chip"', editor)
         self.assertIn("function applyImageViewerTagsView", editor)
         self.assertIn("state.viewerShowFilteredTags = els.imageViewerFilterToggle.checked", editor)
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
         fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:18px;", fold)
+        self.assertIn("right:30px;", fold)
         next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
         self.assertIn("right: calc(var(--image-viewer-rail-w) + 54px);", next_button)
         prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
         self.assertIn("left:36px;", prev_button)
-        self.assertIn("border-radius:13px;", fold)
-        self.assertIn("white-space:nowrap;", styles)
-        self.assertIn("text-overflow:ellipsis;", styles)
+        self.assertIn("border-radius:10px;", fold)
+        heading = styles.split(".image-viewer-header h2 {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-wrap:anywhere;", heading)
+        self.assertNotIn("text-overflow:ellipsis;", heading)
         self.assertIn("const importedTitle = `导入图片", editor)
         self.assertIn("sourceFilename: images[index].name", editor)
         self.assertNotIn("width: fit-content;", styles)
@@ -450,7 +452,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("min-height: 0;", viewer_stage)
         self.assertIn("grid-template-rows: minmax(0, 1fr);", viewer_stage)
         image_frame_html = html.split('class="image-viewer-image-frame"', 1)[1].split("</div>", 1)[0]
-        self.assertIn('id="imageViewerPlaceBtn"', image_frame_html)
+        self.assertNotIn('id="imageViewerPlaceBtn"', image_frame_html)
+        viewer_actions = html.split('class="image-viewer-actions"', 1)[1].split("</div>", 1)[0]
+        self.assertIn('id="imageViewerPlaceBtn"', viewer_actions)
+        self.assertIn('id="imageViewerSaveBtn"', viewer_actions)
         image_frame = styles.split("\n.image-viewer-image-frame {", 1)[1].split("}", 1)[0]
         self.assertIn("position: relative;", image_frame)
         self.assertIn("height: 100%;", image_frame)
@@ -494,12 +499,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("flex-direction: column;", side_details)
         self.assertIn("align-self: stretch;", side_details)
         place_button = styles.split("\n.image-viewer-place-btn {", 1)[1].split("}", 1)[0]
-        self.assertIn("position: absolute;", place_button)
-        self.assertIn("bottom: 16px;", place_button)
-        self.assertIn("min-width: 112px;", place_button)
-        self.assertIn("height: 30px;", place_button)
-        self.assertIn("background: rgba(248, 250, 252, .68);", place_button)
-        self.assertIn("transform: translateX(-50%);", place_button)
+        self.assertNotIn("position: absolute;", place_button)
+        self.assertIn("background: #eef2ff;", place_button)
         self.assertIn(".image-viewer-details-toggle {", styles)
         details_toggle = styles.split("\n.image-viewer-details-toggle {", 1)[1].split("}", 1)[0]
         self.assertIn("min-height: 22px;", details_toggle)
@@ -507,7 +508,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer-details.collapsed .image-viewer-copy", styles)
         self.assertIn(".image-viewer-copy[hidden]", styles)
         self.assertIn(".image-viewer-tag-text {", styles)
-        self.assertIn(".image-viewer-tag-cn", styles)
+        self.assertIn(".image-viewer-tag-chip.bilingual", styles)
         self.assertIn(".image-viewer-copy-btn.copy-negative", styles)
         tag_text = styles.split("\n.image-viewer-tag-text {", 1)[1].split("}", 1)[0]
         self.assertIn("user-select: text;", tag_text)
@@ -525,7 +526,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         mobile_bottom_details = mobile_styles.split(
             ".image-viewer.layout-bottom .image-viewer-details {", 1
         )[1].split("}", 1)[0]
-        self.assertIn("min-height: min(38vh, 300px);", mobile_bottom_details)
+        self.assertIn("height: var(--image-viewer-sheet-h);", mobile_bottom_details)
         tag_text = styles.split("\n.image-viewer-tag-text {", 1)[1].split("}", 1)[0]
         self.assertIn("-webkit-user-select: text;", tag_text)
         self.assertIn("user-select: text;", tag_text)
@@ -753,7 +754,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer-place-btn {", styles)
         self.assertIn("display: inline-flex;", styles)
         self.assertIn("viewerLibraryAsset: null", editor)
-        self.assertIn('{ libraryAsset: item, operationLabel: "预览素材" }', editor)
+        self.assertIn('libraryAsset: item, operationLabel: "预览素材"', editor)
         self.assertIn("els.imageViewerPlaceBtn.addEventListener", editor)
         self.assertIn("els.assetPlaceSelectedBtn.addEventListener", editor)
         self.assertIn("els.assetArchiveSelectedBtn.addEventListener", editor)
@@ -921,8 +922,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn('src="./plugin-logo.webp"', html)
         self.assertNotIn('id="pluginRepoLink"', html)
-        self.assertIn("version: 4.6.22", metadata)
-        self.assertIn('PLUGIN_VERSION = "4.6.22"', constants)
+        version = re.search(r"^version: (.+)$", metadata, re.M)[1]
+        self.assertIn(f'PLUGIN_VERSION = "{version}"', constants)
+        self.assertIn(f'./canvas.css?v={version}', html)
         self.assertIn('astrbot_version: ">=4.26.0"', metadata)
         self.assertIn("最低要求：AstrBot `4.26.0`", readme)
 

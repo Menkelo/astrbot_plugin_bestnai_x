@@ -839,6 +839,78 @@ class CanvasStoreTest(unittest.TestCase):
         self.assertEqual(entry["seed"], 3405988762)
         self.assertEqual(self.store.list_library()["images"][0]["seed"], 3405988762)
 
+    def test_generation_parameters_survive_workspace_and_library_round_trips(self) -> None:
+        asset = self._store_png_asset()
+        params = {
+            "model": "nai-diffusion-4-5-full", "steps": 28, "scale": 6.5,
+            "sampler": "k_euler_ancestral", "noiseSchedule": "karras", "cfgRescale": 0,
+            "varietyBoost": True, "quality": False, "ucPreset": "0", "imageFormat": "png",
+            "negativePrompt": "lowres, blurry", "characterUseCoords": True, "characterUseOrder": False,
+            "characterPrompts": [{
+                "prompt": "blue hair", "negative_prompt": "closed eyes", "position": "B3",
+                "center": {"x": .17, "y": .53},
+            }],
+        }
+        self.store.save_workspace({"nodes": [{
+            "id": "image_1", "type": "image", "assetId": asset["id"], "meta": params,
+        }]})
+        reopened = CanvasStore("test_plugin", Path(self.temp_dir.name))
+        saved = reopened.load_workspace()["nodes"][0]["meta"]
+        self.assertEqual({key: saved[key] for key in params}, params)
+        reopened.add_image_to_library(asset, generation_meta=saved)
+        reopened.add_image_to_library(asset, generation_meta={})
+        library_meta = CanvasStore("test_plugin", Path(self.temp_dir.name)).list_library()["images"][0]["generationMeta"]
+        self.assertEqual(library_meta, params)
+
+    def test_image_parameters_recover_advanced_and_character_data_without_defaults(self) -> None:
+        asset = self._store_png_asset({
+            "prompt": "outdoors", "uc": "lowres", "seed": 987654321,
+            "steps": 28, "scale": 7, "cfg_rescale": 0,
+            "sampler": "k_euler", "noise_schedule": "karras", "skip_cfg_above_sigma": 58,
+            "uc_preset": 0, "quality": False,
+            "v4_prompt": {"use_coords": True, "caption": {"char_captions": [{
+                "char_caption": "blue hair", "centers": [{"x": .17, "y": .53}],
+            }]}},
+            "v4_negative_prompt": {"caption": {"char_captions": [{"char_caption": "hat"}]}},
+        })
+        params = self.store.asset_generation_meta(asset["id"])
+        self.assertEqual(params["tags"], "outdoors")
+        self.assertEqual(params["seed"], 987654321)
+        self.assertEqual(params["cfgRescale"], 0)
+        self.assertEqual(params["ucPreset"], "0")
+        self.assertTrue(params["varietyBoost"])
+        self.assertFalse(params["quality"])
+        self.assertEqual(params["characterPrompts"], [{
+            "prompt": "blue hair", "negative_prompt": "hat", "position": "",
+            "center": {"x": .17, "y": .53},
+        }])
+        self.assertEqual(self.store.asset_generation_meta(self._store_png_asset()["id"]), {})
+        with self.assertRaises(CanvasValidationError):
+            self.store.asset_generation_meta("../invalid")
+        with self.assertRaises(FileNotFoundError):
+            self.store.asset_generation_meta("f" * 32)
+
+    def test_image_parameter_sanitizer_limits_legacy_and_malformed_records(self) -> None:
+        saved = self.store.save_workspace({"nodes": [{
+            "id": "image_1", "type": "image", "meta": {
+                "characterPrompts": ["blue hair", {"prompt": "x" * 3000, "negative_prompt": "hat", "center": {"x": 2, "y": 0}}] * 20,
+                "negativePrompt": "z" * 7000, "cfgRescale": 9, "steps": 999,
+                "model": "m" * 200, "privateToken": "must-not-persist",
+            },
+        }, {"id": "image_2", "type": "image", "meta": {}}]})
+        meta = saved["nodes"][0]["meta"]
+        self.assertEqual(meta["characterPrompts"][0]["prompt"], "blue hair")
+        self.assertEqual(len(meta["characterPrompts"]), 16)
+        self.assertEqual(len(meta["characterPrompts"][1]["prompt"]), 2000)
+        self.assertNotIn("center", meta["characterPrompts"][1])
+        self.assertEqual(len(meta["negativePrompt"]), 6000)
+        self.assertEqual(meta["cfgRescale"], 1)
+        self.assertEqual(meta["steps"], 200)
+        self.assertNotIn("privateToken", meta)
+        empty = saved["nodes"][1]["meta"]
+        for field in ("varietyBoost", "quality", "steps", "scale", "cfgRescale", "characterPrompts"):
+            self.assertNotIn(field, empty)
+
     def test_repair_library_image_seed_keeps_existing_seed_and_plain_images(self) -> None:
         seeded_asset = self._store_png_asset({"seed": 111})
         self.store.add_image_to_library(seeded_asset, "有种子", "generated", seed=222)

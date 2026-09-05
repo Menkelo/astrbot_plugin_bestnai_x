@@ -1149,6 +1149,18 @@ class BestNAIPlugin(Star):
                 "seed": result.seed,
                 "steps": gen_config.steps,
                 "scale": gen_config.scale,
+                # 记录回退后实际使用的参数，供图片预览与收藏复用。
+                "sampler": gen_config.sampler,
+                "cfgRescale": gen_config.cfg_rescale,
+                "noiseSchedule": gen_config.noise_schedule,
+                "varietyBoost": bool(gen_config.variety_boost),
+                "ucPreset": gen_config.uc_preset,
+                "quality": bool(gen_config.quality),
+                "imageFormat": gen_config.image_format,
+                "negativePrompt": gen_config.negative_prompt,
+                "characterPrompts": normalize_char_entries(gen_config.characters),
+                "characterUseCoords": bool(gen_config.use_coords),
+                "characterUseOrder": bool(gen_config.use_order),
             },
         )
 
@@ -2754,7 +2766,11 @@ class BestNAIPlugin(Star):
 
                     if tr_cfg.show_result:
                         if show_messages:
-                            show_messages[0] += f"\n{translated}"
+                            show_messages[0] = ", ".join(
+                                part.strip(" ,，;；\r\n\t")
+                                for part in (show_messages[0], str(translated))
+                                if part.strip(" ,，;；\r\n\t")
+                            )
                         else:
                             show_messages.append(f"🔎 翻译结果：\n{translated}")
 
@@ -2772,10 +2788,12 @@ class BestNAIPlugin(Star):
                             await self._resolve_prompt_identity(desc_part)
                         )
                         if show_messages:
-                            # 中文路径会把翻译结果追加进反推结果一起展示；英文
-                            # 输入没有翻译环节，这里补上原文，反推结果里才能
-                            # 看到用户追加的标签（合并本身不受影响）。
-                            show_messages[0] += f"\n{desc_part}"
+                            # 回显也是可复用的 tag 串，边界统一用一个英文逗号。
+                            show_messages[0] = ", ".join(
+                                part.strip(" ,，;；\r\n\t")
+                                for part in (show_messages[0], desc_part)
+                                if part.strip(" ,，;；\r\n\t")
+                            )
 
                 if raw_mode:
                     # Raw mode is literal: do not translate, resolve identity,

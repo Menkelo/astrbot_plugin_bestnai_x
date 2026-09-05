@@ -56,11 +56,14 @@ const els = {
   imageViewerMeta: document.getElementById("imageViewerMeta"),
   imageViewerNegativeSection: document.getElementById("imageViewerNegativeSection"),
   imageViewerNegative: document.getElementById("imageViewerNegative"),
+  imageViewerCharactersSection: document.getElementById("imageViewerCharactersSection"),
+  imageViewerCharacters: document.getElementById("imageViewerCharacters"),
   imageViewerNoteSection: document.getElementById("imageViewerNoteSection"),
   imageViewerNote: document.getElementById("imageViewerNote"),
   imageViewerCopyAllBtn: document.getElementById("imageViewerCopyAllBtn"),
   imageViewerDownloadBtn: document.getElementById("imageViewerDownloadBtn"),
   imageViewerRetagBtn: document.getElementById("imageViewerRetagBtn"),
+  imageViewerSaveBtn: document.getElementById("imageViewerSaveBtn"),
   imageViewerPrevBtn: document.getElementById("imageViewerPrevBtn"),
   imageViewerNextBtn: document.getElementById("imageViewerNextBtn"),
   imageViewerStage: document.getElementById("imageViewerStage"),
@@ -292,6 +295,9 @@ const state = {
   viewerTagsFull: "",
   viewerTagsFiltered: "",
   viewerNodeRef: null,
+  viewerInfoSequence: 0,
+  imageParamsCache: new Map(),
+  savingLibraryAssetIds: new Set(),
   retagRequestSequence: 0,
   retagRequests: new Map(),
 };
@@ -4756,6 +4762,7 @@ async function generateFromNode(id, {
             seed: normalizeNaiSeed(result.meta?.seed),
             steps: result.meta?.steps || 0,
             scale: result.meta?.scale || 0,
+            ...imageGenerationMeta(result.meta),
           },
         };
         state.nodes.push(imageNode);
@@ -5349,6 +5356,7 @@ function setImageViewerDetailsCollapsed(collapsed) {
   clearImageViewerBottomLayoutLock(true);
   const next = !!collapsed;
   els.imageViewerDetails.classList.toggle("collapsed", next);
+  els.imageViewer.classList.toggle("details-collapsed", next);
   els.imageViewerDetailsToggle.setAttribute("aria-expanded", String(!next));
   const toggleLabel = next ? "展开 Prompt Tags" : "折叠 Prompt Tags";
   els.imageViewerDetailsToggle.setAttribute("aria-label", toggleLabel);
@@ -5592,9 +5600,8 @@ function imageViewerTagKeys(tags) {
 
 function imageViewerTagEntries(pairs, translations = {}, tags = "") {
   const normalizedTranslations = normalizeRetagTagTranslations(translations);
-  const source = Array.isArray(pairs) && pairs.length
-    ? pairs.map((item) => String(item?.tag || "").trim()).filter(Boolean)
-    : imageViewerAtomicTags(tags);
+  // 翻译结果可能只覆盖部分标签，不能用它替换原始标签列表。
+  const source = imageViewerAtomicTags(tags);
   const pairNames = new Map(
     (Array.isArray(pairs) ? pairs : [])
       .map((item) => [
@@ -5612,62 +5619,217 @@ function imageViewerTagEntries(pairs, translations = {}, tags = "") {
   });
 }
 
-function renderImageViewerTags(tags, pairs = [], translations = {}) {
+function renderImageViewerTags(tags, pairs = [], translations = {}, target = els.imageViewerTags) {
   const rawTags = String(tags || "").trim();
-  els.imageViewerTags.dataset.copyText = rawTags;
-  els.imageViewerTags.replaceChildren();
+  const filtered = state.viewerShowFilteredTags;
+  target.dataset.copyText = rawTags;
+  target.classList.toggle("image-viewer-tag-grid", filtered);
+  target.classList.toggle("image-viewer-tag-text", !filtered);
+  target.classList.toggle("image-viewer-copy-text", !filtered);
+  target.replaceChildren();
   scheduleImageViewerFrameSync();
+  if (rawTags && !filtered) {
+    // 原始视图直接显示原文，保留权重、括号、换行与全部标签。
+    target.textContent = rawTags;
+    return;
+  }
   const entries = imageViewerTagEntries(pairs, translations, rawTags);
   if (!entries.length) {
     const empty = document.createElement("span");
     empty.className = "image-viewer-tag-empty";
     empty.textContent = "暂无英文 Tags 记录 / No English Tags yet";
-    els.imageViewerTags.appendChild(empty);
+    target.appendChild(empty);
     return;
   }
-  entries.forEach(({ tag, cnName }, index) => {
-    if (index) els.imageViewerTags.appendChild(document.createTextNode(", "));
-    const item = document.createElement("span");
-    item.className = "image-viewer-tag-item";
-    item.textContent = tag;
-    if (cnName) {
-      const cn = document.createElement("span");
-      cn.className = "image-viewer-tag-cn";
-      cn.textContent = ` / ${cnName}`;
-      item.title = `${tag} / ${cnName}`;
-      item.appendChild(cn);
-    } else {
-      item.title = tag;
-    }
-    els.imageViewerTags.appendChild(item);
+  entries.forEach(({ tag, cnName }) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "image-viewer-tag-chip";
+    chip.dataset.copyText = tag;
+    chip.textContent = cnName ? `${tag} / ${cnName}` : tag;
+    chip.title = `复制英文 Tag：${tag}`;
+    chip.setAttribute("aria-label", `复制英文 Tag：${tag}`);
+    chip.classList.toggle("bilingual", !!cnName);
+    chip.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyPlainText(tag, `复制英文 Tag：${tag}`, () => chip.focus({ preventScroll: true }));
+    });
+    target.appendChild(chip);
   });
 }
 
-// 按信息栏开关决定正向 tags 展示哪一版：关闭＝完整原始 tags（含质量词与
-// 画师串），打开＝过滤后的内容标签（带中文注释，按需翻译）。
-function applyImageViewerTagsView(lookupSequence = null) {
-  const showFiltered = state.viewerShowFilteredTags;
-  const node = state.viewerNodeRef;
-  const tags = showFiltered ? state.viewerTagsFiltered : state.viewerTagsFull;
-  if (!showFiltered) {
-    // 切回完整视图时作废未完成的翻译回填，避免旧内容盖掉纯文本
-    state.viewerTagLookupSequence += 1;
-    renderImageViewerTags(tags, [], {});
-    return;
-  }
-  if (!tags || !node) {
-    renderImageViewerTags(tags, [], {});
-    return;
-  }
-  const sequence = lookupSequence ?? ++state.viewerTagLookupSequence;
-  void hydrateImageViewerChineseTags(node, tags, sequence);
+function imageViewerCharacterEntries(meta = {}) {
+  const entries = Array.isArray(meta.characterPrompts) ? meta.characterPrompts : [];
+  return normalizeCharPromptEntries(entries.map((item) => (
+    typeof item === "string" ? { prompt: item } : item
+  )));
 }
 
-async function hydrateImageViewerChineseTags(node, tags, lookupSequence) {
+function imageGenerationMeta(meta = {}) {
+  const keys = [
+    "steps", "scale", "sampler", "cfgRescale", "noiseSchedule", "varietyBoost",
+    "ucPreset", "model", "quality", "imageFormat", "negativePrompt",
+    "characterUseCoords", "characterUseOrder",
+  ];
+  const result = Object.fromEntries(keys
+    .filter((key) => meta?.[key] != null)
+    .map((key) => [key, meta[key]]));
+  if (Array.isArray(meta?.characterPrompts)) {
+    result.characterPrompts = imageViewerCharacterEntries(meta);
+  }
+  return result;
+}
+
+async function hydrateImageGenerationMeta(node, libraryAsset = null) {
+  const assetId = node?.assetId || libraryAsset?.id;
+  if (!assetId) return;
+  try {
+    let pending = state.imageParamsCache.get(assetId);
+    if (!pending) {
+      pending = bridge.apiGet("canvas/asset/params", { id: assetId });
+      if (state.imageParamsCache.size >= 160) {
+        state.imageParamsCache.delete(state.imageParamsCache.keys().next().value);
+      }
+      state.imageParamsCache.set(assetId, pending);
+    }
+    const params = { ...await pending };
+    // 已保存的提示词与种子优先；其他已知内嵌参数补回旧版未记录的信息。
+    if (node.meta?.tags || node.meta?.finalPrompt) delete params.tags;
+    if (normalizeNaiSeed(node.meta?.seed)) delete params.seed;
+    if (!Object.keys(params).length) return;
+    const previous = JSON.stringify(node.meta);
+    node.meta = { ...(node.meta || {}), ...params };
+    if (libraryAsset) {
+      libraryAsset.generationMeta = imageGenerationMeta(node.meta);
+      libraryAsset.tags = libraryAsset.tags || node.meta.tags || "";
+      libraryAsset.seed = normalizeNaiSeed(libraryAsset.seed) || normalizeNaiSeed(node.meta.seed);
+    }
+    if (findNode(node.id) === node && JSON.stringify(node.meta) !== previous) scheduleSave();
+  } catch (_) {
+    state.imageParamsCache.delete(assetId);
+    // 参数丢失或读取失败时保留已有记录，预览不能退回付费反推。
+  }
+}
+
+function imageViewerNoteText(meta) {
+  const numberLine = (label, value, allowZero = false) => (
+    value != null && value !== "" && Number.isFinite(Number(value))
+      && (allowZero || Number(value) > 0) ? `${label}: ${value}` : ""
+  );
+  const boolLine = (label, value) => typeof value === "boolean"
+    ? `${label}: ${value ? "开启" : "关闭"}` : "";
+  return [
+    meta.model ? `Model: ${meta.model}` : "",
+    meta.width && meta.height ? `Size: ${meta.width} × ${meta.height}` : "",
+    numberLine("Seed", normalizeNaiSeed(meta.seed)),
+    numberLine("Steps", meta.steps),
+    numberLine("CFG scale", meta.scale),
+    meta.sampler ? `Sampler: ${meta.sampler}` : "",
+    meta.noiseSchedule ? `Noise schedule: ${meta.noiseSchedule}` : "",
+    numberLine("CFG rescale", meta.cfgRescale, true),
+    boolLine("Variety+", meta.varietyBoost),
+    boolLine("Quality", meta.quality),
+    meta.ucPreset != null && meta.ucPreset !== "" ? `UC preset: ${meta.ucPreset}` : "",
+    meta.imageFormat ? `Format: ${meta.imageFormat}` : "",
+    imageViewerCharacterEntries(meta).length && typeof meta.characterUseCoords === "boolean"
+      ? `角色布局: ${meta.characterUseCoords ? "坐标分区" : "出场顺序"}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function renderImageViewerInfo(node) {
+  const meta = node.meta || {};
+  els.imageViewerMeta.textContent = [
+    meta.width && meta.height ? `${meta.width}×${meta.height}` : "",
+    meta.ratio || "",
+    meta.seed ? `Seed ${meta.seed}` : "",
+  ].filter(Boolean).join(" / ") || "暂无生成参数记录";
+  state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();
+  state.viewerTagsFiltered = stripImageViewerControlTags(state.viewerTagsFull, meta.artist || "");
+  const negative = String(meta.negativePrompt || meta.negative_prompt || "").trim();
+  els.imageViewerNegative.textContent = negative;
+  els.imageViewerNegative.dataset.copyText = negative;
+  els.imageViewerNegativeSection.hidden = !negative;
+  const note = imageViewerNoteText(meta);
+  els.imageViewerNote.textContent = note;
+  els.imageViewerNote.dataset.copyText = note;
+  els.imageViewerNoteSection.hidden = !note;
+  applyImageViewerTagsView();
+}
+
+function renderImageViewerCharacters(node, sequence) {
+  const characters = imageViewerCharacterEntries(node?.meta);
+  els.imageViewerCharactersSection.hidden = !characters.length;
+  els.imageViewerCharacters.replaceChildren();
+  const copyParts = [];
+  characters.forEach((entry, index) => {
+    const section = document.createElement("section");
+    section.className = "image-viewer-character";
+    const title = `角色 ${index + 1}`;
+    const position = entry.center
+      ? `中心: ${entry.center.x}, ${entry.center.y}`
+      : entry.position ? `位置: ${entry.position}` : "";
+    const prompt = state.viewerShowFilteredTags
+      ? stripImageViewerControlTags(entry.prompt, node?.meta?.artist || "") : entry.prompt;
+    const addPrompt = (label, text, suffix, negative = false) => {
+      const head = document.createElement("div");
+      head.className = "image-viewer-copy-head";
+      const caption = document.createElement("span");
+      caption.className = "image-viewer-copy-text";
+      caption.textContent = label;
+      const target = document.createElement("div");
+      target.id = `imageViewerCharacter${index}${suffix}`;
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = `image-viewer-copy-btn${negative ? " copy-negative" : ""}`;
+      copy.dataset.copyTarget = target.id;
+      copy.title = `复制${title}${negative ? "负面" : "正向"}提示词`;
+      copy.textContent = negative ? "复制负面" : "复制正向";
+      head.append(caption, copy);
+      section.append(head, target);
+      if (negative) {
+        target.className = "image-viewer-note image-viewer-copy-text";
+        target.textContent = text;
+        target.dataset.copyText = text;
+      } else if (state.viewerShowFilteredTags && text) {
+        void hydrateImageViewerChineseTags(node, text, sequence, target);
+      } else {
+        renderImageViewerTags(text, [], {}, target);
+      }
+    };
+    if (position) {
+      const coordinates = document.createElement("p");
+      coordinates.className = "image-viewer-character-position image-viewer-copy-text";
+      coordinates.textContent = position;
+      section.appendChild(coordinates);
+    }
+    els.imageViewerCharacters.appendChild(section);
+    addPrompt(title, prompt, "Tags");
+    if (entry.negative_prompt) addPrompt("Negative", entry.negative_prompt, "Negative", true);
+    copyParts.push([
+      `${title}${position ? ` · ${position}` : ""}:`, prompt,
+      entry.negative_prompt ? `Negative prompt: ${entry.negative_prompt}` : "",
+    ].filter(Boolean).join("\n"));
+  });
+  els.imageViewerCharacters.dataset.copyText = copyParts.join("\n\n");
+}
+
+function applyImageViewerTagsView() {
+  const sequence = ++state.viewerTagLookupSequence;
+  const node = state.viewerNodeRef;
+  const tags = state.viewerShowFilteredTags ? state.viewerTagsFiltered : state.viewerTagsFull;
+  if (state.viewerShowFilteredTags && tags && node) {
+    void hydrateImageViewerChineseTags(node, tags, sequence);
+  } else {
+    renderImageViewerTags(tags, [], {});
+  }
+  renderImageViewerCharacters(node, sequence);
+}
+
+async function hydrateImageViewerChineseTags(node, tags, lookupSequence, target = els.imageViewerTags) {
   const initialTranslations = normalizeRetagTagTranslations(
     node?.meta?.tagTranslations || node?.meta?.retagTagTranslations,
   );
-  renderImageViewerTags(tags, [], initialTranslations);
+  renderImageViewerTags(tags, [], initialTranslations, target);
   const tagKeys = imageViewerTagKeys(tags);
   if (tagKeys.length && tagKeys.every((key) => initialTranslations[key])) return;
 
@@ -5682,7 +5844,7 @@ async function hydrateImageViewerChineseTags(node, tags, lookupSequence) {
       }
       state.viewerTagTranslationCache.set(tags, result);
     }
-    if (lookupSequence !== state.viewerTagLookupSequence || els.imageViewer.hidden) return;
+    if (lookupSequence !== state.viewerTagLookupSequence || els.imageViewer.hidden || !target.isConnected) return;
     const translations = {
       ...initialTranslations,
       ...normalizeRetagTagTranslations(result?.translations),
@@ -5691,12 +5853,15 @@ async function hydrateImageViewerChineseTags(node, tags, lookupSequence) {
     // are inserted. New content then scrolls inside the Tags surface instead
     // of feeding back into image sizing and moving both columns/rows.
     lockImageViewerBottomLayout();
-    renderImageViewerTags(tags, result?.pairs, translations);
+    renderImageViewerTags(tags, result?.pairs, translations, target);
     if (Object.keys(translations).length) {
-      node.meta = { ...(node.meta || {}), tagTranslations: translations };
+      node.meta = {
+        ...(node.meta || {}),
+        tagTranslations: { ...normalizeRetagTagTranslations(node.meta?.tagTranslations), ...translations },
+      };
       if (findNode(node.id) === node) scheduleSave();
       if (state.viewerLibraryAsset) {
-        state.viewerLibraryAsset.tagTranslations = translations;
+        state.viewerLibraryAsset.tagTranslations = node.meta.tagTranslations;
       }
     }
   } catch (_) {
@@ -5727,43 +5892,26 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   els.imageViewerImage.draggable = false;
   els.imageViewerImage.alt = node.title || "画布图片";
   els.imageViewerTitle.textContent = node.title || "图片预览";
-  els.imageViewerMeta.textContent = [
-    meta.width && meta.height ? `${meta.width}×${meta.height}` : "",
-    meta.ratio || "",
-    meta.seed ? `Seed ${meta.seed}` : "",
-  ].filter(Boolean).join(" / ") || "可查看 NovelAI 参数";
-  // 完整 tags 原样保留；过滤版（去质量词/画师串）按信息栏开关展示
-  state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();
-  state.viewerTagsFiltered = stripImageViewerControlTags(
-    state.viewerTagsFull,
-    meta.artist || "",
-  );
   state.viewerNodeRef = node;
-  const negative = String(meta.negativePrompt || meta.negative_prompt || "").trim();
-  els.imageViewerNegative.textContent = negative || "";
-  els.imageViewerNegative.dataset.copyText = negative;
-  els.imageViewerNegativeSection.hidden = !negative;
-  const note = [
-    meta.steps ? `Steps: ${meta.steps}` : "",
-    meta.scale ? `CFG scale: ${meta.scale}` : "",
-    meta.sampler ? `Sampler: ${meta.sampler}` : "",
-    meta.cfgRescale != null ? `CFG rescale: ${meta.cfgRescale}` : "",
-  ].filter(Boolean).join(" · ");
-  els.imageViewerNote.textContent = note;
-  els.imageViewerNoteSection.hidden = !note;
   els.imageViewerCopyAllBtn.onclick = () => copyPlainText(
-    [els.imageViewerTags.dataset.copyText, negative]
-      .filter(Boolean)
-      .join("\nNegative prompt: "),
-    "复制全部提示词",
+    [
+      els.imageViewerTags.dataset.copyText,
+      els.imageViewerNegative.dataset.copyText
+        ? `Negative prompt: ${els.imageViewerNegative.dataset.copyText}` : "",
+      els.imageViewerCharacters.dataset.copyText,
+      els.imageViewerNote.dataset.copyText ? `Note:\n${els.imageViewerNote.dataset.copyText}` : "",
+    ].filter(Boolean).join("\n\n"),
+    "复制全部信息",
     () => els.imageViewer.focus({ preventScroll: true }),
   );
   els.imageViewerDownloadBtn.onclick = () => downloadImage(node);
   els.imageViewerRetagBtn.onclick = () => (
     node.type === "image" ? retagImageFromViewer(node) : null
   );
+  els.imageViewerRetagBtn.hidden = !!libraryAsset;
   state.viewerLibraryAsset = libraryAsset;
   state.viewerNodeId = node.id || "";
+  updateImageViewerSaveButton();
   const navItems = libraryAsset
     ? state.library.images
     : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
@@ -5774,7 +5922,6 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     button.hidden = !navEnabled;
     button.disabled = !navEnabled;
   });
-  const lookupSequence = ++state.viewerTagLookupSequence;
   if (els.imageViewerFilterToggle) {
     els.imageViewerFilterToggle.checked = state.viewerShowFilteredTags;
   }
@@ -5782,7 +5929,13 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   els.imageViewer.hidden = false;
   els.imageViewer.focus({ preventScroll: true });
   scheduleImageViewerFrameSync();
-  applyImageViewerTagsView(lookupSequence);
+  renderImageViewerInfo(node);
+  els.imageViewerDetails.scrollTop = 0;
+  const infoSequence = ++state.viewerInfoSequence;
+  void hydrateImageGenerationMeta(node, libraryAsset).then(() => {
+    if (infoSequence !== state.viewerInfoSequence || els.imageViewer.hidden) return;
+    renderImageViewerInfo(node);
+  });
   recordOperation(operationLabel, node.title || "图片");
 }
 
@@ -5807,6 +5960,7 @@ async function stepImageViewer(delta) {
 function closeImageViewer() {
   const wasOpen = !els.imageViewer.hidden;
   state.viewerTagLookupSequence += 1;
+  state.viewerInfoSequence += 1;
   els.imageViewer.hidden = true;
   els.imageViewerImage.removeAttribute("src");
   renderImageViewerTags("");
@@ -5816,7 +5970,11 @@ function closeImageViewer() {
   els.imageViewerNegative.dataset.copyText = "";
   els.imageViewerNegativeSection.hidden = true;
   els.imageViewerNote.textContent = "";
+  els.imageViewerNote.dataset.copyText = "";
   els.imageViewerNoteSection.hidden = true;
+  els.imageViewerCharacters.replaceChildren();
+  els.imageViewerCharacters.dataset.copyText = "";
+  els.imageViewerCharactersSection.hidden = true;
   setImageViewerDetailsCollapsed(false);
   els.imageViewer.classList.remove("folded");
   state.viewerImageDimensions = { width: 0, height: 0 };
@@ -6299,20 +6457,9 @@ async function openLibraryImageViewer(item) {
   try {
     await ensureLibraryImageData(item);
     markAssetRecent(item);
-    openImageViewer({
-      dataUrl: item.dataUrl,
-      title: item.name || "图片素材",
-      meta: {
-        prompt: item.prompt || "",
-        tags: item.tags || "",
-        tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
-        artist: item.artist || "",
-        width: item.width,
-        height: item.height,
-        ratio: item.ratio || "",
-        seed: normalizeNaiSeed(item.seed),
-      },
-      }, { libraryAsset: item, operationLabel: "预览素材" });
+    openImageViewer(createLibraryImageNode(item, 0, 0), {
+      libraryAsset: item, operationLabel: "预览素材",
+    });
   } catch (error) {
     recordOperation("预览素材失败", error.message || "图片素材读取失败", "error");
     toast(error.message || "图片素材读取失败", "error");
@@ -6331,6 +6478,7 @@ function createLibraryImageNode(item, x, y, nodeWidth = fittedImageNodeWidth(ite
     dataUrl: item.dataUrl,
     createdAt: new Date().toISOString(),
     meta: {
+      ...imageGenerationMeta(item.generationMeta),
       prompt: item.prompt || item.name || "素材图片",
       tags: item.tags || "",
       tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
@@ -6560,9 +6708,22 @@ async function placeImageAssetOnCanvas(item, point = worldCenter()) {
   }
 }
 
+function updateImageViewerSaveButton() {
+  const assetId = state.viewerNodeRef?.assetId;
+  const saved = !!state.viewerLibraryAsset || state.library.images.some((item) => item.id === assetId);
+  const saving = state.savingLibraryAssetIds.has(assetId);
+  els.imageViewerSaveBtn.disabled = !assetId || saved || saving;
+  els.imageViewerSaveBtn.setAttribute("aria-pressed", String(saved));
+  els.imageViewerSaveBtn.querySelector("span").textContent = saving ? "正在收藏…" : saved ? "已收藏" : "收藏到素材库";
+  els.imageViewerSaveBtn.title = saved ? "已收藏到素材库" : "收藏到素材库";
+}
+
 async function saveImageToLibrary(node) {
-  if (!node?.assetId) return;
+  if (!node?.assetId || state.savingLibraryAssetIds.has(node.assetId)) return;
+  state.savingLibraryAssetIds.add(node.assetId);
+  updateImageViewerSaveButton();
   try {
+    await hydrateImageGenerationMeta(node);
     const linkedPrompt = state.connections
       .filter((edge) => edge.source === node.id && findNode(edge.target)?.type === "prompt")
       .map((edge) => findNode(edge.target))
@@ -6583,6 +6744,7 @@ async function saveImageToLibrary(node) {
       // A source image may only reveal its seed during the retag pass; keep
       // that value when the image itself is later collected into the library.
       seed,
+      generationMeta: imageGenerationMeta(node.meta),
     });
     const image = { ...result.image, dataUrl: node.dataUrl };
     state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
@@ -6593,6 +6755,9 @@ async function saveImageToLibrary(node) {
   } catch (error) {
     recordOperation("收录素材失败", error.message || "图片保存失败", "error");
     toast(error.message || "图片保存失败", "error");
+  } finally {
+    state.savingLibraryAssetIds.delete(node.assetId);
+    updateImageViewerSaveButton();
   }
 }
 
@@ -7335,6 +7500,7 @@ clearModal.addEventListener("pointerdown", (event) => {
   if (event.target === clearModal) clearModal.hidden = true;
 });
 
+els.imageViewerSaveBtn.addEventListener("click", () => saveImageToLibrary(state.viewerNodeRef));
 els.imageViewerPlaceBtn.addEventListener("click", async () => {
   const item = state.viewerLibraryAsset;
   if (!item) return;
@@ -7363,6 +7529,7 @@ els.imageViewerFilterToggle?.addEventListener("change", () => {
 });
 els.imageViewerFoldBtn?.addEventListener("click", (event) => {
   event.stopPropagation();
+  clearImageViewerBottomLayoutLock(true);
   const folded = els.imageViewer.classList.toggle("folded");
   els.imageViewerFoldBtn.setAttribute("aria-expanded", String(!folded));
   els.imageViewerFoldBtn.setAttribute("aria-label", folded ? "展开信息栏" : "收起信息栏");
@@ -7382,8 +7549,9 @@ els.imageViewer.addEventListener("pointerdown", (event) => {
   if (imageViewerPointHitsRenderedImage(event.clientX, event.clientY)) return;
   closeImageViewer();
 });
-document.querySelectorAll("[data-copy-target]").forEach((button) => {
-  button.addEventListener("click", () => copyViewerText(button.dataset.copyTarget, button.title));
+els.imageViewerDetails.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-copy-target]");
+  if (button) void copyViewerText(button.dataset.copyTarget, button.title);
 });
 
 async function copyViewerText(targetId, label) {
@@ -7431,7 +7599,8 @@ async function copyPlainText(text, label, refocus) {
 document.addEventListener("keydown", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const editing = !!target?.closest("textarea, input, select, [contenteditable='true']");
-  if (!els.imageViewer.hidden && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+  if (!els.imageViewer.hidden && !event.shiftKey && !event.ctrlKey && !event.metaKey
+      && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
     event.preventDefault();
     void stepImageViewer(event.key === "ArrowLeft" ? -1 : 1);
     return;
@@ -7479,6 +7648,8 @@ document.addEventListener("keydown", (event) => {
     }
     return;
   }
+  // 灯箱内保留文字复制，不能让 Delete / Ctrl+A 操作背后的画布节点。
+  if (!els.imageViewer.hidden) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     saveWorkspace();

@@ -313,7 +313,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
         api_config = schema["api_config"]
 
         self.assertEqual(api_config["description"], "生图接口配置")
-        # 主提供商（4.5/默认）+ V5 专用槽位，以及 NovelAI 官方接口的开关/地址/Token
+        # 主提供商、V5 专用槽位，以及官方接口和代理配置。
         self.assertEqual(
             list(api_config["items"]),
             [
@@ -322,6 +322,7 @@ class SafetyPromptWordsTest(unittest.TestCase):
                 "use_official_api",
                 "official_api_url",
                 "official_api_token",
+                "proxy",
             ],
         )
 

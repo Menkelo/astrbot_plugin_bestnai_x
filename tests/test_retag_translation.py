@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ast
+import logging
 import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 
 workspace_dir = Path(__file__).resolve().parents[2]
@@ -13,6 +16,79 @@ if str(workspace_dir) not in sys.path:
 sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class RetagCommandDisplayTest(unittest.IsolatedAsyncioTestCase):
+    """Run the real command handler with external providers replaced by fixtures."""
+
+    async def run_command(self, text, source_tags, translated=None, show_result=True):
+        from astrbot_plugin_bestnai_x.core.char_prompts import normalize_char_entries
+        from astrbot_plugin_bestnai_x.constants import normalize_nai_seed
+        from astrbot_plugin_bestnai_x.services.prompt_merge import merge_retag_prompt_details
+
+        tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
+        handler = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == "_handle_nai_command")
+        module = ast.Module(body=[handler], type_ignores=[])
+        namespace = {
+            "extract_retag_mode": lambda value: ("replicate", value),
+            "extract_image_from_event_best_effort": lambda event: "fixture.png",
+            "read_image_generation_info_any": AsyncMock(return_value={}),
+            "read_image_size_any": AsyncMock(return_value=(960, 640)),
+            "infer_ratio_label_from_size": lambda *args: "3:2",
+            "normalize_nai_seed": normalize_nai_seed,
+            "normalize_char_entries": normalize_char_entries,
+            "strip_control_tags": lambda value, **kwargs: value,
+            "is_trusted_nai_generation_info": lambda value: False,
+            "prompt_has_explicit_ratio": lambda *args: False,
+            "merge_retag_prompt_details": merge_retag_prompt_details,
+            "has_chinese": lambda value: any("\u4e00" <= char <= "\u9fff" for char in value),
+            "logger": logging.getLogger("test.retag_display"),
+            "ImageRetagError": RuntimeError,
+        }
+        exec(compile(module, str(ROOT / "main.py"), "exec"), namespace)
+        captured = {}
+
+        async def generate(**kwargs):
+            captured.update(kwargs)
+            yield "generated"
+
+        plugin = types.SimpleNamespace(
+            plugin_config=types.SimpleNamespace(
+                generation=types.SimpleNamespace(model="fixture-model"),
+                image_retag=types.SimpleNamespace(enabled=True, show_result=show_result, is_configured=lambda: True),
+                translator=types.SimpleNamespace(enabled=True, show_result=True, is_configured=lambda: True),
+                is_configured=lambda: True, get_retag_control_prompts=lambda: [],
+            ),
+            image_retagger=types.SimpleNamespace(retag_details=AsyncMock(return_value={"prompt": source_tags})),
+            _strip_named_command_prefix=lambda *args: text,
+            _short_ratio_aliases=lambda: {}, ratio_presets={}, _normalize_ratio_label=lambda value: value,
+            _progress_message_for_prompt=lambda *args, **kwargs: "working",
+            _session_id=lambda event: "test", _extract_ratio_from_prompt=lambda value: (value, ""),
+            _extract_artist_slot_from_prompt=lambda value: (value, "", ""),
+            _resolve_prompt_identity=AsyncMock(return_value=("", "")),
+            _translate_prompt=AsyncMock(return_value=translated), _do_generate=generate,
+        )
+        event = types.SimpleNamespace(message_str="/nai " + text, plain_result=lambda value: value)
+        results = [result async for result in namespace["_handle_nai_command"](plugin, event, command_name="nai")]
+        self.assertEqual(results, ["working", "generated"])
+        return captured
+
+    async def test_english_overlay_is_separated_in_both_display_and_generation(self):
+        for source in ("1girl, outdoors", "1girl, outdoors,", "1girl, outdoors， "):
+            with self.subTest(source=source):
+                result = await self.run_command(" , smile, blue hair, ", source)
+                self.assertEqual(result["followup_messages"], ["🔎 反推结果：\n1girl, outdoors, smile, blue hair"])
+                self.assertIn("smile", result["prompt"])
+                self.assertIn("blue hair", result["prompt"])
+                self.assertNotIn("outdoorssmile", result["prompt"])
+
+    async def test_translated_overlay_uses_the_same_separator(self):
+        result = await self.run_command("微笑", "1girl, outdoors,", translated="smile, blue hair,")
+        self.assertEqual(result["followup_messages"], ["🔎 反推结果：\n1girl, outdoors, smile, blue hair"])
+
+    async def test_hidden_retag_result_does_not_add_a_display_message(self):
+        result = await self.run_command("smile", "1girl, outdoors", show_result=False)
+        self.assertEqual(result["followup_messages"], [])
 
 
 class RetagTranslationTest(unittest.TestCase):
