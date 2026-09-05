@@ -197,19 +197,13 @@
         "description": "启用提示词敏感词检测",
         "type": "bool",
         "default": true,
-        "hint": "QQ 防护总开关：命中敏感词时保留原始提示词，并对发送图片做本地马赛克混淆。关闭后不再检测或混淆图片。"
+        "hint": "QQ 防护总开关：命中敏感词时保留原始提示词，原图不直接发群（避免图片被风控），改为匿名上传图床，并在群里引用发起者消息发送临时链接；上传失败则不发送。关闭后不再检测，图片原样直发。"
       },
       "prompt_block_words": {
         "description": "提示词敏感词",
         "type": "text",
         "hint": "在大文本框中直接编辑，敏感词之间使用中文逗号“，”分隔。这里是完整生效列表；清空文本框则不检测任何词。英文词按完整单词匹配，中文词按包含匹配。默认只拦性器官、下体和露点，泳装、内衣、透视等轻度暴露不触发混淆。",
         "default": "裸体，全裸，露点，乳头，乳晕，下体，阴部，阴道，阴茎，性器，生殖器，裸胸，胸部裸露，开裆，性交，做爱，性爱，自慰，口交，内射，射精，强奸，萝莉色情，幼女色情，儿童色情，正太色情，幼态色情，nude，naked，nipples，nipple，areola，pussy，penis，vagina，vaginal，vulva，clitoris，clit，genitals，genitalia，anus，anal，topless，bottomless，exposed breasts，cameltoe，sex，sexual content，penetration，masturbation，ejaculation，cum，cumshot，creampie，blowjob，handjob，fingering，intercourse，rape，loli porn，child porn，child sexualization，lolicon，shotacon"
-      },
-      "nsfw_storage_link_enabled": {
-        "description": "NSFW 原图私发链接（storage.to）",
-        "type": "bool",
-        "default": false,
-        "hint": "命中敏感词并对群内图片做混淆时，额外把未混淆原图匿名上传到 storage.to，并把链接私聊发给发起者（自己看原图用）。原图不落地本地，链接自带有效期自动删除。走代理配置同生图接口；直连不通时请先在生图接口配置里填好代理。"
       }
     }
   }

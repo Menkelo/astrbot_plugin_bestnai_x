@@ -7,11 +7,9 @@ import re
 from dataclasses import replace
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
-import aiohttp
-
 from astrbot.api import logger
-from astrbot.api.event import filter, AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Image, Plain
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.message_components import Image, Plain, Reply
 from astrbot.api.star import Context, Star
 
 from PIL import Image as PILImage
@@ -63,10 +61,6 @@ from .models.config import (
 from .services.artist_gallery import ArtistGalleryService
 from .services.canvas import CanvasService
 from .services.image_extract import extract_image_from_event_best_effort
-from .services.image_obfuscation import (
-    deobfuscate_image_bytes,
-    obfuscate_image_bytes,
-)
 from .services.image_ratio import (
     choose_ratio_source,
     clamp_to_pixel_budget,
@@ -250,7 +244,7 @@ class BestNAIPlugin(Star):
             f"生图接口={api_source}，"
             f"API URL={self.plugin_config.api_url or '(未配置)'}，"
             f"生图并发上限={self.plugin_config.max_concurrency}，"
-            f"提示词敏感词混淆={'开启' if self.plugin_config.safety.prompt_block_enabled else '关闭'}，"
+            f"提示词NSFW保护={'开启' if self.plugin_config.safety.prompt_block_enabled else '关闭'}，"
             f"图片反推={'开启' if self.plugin_config.image_retag.enabled else '关闭'}，"
             f"反推提供商={self.plugin_config.image_retag.provider_id or '(未选择)'}，"
             f"配置默认画师预设={artist_source}，"
@@ -2123,7 +2117,6 @@ class BestNAIPlugin(Star):
         self,
         event: AstrMessageEvent,
         images: List[Tuple[str, bytes]],
-        notice: str = "",
     ) -> AsyncGenerator:
         if not images:
             yield event.plain_result("❌ API 未返回图片")
@@ -2135,8 +2128,6 @@ class BestNAIPlugin(Star):
             try:
                 temp_path = save_image_to_temp(img_bytes, img_format or "png")
                 components = [Image.fromFileSystem(temp_path)]
-                if notice:
-                    components.append(Plain(notice))
                 yield event.chain_result(components)
 
             except Exception as e:
@@ -2156,105 +2147,67 @@ class BestNAIPlugin(Star):
             or None
         )
 
-    async def _fetch_image_bytes(self, image_src: str) -> bytes:
-        """把图片引用（http(s) URL / file:// / 本地路径）取成原始字节。"""
-        src = str(image_src or "").strip()
-
-        if not src:
-            raise ValueError("图片引用为空")
-
-        low = src.lower()
-
-        if low.startswith("file://"):
-            src = src[7:]
-
-        if src.startswith("http://") or src.startswith("https://"):
-            timeout = aiohttp.ClientTimeout(total=60)
-            headers = {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "image/*,*/*",
-            }
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(
-                    src,
-                    headers=headers,
-                    proxy=self._effective_proxy(),
-                ) as resp:
-                    if resp.status < 200 or resp.status >= 300:
-                        text = await resp.text()
-                        raise ValueError(f"下载图片失败 HTTP {resp.status}: {text[:120]}")
-                    data = await resp.read()
-
-            if not data:
-                raise ValueError("下载图片内容为空")
-            return data
-
-        if os.path.isabs(src) and os.path.exists(src):
-            with open(src, "rb") as file_handle:
-                return file_handle.read()
-
-        raise ValueError(f"无法读取图片来源：{src[:100]}")
-
-    @staticmethod
-    def _private_delivery_umo(event: AstrMessageEvent) -> str:
-        """取「发给发起者私聊」的会话标识；请求本身来自私聊则原地发送。
-
-        unified_msg_origin 格式：platform:MessageType值:session_id，
-        好友私聊的类型值为 FriendMessage（见 astrbot MessageType 枚举）。
-        """
-        umo = event.unified_msg_origin or ""
-        parts = umo.split(":", 2)
-        if len(parts) == 3 and parts[1] == "FriendMessage":
-            return umo
-        sender = event.get_sender_id()
-        if not sender:
-            return ""
-        return f"{parts[0]}:FriendMessage:{sender}"
-
-    async def _deliver_nsfw_originals_privately(
+    async def _send_nsfw_links(
         self,
-        private_umo: str,
+        event: AstrMessageEvent,
         images: List[Tuple[str, bytes]],
-    ) -> None:
-        """NSFW 命中后：把未混淆原图匿名上传 storage.to，私聊补发链接。
-
-        后台任务执行；任何失败只记日志，绝不影响群内已发出的混淆图。
-        代理复用生图接口的 proxy 配置（兼容顶层与 api_config 两种写法）。
+    ) -> AsyncGenerator:
+        """NSFW 命中：原图不直接发群（防 QQ 风控），匿名上传 storage.to，
+        在群里引用发起者的指令消息补发图床链接；上传失败只报错不泄图。
         """
-        if not private_umo or not images:
+        if not images:
+            yield event.plain_result("❌ API 未返回图片")
             return
+
         proxy = self._effective_proxy()
         lines: List[str] = []
+        failed = 0
         ts = int(asyncio.get_running_loop().time())
+
         for idx, (fmt, img_bytes) in enumerate(images, start=1):
             ext = (fmt or "png").lower()
-            filename = f"bestnai_{ts}_{idx}.{ext}"
             try:
                 url, expires_at = await upload_image_to_storage(
                     img_bytes,
-                    filename=filename,
+                    filename=f"bestnai_{ts}_{idx}.{ext}",
                     proxy=proxy,
                 )
                 suffix = f"（{expires_at[:10]} 前有效）" if expires_at else ""
                 lines.append(f"{url} {suffix}".rstrip())
             except StorageToError as e:
-                logger.error(f"[BestNAI/StorageTo] 第{idx}张原图上传失败: {e}")
+                failed += 1
+                logger.error(f"[BestNAI/NSFW] 第{idx}张上传失败: {e}")
             except Exception:  # noqa: BLE001
-                logger.exception(f"[BestNAI/StorageTo] 第{idx}张原图上传异常")
+                failed += 1
+                logger.exception(f"[BestNAI/NSFW] 第{idx}张上传异常")
+
         if not lines:
-            logger.warning("[BestNAI/StorageTo] 原图全部上传失败，本次不私发链接")
+            yield event.plain_result(
+                "❌ 原图上传失败，本次未发送。请稍后重试，或私聊机器人把提示词发我重试"
+            )
             return
-        text = "🔗 原图链接（storage.to 临时分享，过期自动删除）：\n" + "\n".join(lines)
+
+        text = (
+            "⚠️ 请求命中 NSFW 保护，原图以临时链接提供（过期自动删除）：\n"
+            + "\n".join(lines)
+        )
+
+        # 引用发起者那条生图指令，让群里知道链接对应哪次请求
+        reply_id = str(
+            getattr(getattr(event, "message_obj", None), "message_id", "") or ""
+        )
+        components: List[object] = [Plain(text)]
+        if reply_id:
+            components.insert(0, Reply(id=reply_id))
+
         try:
-            await self.context.send_message(
-                private_umo,
-                MessageChain(chain=[Plain(text)]),
-            )
-            logger.info(
-                f"[BestNAI/StorageTo] 已私发 {len(lines)} 个原图链接到 {private_umo}"
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception(f"[BestNAI/StorageTo] 私发原图链接失败 {private_umo}")
+            yield event.chain_result(components)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[BestNAI/NSFW] 引用消息发送失败，退化为纯文本: {e}")
+            yield event.plain_result(text)
+
+        if failed:
+            yield event.plain_result(f"⚠️ 其中 {failed} 张上传失败，未提供链接")
 
     async def _do_generate(
         self,
@@ -2394,7 +2347,7 @@ class BestNAIPlugin(Star):
             )
 
         try:
-            # QQ 防护现在只检测敏感词并混淆发送副本，不改写负面提示词。
+            # QQ 防护现在只检测敏感词，命中后原图改走图床链接，不改写负面提示词。
             gen_config: GenerationConfig = self.prompt_builder.build_generation_config(
                 ratio_name,
                 apply_safe_negative=False,
@@ -2550,53 +2503,18 @@ class BestNAIPlugin(Star):
                     )
 
             images = result.images
-            safe_images: List[Tuple[str, bytes]] = []
-
-            safe_images = images
 
             if prompt_sensitive_detected and self.plugin_config.safety.prompt_block_enabled:
-                obfuscated_images: List[Tuple[str, bytes]] = []
-                for img_format, img_bytes in safe_images:
-                    obfuscated_images.append(
-                        (
-                            "png",
-                            await asyncio.to_thread(
-                                obfuscate_image_bytes,
-                                img_bytes,
-                                1.0,
-                            ),
-                        )
-                    )
-                safe_images = obfuscated_images
+                # NSFW 命中：原图不直接发群（防 QQ 风控），上传 storage.to
+                # 图床后，在群里引用发起者的指令消息补发链接。
                 logger.info(
-                    "[BestNAI/Safety] 提示词命中敏感词，已对发送图片进行本地混淆"
+                    "[BestNAI/Safety] 提示词命中敏感词，原图改走 storage.to 图床链接"
                 )
-
-            notice = (
-                "⚠️检测到nsfw内容，引用图片并回复“/解混淆”可获取原图链接"
-                if prompt_sensitive_detected
-                and self.plugin_config.safety.prompt_block_enabled
-                else ""
-            )
-            async for result in self._send_images(event, safe_images, notice=notice):
-                yield result
-
-            # 命中 NSFW 且开启了 storage.to 原图私发：群内照旧只发混淆图，
-            # 未混淆原图在后台匿名上传图床，链接私聊补发给发起者。
-            if (
-                prompt_sensitive_detected
-                and self.plugin_config.safety.prompt_block_enabled
-                and self.plugin_config.safety.nsfw_storage_link_enabled
-            ):
-                private_umo = self._private_delivery_umo(event)
-                if private_umo:
-                    asyncio.create_task(
-                        self._deliver_nsfw_originals_privately(private_umo, images)
-                    )
-                else:
-                    logger.warning(
-                        "[BestNAI/StorageTo] 无法确定发起者私聊会话，跳过原图私发"
-                    )
+                async for r in self._send_nsfw_links(event, images):
+                    yield r
+            else:
+                async for r in self._send_images(event, images):
+                    yield r
 
         except APIKeyError as e:
             yield event.plain_result(f"❌ API Key 错误：{e.message}")
@@ -2977,86 +2895,6 @@ class BestNAIPlugin(Star):
             command_name="nai50",
         ):
             yield result
-
-    @filter.command("解混淆")
-    async def cmd_deobfuscate(self, event: AstrMessageEvent) -> AsyncGenerator:
-        """引用（回复）混淆图并发送 /解混淆：解混淆后的原图链接私聊发给你。
-
-        群内只出现提示与结果状态，不出现链接本身；链接只进请求者私聊。
-        """
-        image_src = extract_image_from_event_best_effort(event)
-
-        if not image_src:
-            yield event.plain_result(
-                "❌ 没有找到图片。请引用（回复）需要解混淆的图片消息，再发送 /解混淆"
-            )
-            return
-
-        private_umo = self._private_delivery_umo(event)
-        already_private = bool(private_umo) and private_umo == (
-            event.unified_msg_origin or ""
-        )
-
-        if already_private:
-            yield event.plain_result("🔓 正在解混淆并上传图床，请稍候…")
-        else:
-            yield event.plain_result("🔓 正在解混淆，完成后链接会私聊发给你…")
-
-        try:
-            image_bytes = await self._fetch_image_bytes(image_src)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[BestNAI/Deobfuscate] 取图失败: {e}")
-            yield event.plain_result(
-                "❌ 图片获取失败（引用消息里的图片可能已过期或不可访问），请重试"
-            )
-            return
-
-        try:
-            # 插件发送副本固定 key=1.0，与小番茄网页版默认一致
-            clean_bytes = await asyncio.to_thread(
-                deobfuscate_image_bytes,
-                image_bytes,
-                1.0,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[BestNAI/Deobfuscate] 解混淆失败: {e}")
-            yield event.plain_result("❌ 解混淆失败：图片无法按小番茄算法还原")
-            return
-
-        ts = int(asyncio.get_running_loop().time())
-        try:
-            url, expires_at = await upload_image_to_storage(
-                clean_bytes,
-                filename=f"deobf_{ts}.png",
-                proxy=self._effective_proxy(),
-            )
-        except StorageToError as e:
-            logger.error(f"[BestNAI/Deobfuscate] 上传失败: {e}")
-            yield event.plain_result("❌ 原图上传失败，请稍后再试")
-            return
-
-        suffix = f"（{expires_at[:10]} 前有效）" if expires_at else ""
-        link_text = f"🔓 解混淆原图：{url} {suffix}".rstrip()
-
-        if already_private:
-            yield event.plain_result(link_text)
-            return
-
-        try:
-            await self.context.send_message(
-                private_umo,
-                MessageChain(chain=[Plain(link_text)]),
-            )
-            logger.info(
-                f"[BestNAI/Deobfuscate] 已私发解混淆链接到 {private_umo}"
-            )
-            yield event.plain_result("✅ 原图链接已私发给你，请查收私聊")
-        except Exception:  # noqa: BLE001
-            logger.exception(f"[BestNAI/Deobfuscate] 私发失败 {private_umo}")
-            yield event.plain_result(
-                "❌ 链接私聊发送失败（可能对方设置了禁止私聊）。"
-                "可私聊机器人发送混淆图并回复 /解混淆 获取"
-            )
 
     def _persist_artist_preset(self, name: str, prompt: str) -> Tuple[bool, str]:
         """把新画师预设追加进配置：先落盘（重启不丢），成功后再同步内存。
