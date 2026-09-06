@@ -62,7 +62,6 @@ const els = {
   imageViewerNote: document.getElementById("imageViewerNote"),
   imageViewerCopyAllBtn: document.getElementById("imageViewerCopyAllBtn"),
   imageViewerDownloadBtn: document.getElementById("imageViewerDownloadBtn"),
-  imageViewerRetagBtn: document.getElementById("imageViewerRetagBtn"),
   imageViewerSaveBtn: document.getElementById("imageViewerSaveBtn"),
   imageViewerPrevBtn: document.getElementById("imageViewerPrevBtn"),
   imageViewerNextBtn: document.getElementById("imageViewerNextBtn"),
@@ -1398,8 +1397,11 @@ function bringNodeToFront(id, element = null) {
   if (index < 0 || index === state.nodes.length - 1) return;
   const [node] = state.nodes.splice(index, 1);
   state.nodes.push(node);
-  const current = element || document.querySelector(`[data-node-id="${CSS.escape(id)}"]`);
-  if (current?.parentElement === els.nodeLayer) els.nodeLayer.appendChild(current);
+  // 只调整层级，不在 pointerdown 中搬动 DOM，以免丢失焦点或吞掉后续 click。
+  const order = new Map(state.nodes.map((item, position) => [item.id, position + 2]));
+  for (const current of els.nodeLayer.children) {
+    current.style.setProperty("--node-z", String(order.get(current.dataset.nodeId) || 2));
+  }
   scheduleSave(800);
 }
 
@@ -1975,8 +1977,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   summary.className = "retag-layer-summary";
   const chevron = icon("chevron-down", "retag-layer-chevron");
   toggle.append(title, summary, chevron);
-  // 阻断冒泡：卡片 pointerdown 会 bringNodeToFront 移动 DOM，
-  // 移动会让随后到来的 click 落空，折叠就"点了没反应"
+  // 标题按钮只切换展开状态。
   toggle.addEventListener("pointerdown", (event) => {
     if (event.button !== 1) event.stopPropagation();
   });
@@ -2344,16 +2345,17 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
 
     const editText = (index, key, input) => {
       let historyCaptured = false;
-      input.addEventListener("focus", () => {
+      input.addEventListener("input", () => {
         if (!historyCaptured) {
           pushHistory();
           historyCaptured = true;
         }
+        updateCharacterEntry(index, { [key]: input.value });
+        refreshSummary();
       });
       input.addEventListener("blur", () => {
         historyCaptured = false;
       });
-      input.addEventListener("input", () => updateCharacterEntry(index, { [key]: input.value }));
     };
 
     const characterRows = new Map();
@@ -2405,6 +2407,17 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       renderAll();
     };
     const addCharacter = () => addCharacterAt(null);
+    const addCharacterButton = document.createElement("button");
+    addCharacterButton.type = "button";
+    addCharacterButton.className = "retag-character-add";
+    addCharacterButton.append(icon("plus"), document.createTextNode("添加角色"));
+    addCharacterButton.disabled = charPrompts.length >= MAX_CHAR_PROMPTS;
+    addCharacterButton.title = `添加角色，最多 ${MAX_CHAR_PROMPTS} 个`;
+    addCharacterButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      addCharacter();
+    });
+    characterOptions.prepend(addCharacterButton);
     const removeCharacter = (index) => {
       if (!charPrompts[index]) return;
       pushHistory();
@@ -2482,7 +2495,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       const deleteActions = document.createElement("span");
       deleteActions.className = "retag-character-delete-actions";
       deleteActions.append(deleteConfirm, deleteButton);
-      rowHead.append(enabledLabel, centerSummary, deleteActions);
+      rowHead.append(enabledLabel, deleteActions, centerSummary);
       characterRow.appendChild(rowHead);
       characterRows.set(index, characterRow);
 
@@ -2497,6 +2510,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
           retagCharDisabled: [...disabled].sort((left, right) => left - right),
         };
         characterRow.classList.toggle("is-disabled", !enabled.checked);
+        syncCharacterPreview();
         clearDebugTrace(node);
         refreshSummary();
         scheduleSave();
@@ -2509,6 +2523,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
         const caption = document.createElement("span");
         caption.textContent = labelText;
         const input = document.createElement("textarea");
+        input.className = "retag-character-text";
+        input.dataset.characterIndex = String(index);
+        input.dataset.characterField = key;
+        input.setAttribute("aria-label", `角色 ${index + 1}${labelText}提示词`);
         input.rows = 4;
         input.maxLength = 2000;
         input.value = String(value || "");
@@ -2608,7 +2626,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       button.disabled = !charPrompts.length
         || (requiredCount > 0 && charPrompts.length !== requiredCount);
       button.title = button.disabled
-        ? `${labelText}仅适用于 ${requiredCount} 个角色`
+        ? (!charPrompts.length ? "请先添加角色" : `${labelText}仅适用于 ${requiredCount} 个角色`)
         : `将 ${charPrompts.length} 个角色${labelText === "均匀横向" ? "均匀横向排列" : "排列为" + labelText}`;
       button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -2620,7 +2638,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     preview.className = "retag-character-preview";
     const previewHelp = document.createElement("p");
     previewHelp.className = "retag-character-preview-help";
-    previewHelp.textContent = "双击画布添加角色；点击编号编辑，拖动圆点调整位置。";
+    previewHelp.textContent = "点击编号编辑，拖动圆点调整位置；也可双击画布添加角色。";
     const previewSurface = document.createElement("div");
     previewSurface.className = "retag-character-preview-surface";
     const ratioText = String(
@@ -2734,9 +2752,8 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
       markerLayer.appendChild(marker);
       markerByIndex.set(index, marker);
     });
-    characterPanel.insertBefore(preview, characterPanel.querySelector(".retag-character-row"));
-    // 固定内部顺序：画布在最上，角色编辑居中，按钮和操作提示在最下。
-    characterPanel.append(characterOptions, layoutTools, previewHelp);
+    // 常用操作置顶，布局按钮在预览下方按两列排列，角色编辑保留在侧栏。
+    characterPanel.append(characterOptions, preview, layoutTools, previewHelp);
     syncCharacterPreview();
     if (charPrompts.length) {
       const selectedIndex = clamp(
@@ -2761,8 +2778,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     characterToggle.type = "button";
     characterToggle.className = "retag-layer-toggle";
     characterToggle.setAttribute("aria-expanded", "false");
-    // 阻断冒泡：卡片 pointerdown 会 bringNodeToFront 移动 DOM，
-    // 移动会让随后到来的 click 落空，折叠就"点了没反应"
+    // 标题按钮只切换展开状态。
     characterToggle.addEventListener("pointerdown", (event) => {
       if (event.button !== 1) event.stopPropagation();
     });
@@ -3532,8 +3548,7 @@ function makeSelectField(label, items, value, onChange) {
   const current = options.find((item) => item.value === String(value || ""));
   trigger.textContent = current?.label || options[0]?.label || "";
 
-  // 卡片的 pointerdown 会 bringNodeToFront 移动 DOM，移动会让随后的 click
-  // 落空——和折叠卡的 toggle 是同一个坑。
+  // 下拉控件独立处理指针事件，不触发节点选择。
   trigger.addEventListener("pointerdown", (event) => event.stopPropagation());
   // 鼠标打开时不抢焦点，避免按钮的默认按下/焦点反馈造成瞬时跳变；键盘
   // Tab 进入时仍然保留 focus-visible 样式和完整键盘操作。
@@ -3722,7 +3737,7 @@ function renderNoteNode(node) {
 }
 
 // 可编辑字段用 class 定位，节点重建后靠它把焦点找回来
-const EDITABLE_FIELD_CLASSES = ["prompt-text", "note-text"];
+const EDITABLE_FIELD_CLASSES = ["prompt-text", "note-text", "retag-character-text"];
 
 function captureEditingFocus() {
   const active = document.activeElement;
@@ -3733,6 +3748,8 @@ function captureEditingFocus() {
   return {
     nodeId: host.dataset.nodeId,
     field,
+    characterIndex: active.dataset.characterIndex,
+    characterField: active.dataset.characterField,
     start: active.selectionStart,
     end: active.selectionEnd,
     scrollTop: active.scrollTop,
@@ -3742,7 +3759,10 @@ function captureEditingFocus() {
 function restoreEditingFocus(snapshot) {
   if (!snapshot?.nodeId) return;
   const host = els.nodeLayer.querySelector(`[data-node-id="${CSS.escape(snapshot.nodeId)}"]`);
-  const field = host?.querySelector(`.${snapshot.field}`);
+  const selector = snapshot.field === "retag-character-text"
+    ? `.retag-character-text[data-character-index="${CSS.escape(snapshot.characterIndex)}"][data-character-field="${CSS.escape(snapshot.characterField)}"]`
+    : `.${snapshot.field}`;
+  const field = host?.querySelector(selector);
   if (!field) return;
   field.focus({ preventScroll: true });
   try {
@@ -3761,11 +3781,12 @@ function renderNodes() {
   closeSelectMenu();
   const editing = captureEditingFocus();
   els.nodeLayer.replaceChildren();
-  state.nodes.forEach((node) => {
+  state.nodes.forEach((node, index) => {
     let element;
     if (node.type === "prompt") element = renderPromptNode(node);
     else if (node.type === "image") element = renderImageNode(node);
     else element = renderNoteNode(node);
+    element.style.setProperty("--node-z", String(index + 2));
     els.nodeLayer.appendChild(element);
   });
   els.empty.classList.toggle("hidden", state.nodes.length > 0);
@@ -5525,18 +5546,6 @@ function imageViewerControlTagKey(value) {
     .trim();
 }
 
-function retagImageFromViewer(imageNode) {
-  const target = state.connections
-    .filter((edge) => edge.source === imageNode?.id)
-    .map((edge) => findNode(edge.target))
-    .find((node) => node?.type === "prompt");
-  if (!target) {
-    toast("请先将图片连接到提示词节点", "error");
-    return null;
-  }
-  return retagFromNode(target.id, false);
-}
-
 function imageViewerConfiguredControlKeys(extraControlPrompts = []) {
   const configuredPrompts = Array.isArray(state.config.retagControlPrompts)
     ? state.config.retagControlPrompts
@@ -5905,10 +5914,6 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
     () => els.imageViewer.focus({ preventScroll: true }),
   );
   els.imageViewerDownloadBtn.onclick = () => downloadImage(node);
-  els.imageViewerRetagBtn.onclick = () => (
-    node.type === "image" ? retagImageFromViewer(node) : null
-  );
-  els.imageViewerRetagBtn.hidden = !!libraryAsset;
   state.viewerLibraryAsset = libraryAsset;
   state.viewerNodeId = node.id || "";
   updateImageViewerSaveButton();
@@ -7220,6 +7225,8 @@ function clearDropOverlay() {
   els.viewport.classList.remove("drag-over");
 }
 
+const SELECTABLE_TEXT_SELECTOR = "textarea, input, [contenteditable='true'], .image-viewer-copy-text, .clipboard-copy-buffer, .debug-body, .operation-log-list";
+
 function isSelectableTextTarget(target) {
   const targetElement = target instanceof Element ? target : target?.parentElement;
   const selection = window.getSelection?.();
@@ -7228,15 +7235,11 @@ function isSelectableTextTarget(target) {
     : [];
   const selectionInTextSurface = selectionNodes.some((node) => {
     const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
-    return element?.closest?.(
-      ".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer, .debug-body, .operation-log-list",
-    );
+    return element?.closest?.(SELECTABLE_TEXT_SELECTOR);
   });
   return !!(
-    targetElement?.closest(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")
-    || targetElement?.closest(".debug-body, .operation-log-list")
-    || document.activeElement?.closest?.(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")
-    || document.activeElement?.closest?.(".debug-body, .operation-log-list")
+    targetElement?.closest(SELECTABLE_TEXT_SELECTOR)
+    || document.activeElement?.closest?.(SELECTABLE_TEXT_SELECTOR)
     || selectionInTextSurface
   );
 }

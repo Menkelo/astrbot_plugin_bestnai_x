@@ -152,8 +152,34 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         return {}
 
     def open_image(self):
-        self.page.locator('[data-node-id="image_a"] .image-preview-wrap').press("Enter")
+        self.page.locator('[data-node-id="image_a"] .image-preview-wrap').click()
         expect(self.page.locator("#imageViewerNote")).to_contain_text("Variety+: 开启")
+        expect(self.page.locator("#imageViewerRetagBtn")).to_have_count(0)
+
+    def open_role_editor(self):
+        self.workspace = {
+            "viewport": {"x": 0, "y": 0, "scale": 1}, "connections": [],
+            "nodes": [{
+                "id": "prompt_roles", "type": "prompt", "x": 140, "y": 650,
+                "width": 320, "height": 430, "title": "角色编辑", "prompt": "outdoors", "ratio": "2:3",
+                "meta": {"retagCharacterExpanded": True, "retagCharPrompts": copy.deepcopy(PARAMS["characterPrompts"])},
+            }, {
+                "id": "note_other", "type": "note", "x": 980, "y": 160,
+                "width": 260, "height": 190, "title": "另一个节点", "note": "测试置顶时保留第一次点击",
+            }],
+        }
+        self.page.reload()
+        expect(self.page.locator(".retag-character-card.open")).to_be_visible()
+        expect(self.page.get_by_role("textbox", name="角色 1正面提示词")).to_be_visible()
+
+    def assert_disjoint(self, first, second):
+        self.assertTrue(
+            first["x"] + first["width"] <= second["x"]
+            or second["x"] + second["width"] <= first["x"]
+            or first["y"] + first["height"] <= second["y"]
+            or second["y"] + second["height"] <= first["y"],
+            (first, second),
+        )
 
     def screenshot(self, name):
         directory = os.environ.get("BESTNAI_VIEWER_SCREENSHOTS")
@@ -214,7 +240,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
             stacks.first.click()
         self.page.locator(".asset-image-card").first.click()
         expect(self.page.locator("#imageViewerPlaceBtn")).to_be_visible()
-        expect(self.page.locator("#imageViewerRetagBtn")).to_be_hidden()
+        expect(self.page.locator("#imageViewerRetagBtn")).to_have_count(0)
         expect(self.page.locator("#imageViewerSaveBtn")).to_be_disabled()
         self.page.locator("#imageViewerPlaceBtn").click()
         expect(self.page.locator("#imageViewer")).to_be_hidden()
@@ -253,11 +279,75 @@ class CanvasViewerBrowserTest(unittest.TestCase):
                 self.assertLessEqual(rail["y"] + rail["height"], height)
                 next_button = self.page.locator("#imageViewerNextBtn").bounding_box()
                 fold_button = self.page.locator("#imageViewerFoldBtn").bounding_box()
-                self.assertTrue(
-                    fold_button["y"] + fold_button["height"] < next_button["y"]
-                    or fold_button["x"] > next_button["x"] + next_button["width"]
+                self.assert_disjoint(next_button, fold_button)
+                self.assertAlmostEqual(fold_button["y"] + fold_button["height"] / 2, height / 2, delta=1)
+                self.assertEqual(fold_button["width"], 26 if width > 760 else 36)
+                self.assertEqual(fold_button["height"], 58 if width > 760 else 52)
+                self.page.locator("#imageViewerFoldBtn").click()
+                self.page.wait_for_timeout(350)
+                self.assert_disjoint(
+                    self.page.locator("#imageViewerNextBtn").bounding_box(),
+                    self.page.locator("#imageViewerFoldBtn").bounding_box(),
                 )
+                self.page.locator("#imageViewerFoldBtn").click()
+                self.page.wait_for_timeout(350)
         self.screenshot("viewer-mobile.png")
+
+    def test_character_editors_support_copy_cut_and_paste(self):
+        self.open_role_editor()
+        for label, value in (("正面", "blue hair, smile"), ("负面", "closed eyes")):
+            with self.subTest(field=label):
+                field = self.page.get_by_role("textbox", name=f"角色 1{label}提示词")
+                field.click()
+                field.press("Control+a")
+                field.press("Control+c")
+                self.assertEqual(self.page.evaluate("navigator.clipboard.readText()"), value)
+                field.press("Control+x")
+                expect(field).to_have_value("")
+                self.assertEqual(self.page.evaluate("navigator.clipboard.readText()"), value)
+                field.press("Control+v")
+                expect(field).to_have_value(value)
+        self.screenshot("character-editor.png")
+
+    def test_character_focus_and_selection_survive_canvas_redraw(self):
+        self.open_role_editor()
+        self.page.locator(".retag-character-marker").nth(1).click()
+        field = self.page.get_by_role("textbox", name="角色 2负面提示词")
+        field.click()
+        field.press("Control+a")
+        # Fit view rebuilds nodes while the native text field still owns focus.
+        field.press("Control+0")
+        expect(field).to_be_focused()
+        self.assertEqual(field.evaluate("el => [el.selectionStart, el.selectionEnd]"), [0, len("glasses")])
+        field.press("Control+c")
+        self.assertEqual(self.page.evaluate("navigator.clipboard.readText()"), "glasses")
+
+    def test_character_buttons_work_on_first_click_and_have_clear_layout(self):
+        self.open_role_editor()
+        layouts = self.page.locator(".retag-character-layout")
+        boxes = [layouts.nth(index).bounding_box() for index in range(4)]
+        self.assertAlmostEqual(boxes[0]["y"], boxes[1]["y"], delta=1)
+        self.assertAlmostEqual(boxes[2]["y"], boxes[3]["y"], delta=1)
+        self.assertGreater(boxes[2]["y"], boxes[0]["y"] + boxes[0]["height"])
+        self.assertAlmostEqual(boxes[0]["width"], boxes[1]["width"], delta=1)
+        self.page.get_by_role("button", name="均匀横向", exact=True).click()
+        marker = self.page.locator(".retag-character-marker").first
+        self.assertAlmostEqual(marker.evaluate("el => parseFloat(el.style.left)"), 100 / 3, delta=.001)
+        self.page.get_by_role("button", name="删除角色 1", exact=True).click()
+        expect(self.page.get_by_role("button", name="确认删除角色 1", exact=True)).to_be_visible()
+        self.assert_disjoint(
+            self.page.locator(".retag-character-row.is-active .retag-character-delete-actions").bounding_box(),
+            self.page.locator(".retag-character-row.is-active .retag-character-center-summary").bounding_box(),
+        )
+        self.page.get_by_role("button", name="取消删除", exact=True).click()
+        self.page.get_by_role("button", name="清空角色", exact=True).click()
+        expect(self.page.locator(".retag-character-marker")).to_have_count(0)
+        self.page.get_by_role("button", name="添加角色", exact=True).click()
+        expect(self.page.locator(".retag-character-marker")).to_have_count(1)
+        self.page.get_by_role("textbox", name="角色 1正面提示词").fill("smile")
+        expect(self.page.locator(".retag-character-card .retag-layer-summary")).to_contain_text("1/1 有效")
+        self.page.locator(".retag-character-row.is-active .retag-character-enabled input").uncheck()
+        self.assertIn("is-disabled", self.page.locator(".retag-character-marker").get_attribute("class"))
 
 
 if __name__ == "__main__":

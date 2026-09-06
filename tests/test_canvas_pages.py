@@ -50,7 +50,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("fileFromDroppedImageUrl", editor)
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
-    def test_editor_only_allows_prompt_text_selection_and_copy(self) -> None:
+    def test_editor_allows_native_text_selection_and_clipboard_actions(self) -> None:
         editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         self.assertNotIn('document.addEventListener("dragstart"', editor)
@@ -58,15 +58,16 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('document.addEventListener("selectstart"', editor)
         self.assertIn('document.addEventListener("copy"', editor)
         self.assertIn(
-            'targetElement?.closest(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
+            'targetElement?.closest(SELECTABLE_TEXT_SELECTOR)',
             editor,
         )
         self.assertIn(
-            'document.activeElement?.closest?.(".prompt-text, .note-text, .image-viewer-copy-text, .clipboard-copy-buffer")',
+            'document.activeElement?.closest?.(SELECTABLE_TEXT_SELECTOR)',
             editor,
         )
         self.assertIn("selectionInTextSurface", editor)
-        self.assertIn('targetElement?.closest(".debug-body, .operation-log-list")', editor)
+        self.assertIn('const SELECTABLE_TEXT_SELECTOR = "textarea, input,', editor)
+        self.assertIn('document.addEventListener("cut"', editor)
         self.assertIn(".prompt-text {", styles)
         self.assertIn("user-select: none;", styles)
 
@@ -432,12 +433,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".image-viewer {", styles)
         self.assertIn(".image-viewer.folded .image-viewer-stage { right: 18px; }", styles)
         fold = styles.split(".image-viewer-fold {", 1)[1].split("}", 1)[0]
-        self.assertIn("right:30px;", fold)
+        self.assertIn("right:18px;", fold)
         next_button = styles.split(".image-viewer-nav-next {", 1)[1].split("}", 1)[0]
         self.assertIn("right: calc(var(--image-viewer-rail-w) + 54px);", next_button)
         prev_button = styles.split(".image-viewer-nav-prev {", 1)[1].split("}", 1)[0]
         self.assertIn("left:36px;", prev_button)
-        self.assertIn("border-radius:10px;", fold)
+        self.assertIn("border-radius:13px;", fold)
         heading = styles.split(".image-viewer-header h2 {", 1)[1].split("}", 1)[0]
         self.assertIn("overflow-wrap:anywhere;", heading)
         self.assertNotIn("text-overflow:ellipsis;", heading)
@@ -817,7 +818,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         self.assertIn("function bringNodeToFront", editor)
         self.assertIn("state.nodes.splice(index, 1)", editor)
-        self.assertIn("els.nodeLayer.appendChild(current)", editor)
+        self.assertNotIn("els.nodeLayer.appendChild(current)", editor)
+        self.assertIn('current.style.setProperty("--node-z"', editor)
         self.assertIn('makeNodeShell(node, node.title || "生成结果")', editor)
         self.assertIn('title: `${retagged ? "反推图片" : "生成结果"}', editor)
         self.assertIn(
