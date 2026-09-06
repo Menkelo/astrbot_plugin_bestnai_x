@@ -181,6 +181,13 @@ class CanvasViewerBrowserTest(unittest.TestCase):
             (first, second),
         )
 
+    def assert_viewer_icons_centered(self):
+        for selector in ("#imageViewerFoldBtn", "#imageViewerPrevBtn", "#imageViewerNextBtn"):
+            button = self.page.locator(selector).bounding_box()
+            icon = self.page.locator(selector + " svg").bounding_box()
+            self.assertAlmostEqual(icon["x"] + icon["width"] / 2, button["x"] + button["width"] / 2, delta=.5)
+            self.assertAlmostEqual(icon["y"] + icon["height"] / 2, button["y"] + button["height"] / 2, delta=.5)
+
     def screenshot(self, name):
         directory = os.environ.get("BESTNAI_VIEWER_SCREENSHOTS")
         if directory:
@@ -225,6 +232,37 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         copied = self.page.evaluate("navigator.clipboard.readText()").replace("\r\n", "\n")
         for text in (RAW_TAGS, "Negative prompt: lowres, blurry", "角色 1", "0.17, 0.53", "closed eyes", "red hair, hat", "CFG rescale: 0", "Noise schedule: karras", "UC preset: 0", "Quality: 关闭"):
             self.assertIn(text, copied)
+
+    def test_toast_tracks_available_image_area_and_restores_window_center(self):
+        self.open_image()
+        self.page.locator("#imageViewerCopyAllBtn").click()
+        notification = self.page.locator(".toast")
+        expect(notification).to_have_text("复制全部信息成功")
+
+        def check_center(expected):
+            bounds = notification.bounding_box()
+            self.assertIsNotNone(bounds)
+            self.assertAlmostEqual(bounds["x"] + bounds["width"] / 2, expected, delta=1)
+
+        for width, height in ((1440, 900), (1024, 768), (390, 844)):
+            with self.subTest(viewport=(width, height)):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.page.wait_for_timeout(350)
+                stage = self.page.locator("#imageViewerStage").bounding_box()
+                check_center(stage["x"] + stage["width"] / 2)
+                self.screenshot(f"viewer-toast-{width}-expanded.png")
+                self.page.locator("#imageViewerFoldBtn").click()
+                self.page.wait_for_timeout(350)
+                check_center(width / 2)
+                self.screenshot(f"viewer-toast-{width}-folded.png")
+                self.page.locator("#imageViewerFoldBtn").click()
+                self.page.wait_for_timeout(350)
+                stage = self.page.locator("#imageViewerStage").bounding_box()
+                check_center(stage["x"] + stage["width"] / 2)
+                # Renew the toast between viewports; each individual transition keeps the same notification.
+                self.page.locator("#imageViewerCopyAllBtn").click()
+        self.page.keyboard.press("Escape")
+        check_center(390 / 2)
 
     def test_library_action_places_image_and_canvas_action_saves_all_params(self):
         self.open_image()
@@ -283,8 +321,10 @@ class CanvasViewerBrowserTest(unittest.TestCase):
                 self.assertAlmostEqual(fold_button["y"] + fold_button["height"] / 2, height / 2, delta=1)
                 self.assertEqual(fold_button["width"], 26 if width > 760 else 36)
                 self.assertEqual(fold_button["height"], 58 if width > 760 else 52)
+                self.assert_viewer_icons_centered()
                 self.page.locator("#imageViewerFoldBtn").click()
                 self.page.wait_for_timeout(350)
+                self.assert_viewer_icons_centered()
                 self.assert_disjoint(
                     self.page.locator("#imageViewerNextBtn").bounding_box(),
                     self.page.locator("#imageViewerFoldBtn").bounding_box(),

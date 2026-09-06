@@ -547,6 +547,12 @@ function toast(message, type = "info") {
 function alignToastRegion() {
   const rect = document.querySelector(".topbar").getBoundingClientRect();
   els.toastRegion.style.top = `${(rect.top + rect.bottom) / 2}px`;
+  const expandedViewer = !els.imageViewer.hidden && !els.imageViewer.classList.contains("folded");
+  const stage = expandedViewer ? els.imageViewerStage.getBoundingClientRect() : null;
+  const width = stage?.width || window.innerWidth;
+  const left = stage?.width ? stage.left : 0;
+  els.toastRegion.style.left = `${left + width / 2}px`;
+  els.toastRegion.style.maxWidth = `${Math.max(0, width - 24)}px`;
 }
 
 // 彩蛋：连点三次 logo 转一圈
@@ -736,6 +742,7 @@ function alignDebugBar() {
 }
 
 function alignOverlayPanels() {
+  alignToastRegion();
   alignDebugBar();
   if (els.assetPanel.classList.contains("open")) {
     alignAssetPanel();
@@ -761,6 +768,8 @@ function setupOverlayAlignment() {
   state.layoutObserver = new ResizeObserver(scheduleOverlayAlignment);
   state.layoutObserver.observe(topbar);
   state.layoutObserver.observe(els.viewport);
+  // 预览舞台会随信息栏开合改变宽度；已有通知也要跟随动画和窗口尺寸。
+  state.layoutObserver.observe(els.imageViewerStage);
 }
 
 function projectIconButton(iconName, title, className = "") {
@@ -5787,14 +5796,24 @@ function renderImageViewerCharacters(node, sequence) {
       caption.textContent = label;
       const target = document.createElement("div");
       target.id = `imageViewerCharacter${index}${suffix}`;
-      const copy = document.createElement("button");
-      copy.type = "button";
-      copy.className = `image-viewer-copy-btn${negative ? " copy-negative" : ""}`;
-      copy.dataset.copyTarget = target.id;
-      copy.title = `复制${title}${negative ? "负面" : "正向"}提示词`;
-      copy.textContent = negative ? "复制负面" : "复制正向";
-      head.append(caption, copy);
-      section.append(head, target);
+      head.appendChild(caption);
+      if (negative) {
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "image-viewer-copy-btn copy-negative";
+        copy.dataset.copyTarget = target.id;
+        copy.title = `复制${title}负面提示词`;
+        copy.textContent = "复制负面";
+        head.appendChild(copy);
+      }
+      section.appendChild(head);
+      if (!negative && position) {
+        const coordinates = document.createElement("p");
+        coordinates.className = "image-viewer-character-position image-viewer-copy-text";
+        coordinates.textContent = position;
+        section.appendChild(coordinates);
+      }
+      section.appendChild(target);
       if (negative) {
         target.className = "image-viewer-note image-viewer-copy-text";
         target.textContent = text;
@@ -5805,12 +5824,6 @@ function renderImageViewerCharacters(node, sequence) {
         renderImageViewerTags(text, [], {}, target);
       }
     };
-    if (position) {
-      const coordinates = document.createElement("p");
-      coordinates.className = "image-viewer-character-position image-viewer-copy-text";
-      coordinates.textContent = position;
-      section.appendChild(coordinates);
-    }
     els.imageViewerCharacters.appendChild(section);
     addPrompt(title, prompt, "Tags");
     if (entry.negative_prompt) addPrompt("Negative", entry.negative_prompt, "Negative", true);
@@ -5932,6 +5945,7 @@ function openImageViewer(node, { libraryAsset = null, operationLabel = "打开�
   }
   els.imageViewerPlaceBtn.hidden = !libraryAsset;
   els.imageViewer.hidden = false;
+  alignToastRegion();
   els.imageViewer.focus({ preventScroll: true });
   scheduleImageViewerFrameSync();
   renderImageViewerInfo(node);
@@ -5967,6 +5981,7 @@ function closeImageViewer() {
   state.viewerTagLookupSequence += 1;
   state.viewerInfoSequence += 1;
   els.imageViewer.hidden = true;
+  alignToastRegion();
   els.imageViewerImage.removeAttribute("src");
   renderImageViewerTags("");
   els.imageViewerTitle.textContent = "图片预览";
@@ -7534,6 +7549,7 @@ els.imageViewerFoldBtn?.addEventListener("click", (event) => {
   event.stopPropagation();
   clearImageViewerBottomLayoutLock(true);
   const folded = els.imageViewer.classList.toggle("folded");
+  alignToastRegion();
   els.imageViewerFoldBtn.setAttribute("aria-expanded", String(!folded));
   els.imageViewerFoldBtn.setAttribute("aria-label", folded ? "展开信息栏" : "收起信息栏");
   els.imageViewerFoldBtn.title = folded ? "展开信息栏" : "收起信息栏";
