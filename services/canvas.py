@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Set, Tuple
 from uuid import uuid4
 
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageOps
 
 from astrbot.api import logger
 from astrbot.api.web import error_response, file_response, json_response, request
@@ -302,10 +302,12 @@ def _sanitize_image_generation_meta(value: Any) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for key, limit in (
         ("sampler", 48), ("noiseSchedule", 32), ("ucPreset", 32),
-        ("model", 160), ("imageFormat", 16), ("negativePrompt", 6000),
+        ("model", 160), ("imageFormat", 16), ("negativePrompt", 6000), ("finalPrompt", 6000),
     ):
         raw = value.get(key)
         if isinstance(raw, str):
+            if key == "finalPrompt" and not raw.strip():
+                continue
             result[key] = raw[:limit].strip()
     for key, maximum in (("steps", 200), ("scale", 100), ("cfgRescale", 1)):
         raw = value.get(key)
@@ -450,6 +452,7 @@ class CanvasStore:
             else get_astrbot_plugin_data_dir(plugin_name) / "canvas"
         )
         self.assets_dir = self.data_dir / "assets"
+        self.thumbnails_dir = self.data_dir / "thumbnails-v1"
         self.workspace_path = self.data_dir / "workspace.json"
         self.workspaces_dir = self.data_dir / "workspaces"
         self.projects_path = self.data_dir / "projects.json"
@@ -462,6 +465,7 @@ class CanvasStore:
         self._lock = threading.RLock()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
+        self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_collections()
 
@@ -847,6 +851,8 @@ class CanvasStore:
                 "count": int(_bounded_number(raw_meta.get("count"), 1, 1, 4)),
             }
             meta.update(_sanitize_image_generation_meta(raw_meta))
+            if "generationSeed" in raw_meta:
+                meta["generationSeed"] = normalize_nai_seed(raw_meta.get("generationSeed")) or 0
             if node_type == "image" and "varietyBoost" not in raw_meta:
                 meta.pop("varietyBoost", None)
             debug = _sanitize_debug_payload(raw_meta.get("debug"))
@@ -1118,6 +1124,33 @@ class CanvasStore:
         data_url = f"data:{mime_type};base64,{base64.b64encode(path.read_bytes()).decode()}"
         return {"id": asset_id, "dataUrl": data_url, "mimeType": mime_type}
 
+    def stored_asset_payload(self, data: bytes, format_hint: str = "") -> Dict[str, Any]:
+        asset = self.store_asset(data, format_hint)
+        return {**asset, **self.asset_payload(asset["id"])}
+
+    def asset_thumbnail_payload(self, asset_id: str) -> Dict[str, Any]:
+        source, _ = self.get_asset(asset_id)
+        cached = self.thumbnails_dir / f"{asset_id}.jpg"
+        if not cached.exists():
+            with PILImage.open(source) as original:
+                original.draft("RGB", (768, 768))
+                thumbnail = ImageOps.exif_transpose(original)
+                thumbnail.thumbnail((384, 384), PILImage.Resampling.LANCZOS)
+                if thumbnail.mode != "RGB":
+                    rgba = thumbnail.convert("RGBA")
+                    thumbnail = PILImage.new("RGB", rgba.size, "white")
+                    thumbnail.paste(rgba, mask=rgba.getchannel("A"))
+                output = BytesIO()
+                thumbnail.save(output, format="JPEG", quality=80, optimize=True)
+            temporary = cached.with_suffix(f".{uuid4().hex}.tmp")
+            try:
+                temporary.write_bytes(output.getvalue())
+                temporary.replace(cached)
+            finally:
+                temporary.unlink(missing_ok=True)
+        encoded = base64.b64encode(cached.read_bytes()).decode()
+        return {"id": asset_id, "dataUrl": f"data:image/jpeg;base64,{encoded}", "mimeType": "image/jpeg"}
+
     def list_library(self) -> Dict[str, List[Dict[str, Any]]]:
         library = self._library()
         return {
@@ -1207,6 +1240,7 @@ class CanvasStore:
                         continue
 
                     path.unlink()
+                    (self.thumbnails_dir / f"{asset_id}.jpg").unlink(missing_ok=True)
                     removed += 1
                 except OSError as exc:
                     logger.warning(f"[BestNAI/Canvas] 删除资源 {path.name} 失败: {exc}")
@@ -1375,6 +1409,7 @@ class CanvasService:
         self.retag_callback = retag_callback
         self.tag_translation_callback = tag_translation_callback
         self.store = CanvasStore(plugin_name, data_dir=data_dir)
+        self._thumbnail_semaphore = asyncio.Semaphore(2)
 
     def register(self, context: Any) -> None:
         prefix = f"/{self.plugin_name}/canvas"
@@ -1392,6 +1427,7 @@ class CanvasService:
             ("workspace/export", self.export_workspace, ["GET"], "Infinite Canvas：导出工作区"),
             ("upload", self.upload_asset, ["POST"], "Infinite Canvas：上传图片"),
             ("asset", self.get_asset, ["GET"], "Infinite Canvas：读取图片"),
+            ("asset/thumbnail", self.get_asset_thumbnail, ["GET"], "Infinite Canvas：读取图片缩略图"),
             ("asset/params", self.get_asset_params, ["GET"], "Infinite Canvas：读取图片内嵌生成参数"),
             ("asset/download", self.download_asset, ["GET"], "Infinite Canvas：下载图片"),
             ("projects", self.list_projects, ["GET"], "Infinite Canvas：项目列表"),
@@ -1619,8 +1655,7 @@ class CanvasService:
             assets = []
 
             for image_format, image_bytes in images:
-                asset = self.store.store_asset(image_bytes, image_format)
-                asset.update(self.store.asset_payload(asset["id"]))
+                asset = await asyncio.to_thread(self.store.stored_asset_payload, image_bytes, image_format)
                 assets.append(asset)
 
             return json_response({"assets": assets, "meta": metadata})
@@ -1631,6 +1666,9 @@ class CanvasService:
         except Exception as exc:
             logger.exception(f"[BestNAI/Canvas] 生成失败: {exc}")
             message = getattr(exc, "message", None) or str(exc) or "生成失败"
+            diagnostic = getattr(exc, "diagnostic", "")
+            if diagnostic:
+                message = f"{message}\n\n诊断信息：\n{diagnostic}"
             return error_response(message, status_code=502)
 
     async def translate_tags(self) -> Any:
@@ -1769,8 +1807,7 @@ class CanvasService:
                 return error_response("图片不能超过 15 MB", status_code=413)
 
             data = await upload.read(MAX_UPLOAD_BYTES + 1)
-            asset = self.store.store_asset(data)
-            asset.update(self.store.asset_payload(asset["id"]))
+            asset = await asyncio.to_thread(self.store.stored_asset_payload, data)
             return json_response(asset)
         except CanvasValidationError as exc:
             return error_response(str(exc), status_code=400)
@@ -1781,7 +1818,17 @@ class CanvasService:
     async def get_asset(self) -> Any:
         asset_id = str(request.query.get("id", "") or "")
         try:
-            return json_response(self.store.asset_payload(asset_id))
+            return json_response(await asyncio.to_thread(self.store.asset_payload, asset_id))
+        except FileNotFoundError:
+            return error_response("图片资源不存在", status_code=404)
+        except CanvasValidationError as exc:
+            return error_response(str(exc), status_code=400)
+
+    async def get_asset_thumbnail(self) -> Any:
+        asset_id = str(request.query.get("id", "") or "")
+        try:
+            async with self._thumbnail_semaphore:
+                return json_response(await asyncio.to_thread(self.store.asset_thumbnail_payload, asset_id))
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)
         except CanvasValidationError as exc:

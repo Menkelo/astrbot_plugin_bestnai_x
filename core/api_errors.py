@@ -19,11 +19,8 @@ _SIGNATURES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     (
         "上游服务器暂时不可用。Cloudflare 没有收到完整响应，请稍后重试或检查接口提供商的源站配置",
         (
-            "cloudflare",
             "origin web server",
             "invalid or incomplete response",
-            "bad gateway",
-            "gateway time-out",
             "error 520",
             "error 521",
             "error 522",
@@ -109,16 +106,18 @@ def _clip(text: str) -> str:
 # 报错原文和调试流水都可能带着 Key：Gemini 把 key 放在 URL 查询串里，
 # aiohttp 的异常消息又常常把整条 URL 带上，一路 logger 打出去就落到日志里了。
 _SECRET_PATTERNS: Tuple[Tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.I), r"\1***@"),
     (re.compile(r"([?&](?:key|api_?key|access_token|token|auth)=)[^&\s\"']+", re.I), r"\1***"),
     (re.compile(r"(Bearer\s+)[\w.\-]{8,}", re.I), r"\1***"),
     (
         re.compile(
-            r"([\"']?(?:api_?key|access_token|authorization)[\"']?\s*[:=]\s*[\"']?)[\w.\-]{8,}",
+            r"([\"']?(?:api_?key|api_?token|access_token|authorization|token)[\"']?\s*[:=]\s*[\"']?)[\w.\-]{8,}",
             re.I,
         ),
         r"\1***",
     ),
     (re.compile(r"\bsk-[\w\-]{8,}"), "sk-***"),
+    (re.compile(r"\bpst-[\w.\-]{8,}"), "pst-***"),
 )
 
 
@@ -136,7 +135,57 @@ def mask_secrets(text: str) -> str:
     return masked
 
 
-def describe_api_error(raw: str, subject: str, verbose: bool = False) -> str:
+def classify_api_error(raw: str, status_code: int | None = None) -> str:
+    text = str(raw or "").lower()
+    if status_code == 407 or any(word in text for word in (
+        "proxy authentication", "proxy connection", "proxyconnect", "cannot connect to proxy", "tunnel connection failed",
+    )):
+        return "proxy"
+    if any(word in text for word in (
+        "origin web server", "invalid or incomplete response", "bad gateway", "gateway time-out",
+        "gateway timeout", "error 520", "error 521", "error 522", "error 523", "error 524",
+    )):
+        return "upstream"
+    if any(word in text for word in ("invalid api key", "invalid_api_key", "incorrect api key", "unauthorized", "authentication failed", "令牌无效", "无效的令牌")):
+        return "auth"
+    if any(word in text for word in ("cloudflare", "cf-chl-", "challenge-platform", "just a moment", "you have been blocked")):
+        return "upstream" if status_code is not None and status_code >= 500 else "access"
+    if any(word in text for word in ("permission denied", "insufficient permissions", "access denied", "forbidden")):
+        return "access"
+    if any(word in text for word in ("moderation", "content policy", "content_filter", "flagged", "审核", "违规")):
+        return "moderation"
+    if status_code == 402 or any(word in text for word in ("insufficient_quota", "credit", "insufficient balance", "insufficient funds", "anlas", "quota", "余额", "欠费")):
+        return "quota"
+    if status_code == 429 or "rate limit" in text or "rate_limit" in text:
+        return "rate_limit"
+    if status_code == 401:
+        return "auth"
+    if status_code == 403:
+        return "access"
+    if status_code is not None and status_code >= 500:
+        return "upstream"
+    if "timeout" in text or "timed out" in text or "超时" in text:
+        return "timeout"
+    return "unknown"
+
+
+def format_api_diagnostic(raw: str, status_code: int | None = None, category: str = "") -> str:
+    labels = {
+        "proxy": "代理连接", "auth": "接口鉴权", "access": "访问拦截",
+        "upstream": "上游服务", "timeout": "请求超时", "quota": "额度不足",
+        "rate_limit": "请求限流", "moderation": "内容审核", "network": "网络连接", "unknown": "请求失败",
+    }
+    kind = category or classify_api_error(raw, status_code)
+    lines = [f"错误类型：{labels.get(kind, kind)}"]
+    if status_code is not None:
+        lines.append(f"上游 HTTP：{status_code}")
+    text = " ".join(mask_secrets(str(raw or "")).split())[:600]
+    if text:
+        lines.append(f"原始信息：{text}")
+    return "\n".join(lines)
+
+
+def describe_api_error(raw: str, subject: str, verbose: bool = False, status_code: int | None = None) -> str:
     """把上游接口的原始报错换成一句能照着做的中文。
 
     subject 形如「提示词翻译」「图片反推」，直接拼在句首。
@@ -144,6 +193,20 @@ def describe_api_error(raw: str, subject: str, verbose: bool = False) -> str:
     """
     text = mask_secrets((raw or "").strip())
     lowered = text.lower()
+
+    kind = classify_api_error(text, status_code)
+    reason = {
+        "proxy": "代理连接或代理鉴权失败，请检查代理地址、端口及服务状态",
+        "access": "接口访问被拦截，可能需要 Cloudflare 验证或访问授权；请检查代理线路及服务商的访问规则",
+        "upstream": "上游服务器暂时不可用，请稍后重试或检查接口提供商的源站状态",
+        "auth": "服务商拒绝了鉴权。检查提供商的 API Key 是否填对、是否过期",
+        "timeout": "请求超时；请先确认服务商任务状态，再决定是否重试",
+        "quota": "服务商额度不足，请检查账户余额或免费额度",
+        "rate_limit": "服务商触发限流，请稍后重试或降低并发",
+    }.get(kind)
+    if reason:
+        message = f"{subject}失败：{reason}"
+        return f"{message}（原始报错：{_clip(text)}）" if verbose and text else message
 
     for reason, keywords in _SIGNATURES:
         if any(keyword in lowered for keyword in keywords):

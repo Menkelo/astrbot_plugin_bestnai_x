@@ -13,7 +13,7 @@ from PIL import Image as PILImage
 
 from astrbot.api import logger
 
-from .api_errors import describe_api_error
+from .api_errors import classify_api_error, describe_api_error, format_api_diagnostic, mask_secrets
 from .char_prompts import automatic_char_layout, normalize_char_entries
 from .novelai_api import (
     build_character_payload,
@@ -37,10 +37,12 @@ class GenerationResult(NamedTuple):
 
 
 class GenerationError(Exception):
-    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+    def __init__(self, message: str, status_code: Optional[int] = None, *, diagnostic: str = "") -> None:
+        message = mask_secrets(str(message))
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.diagnostic = mask_secrets(diagnostic or format_api_diagnostic(message, status_code))
 
 
 class APIKeyError(GenerationError):
@@ -59,6 +61,14 @@ class ServerBusyError(GenerationError):
     pass
 
 
+class ProxyConnectionError(GenerationError):
+    pass
+
+
+class AccessBlockedError(GenerationError):
+    pass
+
+
 class ImageGenerator:
     def __init__(self, config: PluginConfig) -> None:
         self.config = config
@@ -69,7 +79,7 @@ class ImageGenerator:
         proxy = raw.get("proxy") or (raw.get("api_config") or {}).get("proxy") or ""
         self._proxy = str(proxy).strip() or None
         if self._proxy:
-            logger.info(f"[BestNAI] 已启用代理透传: {self._proxy}")
+            logger.info(f"[BestNAI] 已启用代理透传: {mask_secrets(self._proxy)}")
 
     @staticmethod
     def _endpoint(api_base: str, path: str) -> str:
@@ -254,8 +264,7 @@ class ImageGenerator:
             "n_samples": 1,
         }
 
-        if gen_config.negative_prompt:
-            user_payload["negative_prompt"] = gen_config.negative_prompt
+        user_payload["negative_prompt"] = gen_config.negative_prompt or ""
 
         if gen_config.uc_preset:
             user_payload["uc_preset"] = gen_config.uc_preset
@@ -432,13 +441,13 @@ class ImageGenerator:
             raise
 
         except aiohttp.ClientConnectorError as e:
-            raise GenerationError(f"无法连接 API：{e}") from e
+            raise self._connection_error(e) from e
 
         except (asyncio.TimeoutError, TimeoutError) as e:
-            raise ServerBusyError("生图请求超时，请稍后重试") from e
+            raise ServerBusyError("生图请求超时；请先确认服务商任务状态，再决定是否重试", diagnostic=format_api_diagnostic(str(e) or "请求超过等待时间", category="timeout")) from e
 
         except aiohttp.ClientError as e:
-            raise GenerationError(f"网络请求失败：{e}") from e
+            raise self._connection_error(e) from e
 
         except Exception as e:
             raise GenerationError(f"请求生图接口失败：{e}") from e
@@ -534,55 +543,40 @@ class ImageGenerator:
             raise
 
         except aiohttp.ClientResponseError as e:
-            raise GenerationError(f"HTTP 请求失败：{e.status} {e.message}", e.status) from e
+            raise self._connection_error(e) from e
 
         except aiohttp.ClientConnectorError as e:
-            raise GenerationError(f"无法连接 API：{e}") from e
+            raise self._connection_error(e) from e
 
         except (asyncio.TimeoutError, TimeoutError) as e:
-            raise ServerBusyError("生图请求超时，请稍后重试") from e
+            raise ServerBusyError("生图请求超时；请先确认服务商任务状态，再决定是否重试", diagnostic=format_api_diagnostic(str(e) or "请求超过等待时间", category="timeout")) from e
 
         except aiohttp.ClientError as e:
-            raise GenerationError(f"网络请求失败：{e}") from e
+            raise self._connection_error(e) from e
 
         except Exception as e:
             raise GenerationError(f"请求生图接口失败：{e}") from e
 
     def _raise_for_status(self, status: int, message: str) -> None:
-        msg = message or f"HTTP {status}"
-        lowered = msg.lower()
-        if any(
-            marker in lowered
-            for marker in (
-                "cloudflare",
-                "origin web server",
-                "invalid or incomplete response",
-                "bad gateway",
-                "gateway time-out",
-                "error 52",
-            )
-        ):
-            msg = describe_api_error(msg, "生图")
+        raw = message or f"HTTP {status}"
+        kind = classify_api_error(raw, status)
+        error_type = {
+            "auth": APIKeyError, "access": AccessBlockedError, "proxy": ProxyConnectionError,
+            "quota": QuotaExceededError, "rate_limit": RateLimitError, "upstream": ServerBusyError,
+        }.get(kind, GenerationError)
+        raise error_type(
+            describe_api_error(raw, "生图", status_code=status), status,
+            diagnostic=format_api_diagnostic(raw, status, kind),
+        )
 
-        if status in (401, 403):
-            raise APIKeyError(msg, status)
-
-        # NovelAI 官方用 402 表示 Anlas 不足
-        if status == 402:
-            raise QuotaExceededError(msg, status)
-
-        if status == 429:
-            lower = msg.lower()
-
-            if any(x in lower for x in ["quota", "余额", "insufficient", "credit"]):
-                raise QuotaExceededError(msg, status)
-
-            raise RateLimitError(msg, status)
-
-        if status in (500, 502, 503, 504, 520, 521, 522, 523, 524):
-            raise ServerBusyError(msg, status)
-
-        raise GenerationError(msg, status)
+    def _connection_error(self, error: Exception) -> GenerationError:
+        proxy = type(error).__name__ in {"ClientProxyConnectionError", "ClientHttpProxyError"}
+        kind = "proxy" if proxy else "network"
+        status = getattr(error, "status", None)
+        message = "代理连接失败，请检查代理地址、端口及服务状态" if proxy else "无法连接生图接口，请检查网络和接口地址"
+        return (ProxyConnectionError if proxy else GenerationError)(
+            message, status, diagnostic=format_api_diagnostic(str(error), status, kind),
+        )
 
     def _extract_error_message_from_text(self, text: str) -> str:
         text = text or ""
@@ -1014,36 +1008,31 @@ class ImageGenerator:
             headers["Authorization"] = f"Bearer {api_key}"
         elif api_key:
             logger.info(
-                f"[BestNAI] 图片链接不属于已配置的 API 主机，下载时不发送 API Key：{url}"
+                f"[BestNAI] 图片链接不属于已配置的 API 主机，下载时不发送 API Key：{mask_secrets(url)}"
             )
 
         timeout = aiohttp.ClientTimeout(total=self.timeout)
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers, proxy=self._proxy) as resp:
-                if resp.status < 200 or resp.status >= 300:
-                    text = await resp.text()
-                    raw = f"HTTP {resp.status}: {text[:200]}"
-                    lowered = raw.lower()
-                    if any(
-                        marker in lowered
-                        for marker in (
-                            "cloudflare",
-                            "origin web server",
-                            "invalid or incomplete response",
-                            "bad gateway",
-                            "gateway time-out",
-                            "error 52",
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, headers=headers, proxy=self._proxy) as resp:
+                    if resp.status < 200 or resp.status >= 300:
+                        text = await resp.text()
+                        raw = f"HTTP {resp.status}: {text[:200]}"
+                        raise GenerationError(
+                            describe_api_error(raw, "图片下载", status_code=resp.status), resp.status,
+                            diagnostic=format_api_diagnostic(raw, resp.status),
                         )
-                    ):
-                        raise GenerationError(describe_api_error(raw, "图片下载"), resp.status)
-                    raise GenerationError(
-                        f"下载图片失败 {raw}",
-                        resp.status,
-                    )
 
-                content_type = resp.headers.get("Content-Type", "").lower()
-                img_bytes = await resp.read()
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    img_bytes = await resp.read()
+
+        except GenerationError:
+            raise
+        except (asyncio.TimeoutError, TimeoutError) as exc:
+            raise ServerBusyError("图片下载超时，可稍后重试下载", diagnostic=format_api_diagnostic(str(exc) or "图片读取超时", category="timeout")) from exc
+        except aiohttp.ClientError as exc:
+            raise self._connection_error(exc) from exc
 
         if "jpeg" in content_type or "jpg" in content_type:
             img_format = "jpg"

@@ -1792,6 +1792,12 @@ select:focus-visible {
   width: 100%;
 }
 
+.adv-card.has-reused-parameters .retag-layer-body:not([hidden]) {
+  max-height: min(420px, 48vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .retag-character-layout-label {
   grid-column: 1 / -1;
   color: var(--faint);
@@ -1974,6 +1980,18 @@ select:focus-visible {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
 }
+
+.reused-parameters { margin-top: 10px; font-size: 11px; color: var(--muted); }
+.reused-parameters summary { cursor: pointer; font-weight: 750; }
+.reused-parameters label { display: grid; gap: 5px; margin-top: 9px; }
+.reused-parameters input, .reused-parameters textarea { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft-2); color: var(--text); font-size: 11px; }
+.reused-parameters textarea { min-height: 64px; resize: vertical; }
+.node-diagnostic-copy { flex: 0 0 auto; align-self: flex-start; margin-top: 5px; padding: 5px 10px; border-radius: 8px; background: #fff1f2; color: #9f1239; font-size: 11px; cursor: pointer; }
+.retag-character-editor-popover.place-overlay { filter: drop-shadow(0 8px 18px rgba(15,23,42,.14)); }
+.retag-character-editor-tools { display: none; }
+.place-overlay .retag-character-editor-tools { position: sticky; top: 0; z-index: 1; display: flex; justify-content: flex-end; padding: 3px; border-radius: 9px; background: var(--card-solid); }
+.retag-character-editor-tools button { display: grid; width: 26px; height: 26px; padding: 0; place-items: center; border-radius: 6px; cursor: pointer; background: var(--soft-2); }
+.retag-character-editor-tools svg { width: 14px; height: 14px; }
 
 .retag-layer-row {
   padding: 8px;

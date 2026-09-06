@@ -1,3 +1,6 @@
+import { createCharacterEditor } from "./character-editor.js?v=4.6.29";
+import { createImageViewer } from "./image-viewer.js?v=4.6.29";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.29";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -7,6 +10,7 @@ import {
   safeZipName,
   uniqueZipPath,
 } from "./zip-utils.js";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.29";
 
 let bridge = null;
 
@@ -63,6 +67,7 @@ const els = {
   imageViewerCopyAllBtn: document.getElementById("imageViewerCopyAllBtn"),
   imageViewerDownloadBtn: document.getElementById("imageViewerDownloadBtn"),
   imageViewerSaveBtn: document.getElementById("imageViewerSaveBtn"),
+  imageViewerReuseBtn: document.getElementById("imageViewerReuseBtn"),
   imageViewerPrevBtn: document.getElementById("imageViewerPrevBtn"),
   imageViewerNextBtn: document.getElementById("imageViewerNextBtn"),
   imageViewerStage: document.getElementById("imageViewerStage"),
@@ -245,8 +250,6 @@ const state = {
   connectionDrag: null,
   pendingUploadPoint: null,
   library: { images: [], prompts: [] },
-  libraryAssetPromises: new Map(),
-  libraryPreloadPromise: null,
   libraryRenderObserver: null,
   libraryRenderCleanup: null,
   assetLibraryView: INITIAL_ASSET_LIBRARY_PREFERENCES.view || "all",
@@ -406,131 +409,6 @@ function clearOperationLog() {
   state.operationSequence = 0;
   persistOperationLog();
   recordOperation("记录器已清空", "新的操作会继续追加");
-}
-
-function persistAssetLibraryPreferences() {
-  try {
-    localStorage.setItem(ASSET_LIBRARY_PREFS_KEY, JSON.stringify({
-      recent: state.assetRecent.slice(0, ASSET_RECENT_LIMIT),
-      view: state.assetLibraryView,
-    }));
-  } catch (_) {
-    // Embedded webviews may disable local storage; the in-memory state still works.
-  }
-}
-
-function reconcileAssetLibraryPreferences() {
-  const validIds = new Set((state.library.images || []).map((item) => String(item?.id || "")).filter(Boolean));
-  const recent = state.assetRecent.filter((id) => validIds.has(id));
-  const changed = recent.length !== state.assetRecent.length;
-  state.assetRecent = recent;
-  if (changed) persistAssetLibraryPreferences();
-}
-
-function assetLibraryVisibleItems() {
-  const items = state.library.images || [];
-  if (state.assetLibraryView === "all") return items;
-  const byId = new Map(items.map((item) => [String(item?.id || ""), item]));
-  return state.assetRecent.map((id) => byId.get(id)).filter(Boolean);
-}
-
-function assetLibraryStackViewGroups() {
-  if (state.assetLibraryView !== "all" || state.assetStackKey) return [];
-  return assetLibraryGroups(assetLibraryVisibleItems());
-}
-
-function assetGroupForItem(item) {
-  const artist = String(item?.artist || "").trim();
-  if (artist) {
-    return {
-      key: `artist:${artist.replace(/\s+/g, " ").toLocaleLowerCase()}`,
-      label: artist,
-      detail: "画师合集",
-      unassigned: false,
-    };
-  }
-  return {
-    key: "artist:__unassigned__",
-    label: "原始提示词",
-    detail: "未标注画师",
-    unassigned: true,
-  };
-}
-
-function assetLibraryGroups(items) {
-  const groups = new Map();
-  (items || []).forEach((item) => {
-    const group = assetGroupForItem(item);
-    if (!groups.has(group.key)) groups.set(group.key, { ...group, items: [] });
-    groups.get(group.key).items.push(item);
-  });
-  return [...groups.values()].sort((left, right) => Number(left.unassigned) - Number(right.unassigned));
-}
-
-function updateAssetLibraryModeUI() {
-  const total = (state.library.images || []).length;
-  const visible = assetLibraryVisibleItems().length;
-  if (els.assetLibraryCount) {
-    els.assetLibraryCount.textContent = state.assetLibraryView === "all"
-      ? `已收录 ${total} 张`
-      : `${visible} / ${total} 张`;
-  }
-  if (els.assetAllCount) els.assetAllCount.textContent = String(total);
-  if (els.assetRecentCount) els.assetRecentCount.textContent = String(state.assetRecent.length);
-  [
-    [els.assetViewAllBtn, "all"],
-    [els.assetViewRecentBtn, "recent"],
-  ].forEach(([button, view]) => {
-    if (!button) return;
-    const active = state.assetLibraryView === view;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  if (els.assetStackTrail) {
-    const group = state.assetStackKey
-      ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
-      : null;
-    els.assetStackTrail.hidden = !group;
-    els.assetStackTrail.closest(".asset-library-modes")?.classList.toggle("stack-open", !!group);
-    const label = group ? `返回全部素材 · ${group.label}` : "返回全部素材";
-    if (els.assetStackTrailLabel) els.assetStackTrailLabel.textContent = label;
-    els.assetStackTrail.title = label;
-    els.assetStackTrail.setAttribute("aria-label", label);
-  }
-}
-
-function setAssetLibraryView(view) {
-  if (!["all", "recent"].includes(view)) return;
-  if (state.assetDeleteMode) setAssetDeleteMode(false);
-  state.assetLibraryView = view;
-  state.assetStackKey = "";
-  persistAssetLibraryPreferences();
-  renderAssetLibrary();
-  recordOperation("切换素材视图", view === "recent" ? "最近使用" : "全部素材");
-}
-
-function closeAssetStack() {
-  const group = state.assetStackKey
-    ? assetLibraryGroups(state.library.images).find((item) => item.key === state.assetStackKey)
-    : null;
-  if (!group) return;
-  if (state.assetDeleteMode) setAssetDeleteMode(false);
-  state.assetStackKey = "";
-  updateAssetLibraryModeUI();
-  renderAssetLibrary();
-  recordOperation("收起素材堆", group.label);
-}
-
-function markAssetRecent(item, { render = true } = {}) {
-  const id = String(item?.id || "").trim();
-  if (!id) return;
-  state.assetRecent = [id, ...state.assetRecent.filter((itemId) => itemId !== id)]
-    .slice(0, ASSET_RECENT_LIMIT);
-  persistAssetLibraryPreferences();
-  updateAssetLibraryModeUI();
-  if (render && state.assetLibraryView === "recent" && els.assetPanel.classList.contains("open")) {
-    renderAssetLibrary();
-  }
 }
 
 function toast(message, type = "info") {
@@ -1453,7 +1331,11 @@ function renderPromptNode(node) {
 
   const options = document.createElement("div");
   options.className = "prompt-options";
-  const ratioField = makeSelectField("画幅", state.config.ratios, node.ratio, (value) => {
+  const ratioOptions = [...(state.config.ratios || [])];
+  if (/^\d{2,5}x\d{2,5}$/.test(node.ratio || "") && !hasOptionValue(ratioOptions, node.ratio)) {
+    ratioOptions.push({ value: node.ratio, label: `${node.ratio.replace("x", "×")}（复用）` });
+  }
+  const ratioField = makeSelectField("画幅", ratioOptions, node.ratio, (value) => {
     node.ratio = value;
     // 手动选过画幅后，首次链接图片的自动对齐不再生效
     node.meta = { ...(node.meta || {}), ratioManual: true };
@@ -1575,7 +1457,7 @@ function renderPromptNode(node) {
 
   const status = document.createElement("div");
   status.className = `node-status${node.error ? " error" : ""}`;
-  status.textContent = node.error
+  status.textContent = node.error?.split("\n\n诊断信息：")[0]
     || node.statusText
     || (sourceImage ? "已连接原图，生成时自动反推" : "Ctrl + Enter 快速生成");
 
@@ -1587,6 +1469,15 @@ function renderPromptNode(node) {
   attachConnectionPort(outputPort, node.id, "out");
   element.append(body, inputPort, outputPort);
   body.append(prompt, options, footer, status);
+  if (node.error) {
+    const diagnostic = document.createElement("button");
+    diagnostic.type = "button";
+    diagnostic.className = "node-diagnostic-copy";
+    diagnostic.textContent = "复制诊断信息";
+    diagnostic.addEventListener("pointerdown", (event) => event.stopPropagation());
+    diagnostic.addEventListener("click", () => copyPlainText(maskOperationSecrets(node.error), "复制诊断信息"));
+    body.appendChild(diagnostic);
+  }
   // 角色模块常驻在提示词卡片上方；高级参数和原图标签仍挂在下方。
   const advCard = makeAdvancedParamsCard(node, element);
   const retagLayerResult = makeRetagLayerCard(node, sourceImage, element);
@@ -1957,15 +1848,11 @@ function modelSupportsVariety(model) {
 // 的钳制口径一一对应。滑条、反推带回的原图参数、缓存复用三处共用这一份：
 // 原图 50 步会被后端 _clamp_steps 钳成 28，前端若按更宽的范围原样收下，
 // 就会出现滑条卡在 28、数字标签写 50、实际发 28 的四处对不上。
-const ADV_RANGES = {
-  steps: { min: 1, max: 28 },
-  scale: { min: 1, max: 10 },
-  cfgRescale: { min: 0, max: 1 },
-};
-
 function makeAdvancedParamsCard(node, nodeElement) {
   const card = document.createElement("aside");
   card.className = "retag-layer-card adv-card";
+  const hasReusedParams = node.meta?.generationSeed != null || node.meta?.negativePrompt != null;
+  card.classList.toggle("has-reused-parameters", hasReusedParams);
   card.dataset.nodeId = node.id;
   card.addEventListener("pointerdown", (event) => {
     // 中键拖动要继续冒泡到画布，让附加卡片区域也能平移画布。
@@ -1996,7 +1883,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
   body.hidden = true;
 
   const effectiveValue = (key, retagKey, fallback) =>
-    node.meta?.[key] || node.meta?.[retagKey] || fallback;
+    effectiveParameter(node.meta, key, retagKey, fallback);
 
   // Variety+ 只对 V4.x 有效。切到 V5 时不清 node.meta.varietyBoost——
   // 那样来回切模型会把用户的设置吃掉；只是藏起来、并且不计入摘要。
@@ -2026,7 +1913,8 @@ function makeAdvancedParamsCard(node, nodeElement) {
     caption.textContent = label;
     // 说明挂在标题两个字上，不挂整个 field：field 包着 ↺ 按钮，两层都带
     // 气泡的话悬停 ↺ 会同时弹出两个（原生 title 时代是后者盖前者，看不出来）。
-    caption.dataset.tooltip = tooltip;
+    if (hasReusedParams) caption.title = tooltip;
+    else caption.dataset.tooltip = tooltip;
     caption.tabIndex = 0;
     const value = document.createElement("span");
     value.className = "adv-value";
@@ -2046,9 +1934,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
 
     const paint = () => {
       const effective = effectiveValue(key, retagKey, fallback);
-      // 0 对这三个参数都不是有效手写值（步数/引导最小 1，Rescale 0 等同默认），
-      // 旧存档里被物化的 0 不能当成"手写值"显示
-      const manual = !!node.meta?.[key];
+      const manual = hasParameterValue(key, node.meta?.[key]);
       slider.value = String(effective);
       value.textContent = `${format(effective)}${manual ? " •" : ""}`;
       value.classList.toggle("manual", manual);
@@ -2190,6 +2076,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
     card.classList.toggle("open", open);
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
+    if (open && hasReusedParams) requestAnimationFrame(() => fitLayerBodyToViewport(card, body));
   };
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -2200,6 +2087,56 @@ function makeAdvancedParamsCard(node, nodeElement) {
   });
 
   body.append(sourceNote, advRow, samplerField, varietyLabel);
+  if (hasReusedParams) {
+    const reuse = document.createElement("details");
+    reuse.className = "reused-parameters";
+    reuse.open = true;
+    const label = document.createElement("summary");
+    label.textContent = "复用参数";
+    reuse.appendChild(label);
+    const seedLabel = document.createElement("label");
+    seedLabel.textContent = "种子（留空则随机）";
+    const seed = document.createElement("input");
+    seed.className = "generation-seed-text";
+    seed.inputMode = "numeric";
+    seed.maxLength = 10;
+    seed.value = normalizeNaiSeed(node.meta.generationSeed) || "";
+    seed.setAttribute("aria-label", "生成种子");
+    seed.addEventListener("input", () => {
+      node.meta = { ...node.meta, generationSeed: normalizeNaiSeed(seed.value) || 0 };
+      scheduleSave();
+    });
+    seedLabel.appendChild(seed);
+    reuse.appendChild(seedLabel);
+    if (node.meta.negativePrompt != null) {
+      const negativeLabel = document.createElement("label");
+      negativeLabel.textContent = "负面提示词";
+      const negative = document.createElement("textarea");
+      negative.className = "negative-prompt-text";
+      negative.rows = 3;
+      negative.maxLength = 6000;
+      negative.value = node.meta.negativePrompt;
+      negative.setAttribute("aria-label", "节点负面提示词");
+      negative.addEventListener("input", () => {
+        node.meta = { ...node.meta, negativePrompt: negative.value };
+        scheduleSave();
+      });
+      negativeLabel.appendChild(negative);
+      reuse.appendChild(negativeLabel);
+    }
+    const extras = [
+      node.meta.noiseSchedule ? `噪声：${node.meta.noiseSchedule}` : "",
+      node.meta.ucPreset != null ? `UC：${node.meta.ucPreset}` : "",
+      node.meta.imageFormat ? `格式：${node.meta.imageFormat}` : "",
+    ].filter(Boolean).join(" · ");
+    if (extras) {
+      const note = document.createElement("p");
+      note.className = "adv-source-note";
+      note.textContent = extras;
+      reuse.appendChild(note);
+    }
+    body.appendChild(reuse);
+  }
   refreshSummary();
   setOpen(node.meta?.advParamsExpanded === true);
   card.append(toggle, body);
@@ -2216,6 +2153,13 @@ function scrollContainerConsumesWheel(container, event) {
 
 function fitLayerBodyToViewport(card, body) {
   if (!card || !body || body.hidden) return;
+  if (card.classList.contains("has-reused-parameters")) {
+    const scale = Number(state.viewport.scale) || 1;
+    const bottom = Math.min(window.innerHeight - 16, els.debugBar.getBoundingClientRect().top - 10);
+    const available = (bottom - body.getBoundingClientRect().top) / scale;
+    body.style.maxHeight = `${Math.max(100, Math.min(620, available))}px`;
+    return;
+  }
   const top = card.getBoundingClientRect().top;
   const available = window.innerHeight - top - 16;
   // Keep a useful minimum while allowing the card to consume all genuinely
@@ -2223,23 +2167,8 @@ function fitLayerBodyToViewport(card, body) {
   body.style.maxHeight = `${Math.max(160, Math.min(620, available))}px`;
 }
 
-function positionCharacterEditor(card, editor) {
-  if (!card || !editor || editor.hidden || !card.classList.contains("open")) return;
-  const cardRect = card.getBoundingClientRect();
-  const editorWidth = editor.getBoundingClientRect().width || 300;
-  const gap = 10;
-  const margin = 12;
-  const fitsRight = cardRect.right + gap + editorWidth <= window.innerWidth - margin;
-  editor.classList.toggle("place-left", !fitsRight && cardRect.left >= editorWidth + gap + margin);
-}
-
 function makeRetagLayerCard(node, sourceImage, nodeElement) {
-  const charPrompts = normalizeCharPromptEntries(
-    node?.meta?.retagCharPrompts,
-    { keepEmpty: true },
-  );
-  let characterCard = null;
-  let characterSummary = null;
+  const characterCard = makeCharacterCard(node, sourceImage, nodeElement);
   const groups = normalizeRetagTagGroups(node?.meta?.retagTagGroups);
   const tagTranslations = normalizeRetagTagTranslations(node?.meta?.retagTagTranslations);
   const entries = RETAG_LAYER_CATEGORY_ORDER
@@ -2290,548 +2219,10 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     const droppedTags = retagDroppedTags(node).length;
     if (droppedTags) parts.push(`划掉 ${droppedTags} 条`);
     summary.textContent = parts.join(" · ");
-    if (characterSummary) {
-      const { entries, useCoords } = automaticRetagCharLayout(node);
-      characterSummary.textContent = `${entries.length}/${charPrompts.length} 有效${
-        useCoords ? " · 按坐标" : " · 按顺序"
-      }`;
-    }
+
   };
 
-  {
-    const originalCharPrompts = Array.isArray(node.meta?.retagCharPromptsOriginal)
-      ? normalizeCharPromptEntries(node.meta.retagCharPromptsOriginal, { keepEmpty: true })
-      : (sourceImage ? charPrompts.map(cloneCharPromptEntry) : []);
 
-    const characterPanel = document.createElement("section");
-    characterPanel.className = "retag-character-panel";
-    const characterEditorPopover = document.createElement("div");
-    characterEditorPopover.className = "retag-character-editor-popover";
-    characterEditorPopover.hidden = !charPrompts.length;
-
-    const characterOptions = document.createElement("div");
-    characterOptions.className = "retag-character-options";
-
-    const restoreCharacters = document.createElement("button");
-    restoreCharacters.type = "button";
-    restoreCharacters.className = "retag-character-restore";
-    restoreCharacters.textContent = sourceImage ? "恢复原图参数" : "清空角色";
-    restoreCharacters.title = sourceImage
-      ? "恢复原图角色提示词、坐标、启用状态和布局开关"
-      : "清空当前角色列表和布局参数";
-    restoreCharacters.addEventListener("click", (event) => {
-      event.stopPropagation();
-      pushHistory();
-      node.meta = {
-        ...(node.meta || {}),
-        retagCharPrompts: originalCharPrompts.map((item) => ({
-          ...item,
-          ...(item.center ? { center: { ...item.center } } : {}),
-        })),
-        retagCharDisabled: [],
-        retagCharacterExpanded: true,
-      };
-      clearDebugTrace(node);
-      scheduleSave();
-      renderNodes();
-    });
-    characterOptions.appendChild(restoreCharacters);
-
-    const updateCharacterEntry = (index, patch) => {
-      const current = charPrompts[index];
-      if (!current) return;
-      charPrompts[index] = { ...current, ...patch };
-      node.meta = {
-        ...(node.meta || {}),
-        retagCharPrompts: charPrompts.map((item) => ({
-          ...item,
-          ...(item.center ? { center: { ...item.center } } : {}),
-        })),
-      };
-      clearDebugTrace(node);
-      scheduleSave();
-    };
-
-    const editText = (index, key, input) => {
-      let historyCaptured = false;
-      input.addEventListener("input", () => {
-        if (!historyCaptured) {
-          pushHistory();
-          historyCaptured = true;
-        }
-        updateCharacterEntry(index, { [key]: input.value });
-        refreshSummary();
-      });
-      input.addEventListener("blur", () => {
-        historyCaptured = false;
-      });
-    };
-
-    const characterRows = new Map();
-    const characterEditors = new Map();
-    const markerByIndex = new Map();
-    let selectedCharacterIndex = -1;
-    const serializeCharacterEntries = () => charPrompts.map((item) => ({
-      ...item,
-      ...(item.center ? { center: { ...item.center } } : {}),
-    }));
-    const selectCharacter = (index, focusEditor = false) => {
-      selectedCharacterIndex = index;
-      node._characterModuleSelectedIndex = index;
-      characterRows.forEach((row, rowIndex) => row.classList.toggle("is-active", rowIndex === index));
-      markerByIndex.forEach((marker, markerIndex) => marker.classList.toggle("is-active", markerIndex === index));
-      characterEditorPopover.hidden = index < 0 || !charPrompts.length;
-      const editor = characterEditors.get(index);
-      if (focusEditor && editor?.prompt) {
-        editor.prompt.focus({ preventScroll: true });
-        editor.prompt.setSelectionRange(editor.prompt.value.length, editor.prompt.value.length);
-      }
-      if (index >= 0) {
-        requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
-      }
-    };
-    const addCharacterAt = (center = null) => {
-      if (charPrompts.length >= MAX_CHAR_PROMPTS) return;
-      pushHistory();
-      if (!Array.isArray(node.meta?.retagCharPromptsOriginal)) {
-        node.meta = {
-          ...(node.meta || {}),
-          retagCharPromptsOriginal: serializeCharacterEntries(),
-        };
-      }
-      charPrompts.push({
-        prompt: "",
-        negative_prompt: "",
-        position: "",
-        center: center || randomCharacterCenter(charPrompts.map((item) => editableCharCenter(item))),
-      });
-      node.meta = {
-        ...(node.meta || {}),
-        retagCharPrompts: serializeCharacterEntries(),
-        retagCharacterExpanded: true,
-      };
-      node._characterModuleSelectedIndex = charPrompts.length - 1;
-      clearDebugTrace(node);
-      scheduleSave();
-      renderAll();
-    };
-    const addCharacter = () => addCharacterAt(null);
-    const addCharacterButton = document.createElement("button");
-    addCharacterButton.type = "button";
-    addCharacterButton.className = "retag-character-add";
-    addCharacterButton.append(icon("plus"), document.createTextNode("添加角色"));
-    addCharacterButton.disabled = charPrompts.length >= MAX_CHAR_PROMPTS;
-    addCharacterButton.title = `添加角色，最多 ${MAX_CHAR_PROMPTS} 个`;
-    addCharacterButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      addCharacter();
-    });
-    characterOptions.prepend(addCharacterButton);
-    const removeCharacter = (index) => {
-      if (!charPrompts[index]) return;
-      pushHistory();
-      charPrompts.splice(index, 1);
-      const disabled = retagCharDisabledIndexes(node)
-        .filter((item) => item !== index)
-        .map((item) => (item > index ? item - 1 : item));
-      node.meta = {
-        ...(node.meta || {}),
-        retagCharPrompts: serializeCharacterEntries(),
-        retagCharDisabled: disabled,
-        retagCharacterExpanded: true,
-      };
-      node._characterModuleSelectedIndex = Math.min(index, charPrompts.length - 1);
-      clearDebugTrace(node);
-      scheduleSave();
-      renderAll();
-    };
-
-    charPrompts.forEach((character, index) => {
-      const characterRow = document.createElement("article");
-      characterRow.className = "retag-character-row";
-      const rowHead = document.createElement("div");
-      rowHead.className = "retag-character-row-head";
-      const enabledLabel = document.createElement("label");
-      enabledLabel.className = "retag-character-enabled";
-      const enabled = document.createElement("input");
-      enabled.type = "checkbox";
-      enabled.checked = retagCharEnabled(node, index);
-      enabled.title = "是否把这个角色发送给 NovelAI";
-      const roleName = document.createElement("strong");
-      roleName.textContent = `角色 ${index + 1}`;
-      enabledLabel.append(enabled, roleName);
-      const centerSummary = document.createElement("span");
-      const initialCenter = editableCharCenter(character);
-      centerSummary.textContent = `(${initialCenter.x.toFixed(3)}, ${initialCenter.y.toFixed(3)})`;
-      centerSummary.className = "retag-character-center-summary";
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "retag-character-delete";
-      deleteButton.title = `删除角色 ${index + 1}`;
-      deleteButton.setAttribute("aria-label", `删除角色 ${index + 1}`);
-      deleteButton.appendChild(icon("trash-2"));
-      const deleteConfirm = document.createElement("button");
-      deleteConfirm.type = "button";
-      deleteConfirm.className = "retag-character-delete-confirm";
-      deleteConfirm.title = `确认删除角色 ${index + 1}`;
-      deleteConfirm.setAttribute("aria-label", `确认删除角色 ${index + 1}`);
-      deleteConfirm.appendChild(icon("check"));
-      deleteConfirm.hidden = true;
-      let deletePending = false;
-      const resetDeleteConfirmation = () => {
-        deletePending = false;
-        deleteConfirm.hidden = true;
-        deleteButton.replaceChildren(icon("trash-2"));
-        deleteButton.title = `删除角色 ${index + 1}`;
-        deleteButton.setAttribute("aria-label", `删除角色 ${index + 1}`);
-      };
-      deleteConfirm.addEventListener("click", (event) => {
-        event.stopPropagation();
-        removeCharacter(index);
-      });
-      deleteButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (deletePending) {
-          resetDeleteConfirmation();
-          return;
-        }
-        deletePending = true;
-        deleteConfirm.hidden = false;
-        deleteButton.replaceChildren(icon("x"));
-        deleteButton.title = "取消删除";
-        deleteButton.setAttribute("aria-label", "取消删除");
-      });
-      const deleteActions = document.createElement("span");
-      deleteActions.className = "retag-character-delete-actions";
-      deleteActions.append(deleteConfirm, deleteButton);
-      rowHead.append(enabledLabel, deleteActions, centerSummary);
-      characterRow.appendChild(rowHead);
-      characterRows.set(index, characterRow);
-
-      enabled.addEventListener("change", (event) => {
-        event.stopPropagation();
-        pushHistory();
-        const disabled = new Set(retagCharDisabledIndexes(node));
-        if (enabled.checked) disabled.delete(index);
-        else disabled.add(index);
-        node.meta = {
-          ...(node.meta || {}),
-          retagCharDisabled: [...disabled].sort((left, right) => left - right),
-        };
-        characterRow.classList.toggle("is-disabled", !enabled.checked);
-        syncCharacterPreview();
-        clearDebugTrace(node);
-        refreshSummary();
-        scheduleSave();
-      });
-      characterRow.classList.toggle("is-disabled", !enabled.checked);
-
-      const makeTextField = (labelText, placeholderText, key, value) => {
-        const field = document.createElement("label");
-        field.className = "retag-character-field";
-        const caption = document.createElement("span");
-        caption.textContent = labelText;
-        const input = document.createElement("textarea");
-        input.className = "retag-character-text";
-        input.dataset.characterIndex = String(index);
-        input.dataset.characterField = key;
-        input.setAttribute("aria-label", `角色 ${index + 1}${labelText}提示词`);
-        input.rows = 4;
-        input.maxLength = 2000;
-        input.value = String(value || "");
-        input.placeholder = placeholderText;
-        input.addEventListener("pointerdown", (event) => event.stopPropagation());
-        editText(index, key, input);
-        field.append(caption, input);
-        return field;
-      };
-
-      const promptField = makeTextField("正面",
-        "例如：外观、服饰、表情与动作",
-        "prompt",
-        character.prompt,
-      );
-      const negativeField = makeTextField("负面",
-        "填写不希望出现在该角色上的特征",
-        "negative_prompt",
-        character.negative_prompt,
-      );
-      characterEditors.set(index, {
-        prompt: promptField.querySelector("textarea"),
-        negative: negativeField.querySelector("textarea"),
-      });
-      characterRow.append(promptField, negativeField);
-
-      characterEditorPopover.appendChild(characterRow);
-    });
-    const layoutTools = document.createElement("div");
-    layoutTools.className = "retag-character-layouts";
-    const layoutLabel = document.createElement("span");
-    layoutLabel.textContent = "快捷布局";
-    layoutLabel.className = "retag-character-layout-label";
-    layoutTools.appendChild(layoutLabel);
-
-    const applyCharacterCenters = (centers) => {
-      if (!Array.isArray(centers) || centers.length !== charPrompts.length) return;
-      pushHistory();
-      charPrompts.forEach((item, index) => {
-        item.center = {
-          x: centers[index].x,
-          y: centers[index].y,
-        };
-        item.position = "";
-      });
-      node.meta = {
-        ...(node.meta || {}),
-        retagCharPrompts: charPrompts.map((item) => ({
-          ...item,
-          ...(item.center ? { center: { ...item.center } } : {}),
-        })),
-      };
-      clearDebugTrace(node);
-      syncCharacterPreview();
-      refreshSummary();
-      scheduleSave();
-    };
-
-    const randomizeCharacterCenters = () => {
-      const centers = charPrompts.map((item) => editableCharCenter(item));
-      const disabled = new Set(retagCharDisabledIndexes(node));
-      const placed = centers.filter((_, index) => disabled.has(index));
-      charPrompts.forEach((item, index) => {
-        if (disabled.has(index)) return;
-        const center = randomCharacterCenter(placed);
-        centers[index] = center;
-        placed.push(center);
-      });
-      applyCharacterCenters(centers);
-    };
-
-    const uniformCenters = (count) => Array.from(
-      { length: count },
-      (_, index) => ({ x: (index + 1) / (count + 1), y: 0.5 }),
-    );
-    const threeCharacterCenters = () => [
-      { x: 0.5, y: 0.28 },
-      { x: 0.28, y: 0.66 },
-      { x: 0.72, y: 0.66 },
-    ];
-    const fourCharacterCenters = () => [
-      { x: 0.28, y: 0.30 },
-      { x: 0.72, y: 0.30 },
-      { x: 0.28, y: 0.70 },
-      { x: 0.72, y: 0.70 },
-    ];
-    [
-      ["均匀横向", () => uniformCenters(charPrompts.length), 0],
-      ["三人构图", threeCharacterCenters, 3],
-      ["四人构图", fourCharacterCenters, 4],
-      ["随机位置", randomizeCharacterCenters, 0],
-    ].forEach(([labelText, buildCenters, requiredCount]) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "retag-character-layout";
-      button.textContent = labelText;
-      button.disabled = !charPrompts.length
-        || (requiredCount > 0 && charPrompts.length !== requiredCount);
-      button.title = button.disabled
-        ? (!charPrompts.length ? "请先添加角色" : `${labelText}仅适用于 ${requiredCount} 个角色`)
-        : `将 ${charPrompts.length} 个角色${labelText === "均匀横向" ? "均匀横向排列" : "排列为" + labelText}`;
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        applyCharacterCenters(buildCenters());
-      });
-      layoutTools.appendChild(button);
-    });
-    const preview = document.createElement("div");
-    preview.className = "retag-character-preview";
-    const previewHelp = document.createElement("p");
-    previewHelp.className = "retag-character-preview-help";
-    previewHelp.textContent = "点击编号编辑，拖动圆点调整位置；也可双击画布添加角色。";
-    const previewSurface = document.createElement("div");
-    previewSurface.className = "retag-character-preview-surface";
-    const ratioText = String(
-      node.ratio
-        || (sourceImage?.meta?.width && sourceImage?.meta?.height
-          ? `${sourceImage.meta.width}:${sourceImage.meta.height}`
-          : "2:3"),
-    );
-    const ratioMatch = ratioText.match(/(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)/);
-    const ratioWidth = ratioMatch ? Number(ratioMatch[1]) : 1;
-    const ratioHeight = ratioMatch ? Number(ratioMatch[2]) : 1;
-    const targetRatio = ratioWidth > 0 && ratioHeight > 0 ? ratioWidth / ratioHeight : 1;
-    previewSurface.style.aspectRatio = "1 / 1";
-    const cropFrame = document.createElement("div");
-    cropFrame.className = "retag-character-crop-frame";
-    cropFrame.dataset.ratio = ratioMatch ? `${ratioMatch[1]}:${ratioMatch[2]}` : "1:1";
-    if (targetRatio >= 1) {
-      cropFrame.style.width = "100%";
-      cropFrame.style.height = `${100 / targetRatio}%`;
-    } else {
-      cropFrame.style.width = `${targetRatio * 100}%`;
-      cropFrame.style.height = "100%";
-    }
-    const markerLayer = document.createElement("div");
-    markerLayer.className = "retag-character-marker-layer";
-    cropFrame.appendChild(markerLayer);
-    previewSurface.appendChild(cropFrame);
-    preview.append(previewSurface);
-
-    const syncCharacterPreview = () => {
-      charPrompts.forEach((character, index) => {
-        const center = editableCharCenter(character);
-        const marker = markerByIndex.get(index);
-        if (marker) {
-          marker.style.left = `${center.x * 100}%`;
-          marker.style.top = `${center.y * 100}%`;
-          marker.classList.toggle("is-disabled", !retagCharEnabled(node, index));
-          marker.classList.toggle("is-active", selectedCharacterIndex === index);
-          marker.title = `角色 ${index + 1}：(${center.x.toFixed(3)}, ${center.y.toFixed(3)})\n拖动调整位置`;
-        }
-        const row = characterRows.get(index);
-        const summary = row?.querySelector(".retag-character-center-summary");
-        if (summary) summary.textContent = `(${center.x.toFixed(3)}, ${center.y.toFixed(3)})`;
-      });
-    };
-
-    // 空白画布双击直接在点击位置创建角色，竖图也不需要先找标题栏按钮。
-    cropFrame.addEventListener("dblclick", (event) => {
-      if (event.target.closest(".retag-character-marker")) return;
-      if (charPrompts.length >= MAX_CHAR_PROMPTS) return;
-      const rect = cropFrame.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      event.preventDefault();
-      event.stopPropagation();
-      addCharacterAt({
-        x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
-        y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
-      });
-    });
-
-    charPrompts.forEach((_, index) => {
-      const marker = document.createElement("button");
-      marker.type = "button";
-      marker.className = "retag-character-marker";
-      marker.textContent = String(index + 1);
-      marker.setAttribute("aria-label", `拖动角色 ${index + 1} 的中心点`);
-      marker.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        selectCharacter(index, true);
-      });
-      marker.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const pointerId = event.pointerId;
-        const startX = event.clientX;
-        const startY = event.clientY;
-        let moved = false;
-        try { cropFrame.setPointerCapture(pointerId); } catch (_) { /* ignore */ }
-        const updateFromPointer = (moveEvent) => {
-          if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 4) return;
-          if (!moved) {
-            moved = true;
-            pushHistory();
-          }
-          const rect = cropFrame.getBoundingClientRect();
-          if (!rect.width || !rect.height) return;
-          const center = {
-            x: clamp((moveEvent.clientX - rect.left) / rect.width, 0, 1),
-            y: clamp((moveEvent.clientY - rect.top) / rect.height, 0, 1),
-          };
-          updateCharacterEntry(index, { center, position: "" });
-          syncCharacterPreview();
-          refreshSummary();
-        };
-        const stopDrag = () => {
-          cropFrame.removeEventListener("pointermove", updateFromPointer);
-          cropFrame.removeEventListener("pointercancel", stopDrag);
-          try { cropFrame.releasePointerCapture(pointerId); } catch (_) { /* ignore */ }
-          if (moved) scheduleSave();
-        };
-        const finish = () => {
-          if (!moved) selectCharacter(index, true);
-          stopDrag();
-        };
-        cropFrame.addEventListener("pointermove", updateFromPointer);
-        cropFrame.addEventListener("pointerup", finish, { once: true });
-        cropFrame.addEventListener("pointercancel", stopDrag);
-      });
-      markerLayer.appendChild(marker);
-      markerByIndex.set(index, marker);
-    });
-    // 常用操作置顶，布局按钮在预览下方按两列排列，角色编辑保留在侧栏。
-    characterPanel.append(characterOptions, preview, layoutTools, previewHelp);
-    syncCharacterPreview();
-    if (charPrompts.length) {
-      const selectedIndex = clamp(
-        Number(node._characterModuleSelectedIndex) || 0,
-        0,
-        charPrompts.length - 1,
-      );
-      selectCharacter(selectedIndex, false);
-    }
-
-    characterCard = document.createElement("aside");
-    characterCard.className = "retag-layer-card retag-character-card";
-    characterCard.dataset.nodeId = node.id;
-    characterCard.addEventListener("pointerdown", (event) => {
-      // 中键拖动要继续冒泡到画布，让附加卡片区域也能平移画布。
-      if (event.button === 1) return;
-      event.stopPropagation();
-      bringNodeToFront(node.id, nodeElement);
-      if (!isNodeSelected(node.id)) selectNode(node.id);
-    });
-    const characterToggle = document.createElement("button");
-    characterToggle.type = "button";
-    characterToggle.className = "retag-layer-toggle";
-    characterToggle.setAttribute("aria-expanded", "false");
-    // 标题按钮只切换展开状态。
-    characterToggle.addEventListener("pointerdown", (event) => {
-      if (event.button !== 1) event.stopPropagation();
-    });
-    const characterToggleTitle = document.createElement("span");
-    characterToggleTitle.className = "retag-layer-title";
-    characterToggleTitle.append(icon("users-round"), document.createTextNode("角色模块"));
-    characterSummary = document.createElement("span");
-    characterSummary.className = "retag-layer-summary";
-    const characterChevron = icon("chevron-up", "retag-layer-chevron");
-    characterToggle.append(characterToggleTitle, characterSummary, characterChevron);
-    const characterCardHead = document.createElement("div");
-    characterCardHead.className = "retag-character-card-head";
-    characterCardHead.append(characterToggle);
-    const characterBody = document.createElement("div");
-    characterBody.className = "retag-layer-body retag-character-body";
-    characterBody.hidden = true;
-    characterBody.addEventListener("wheel", (event) => {
-      if (scrollContainerConsumesWheel(characterBody, event)) event.stopPropagation();
-    }, { passive: true });
-    characterBody.appendChild(characterPanel);
-    const setCharacterOpen = (open) => {
-      characterCard.classList.toggle("open", open);
-      characterBody.hidden = !open;
-      characterEditorPopover.hidden = !open || !charPrompts.length || selectedCharacterIndex < 0;
-      characterToggle.setAttribute("aria-expanded", String(open));
-      if (open && charPrompts.length) {
-        requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
-      }
-    };
-    characterToggle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const open = !characterCard.classList.contains("open");
-      node.meta = { ...(node.meta || {}), retagCharacterExpanded: open };
-      setCharacterOpen(open);
-      scheduleSave();
-    });
-    setCharacterOpen(node.meta?.retagCharacterExpanded === true);
-    // 标题栏放在正文之后，整张卡以底边锚定时正文只会向上展开，
-    // 标题栏本身在展开/收起前后保持同一个位置。
-    characterCard.append(characterBody, characterCardHead, characterEditorPopover);
-    if (charPrompts.length) {
-      requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
-    }
-  }
 
   const tools = document.createElement("div");
   tools.className = "retag-layer-tools";
@@ -3746,7 +3137,7 @@ function renderNoteNode(node) {
 }
 
 // 可编辑字段用 class 定位，节点重建后靠它把焦点找回来
-const EDITABLE_FIELD_CLASSES = ["prompt-text", "note-text", "retag-character-text"];
+const EDITABLE_FIELD_CLASSES = ["prompt-text", "note-text", "retag-character-text", "negative-prompt-text", "generation-seed-text"];
 
 function captureEditingFocus() {
   const active = document.activeElement;
@@ -4146,6 +3537,12 @@ function renderViewport() {
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  document.querySelectorAll(".adv-card.has-reused-parameters.open").forEach((card) => {
+    fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"));
+  });
+  document.querySelectorAll(".retag-character-editor-popover:not([hidden])").forEach((editor) => {
+    positionCharacterEditor(editor.closest(".retag-character-card"), editor);
+  });
 }
 
 let viewportProjectionFrame = 0;
@@ -4665,13 +4062,7 @@ async function generateFromNode(id, {
         prompt: workingPrompt,
         model: node.model || state.config.defaultModel || "",
         // 优先级：节点高级参数卡 > 反推命中的原图参数 > 插件默认
-        steps: node.meta?.steps || node.meta?.retagSteps || undefined,
-        scale: node.meta?.scale || node.meta?.retagScale || undefined,
-        cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined,
-        noise_schedule: node.meta?.retagNoiseSchedule || undefined,
-        // 手动高级参数优先于反推命中的原图采样器。
-        sampler: node.meta?.sampler || node.meta?.retagSampler || undefined,
-        // Legacy source contract (kept for old integrations): sampler: node.meta?.retagSampler || undefined
+        ...generationParameterPayload(node.meta),
         varietyPlus: !!node.meta?.varietyBoost,
         retagPrompt: (node.raw && node.meta?.retagRawPrompt)
           ? String(node.meta.retagRawPrompt).trim()
@@ -4716,7 +4107,9 @@ async function generateFromNode(id, {
 
     for (let index = 0; index < totalCount; index += 1) {
       // 多张时首张沿用反推种子保证可复现，其余随机避免重复
-      const callSeed = index === 0 && retagged ? reusableRetagSeed(node) : undefined;
+      const callSeed = index === 0
+        ? normalizeNaiSeed(node.meta?.generationSeed) || (retagged ? reusableRetagSeed(node) : undefined)
+        : undefined;
       if (totalCount > 1) {
         node.statusText = `${baseStatus}… (${index + 1}/${totalCount})`;
         renderAll();
@@ -5277,1510 +4670,6 @@ async function downloadImage(node) {
   }
 }
 
-function preferredImageViewerLayout(width, height) {
-  const imageWidth = Number(width) || 0;
-  const imageHeight = Number(height) || 0;
-  // NovelAI-Tag keeps the desktop lightbox as a stable two-column layout;
-  // choosing bottom for landscape images leaves the absolute details card
-  // constrained to a short strip in our canvas viewer.  Only narrow/mobile
-  // viewports use the bottom sheet layout.
-  if (window.matchMedia("(max-width: 760px)").matches) return "bottom";
-  // Legacy breakpoint expression retained for compatibility: return window.innerWidth >= 1100 ? "side" : "bottom"
-  return imageWidth && imageHeight ? "side" : "bottom";
-}
-
-function applyImageViewerLayout(width, height) {
-  clearImageViewerBottomLayoutLock(true);
-  const imageWidth = Number(width) || els.imageViewerImage.naturalWidth || 0;
-  const imageHeight = Number(height) || els.imageViewerImage.naturalHeight || 0;
-  if (imageWidth && imageHeight) {
-    state.viewerImageDimensions = { width: imageWidth, height: imageHeight };
-    els.imageViewer.style.setProperty("--viewer-image-aspect", `${imageWidth} / ${imageHeight}`);
-  } else {
-    els.imageViewer.style.removeProperty("--viewer-image-aspect");
-  }
-  const layout = preferredImageViewerLayout(imageWidth, imageHeight);
-  els.imageViewer.classList.toggle("layout-side", layout === "side");
-  els.imageViewer.classList.toggle("layout-bottom", layout === "bottom");
-  els.imageViewer.dataset.layout = layout;
-  scheduleImageViewerFrameSync();
-}
-
-function clearImageViewerBottomLayoutLock(resetGeometry = false) {
-  state.viewerBottomLayoutLock = null;
-  els.imageViewerDetails.style.removeProperty("height");
-  els.imageViewerDetails.style.removeProperty("min-height");
-  els.imageViewerDetails.style.removeProperty("max-height");
-  if (!resetGeometry) return;
-  els.imageViewerImageFrame?.style.removeProperty("width");
-  els.imageViewerImageFrame?.style.removeProperty("height");
-  els.imageViewerDetails.style.removeProperty("width");
-  els.imageViewerDetails.style.removeProperty("max-width");
-}
-
-function applyImageViewerBottomLayoutLock() {
-  const lock = state.viewerBottomLayoutLock;
-  const frame = els.imageViewerImageFrame;
-  if (!lock || !frame) return false;
-  frame.style.width = `${lock.frameWidth}px`;
-  frame.style.height = `${lock.frameHeight}px`;
-  return true;
-}
-
-function lockImageViewerBottomLayout() {
-  if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) return;
-  const frame = els.imageViewerImageFrame;
-  if (!frame) return;
-  const frameRect = frame.getBoundingClientRect();
-  if (!frameRect.width || !frameRect.height) return;
-  state.viewerBottomLayoutLock = {
-    frameWidth: frameRect.width,
-    frameHeight: frameRect.height,
-  };
-  applyImageViewerBottomLayoutLock();
-}
-
-function syncImageViewerFrameSize() {
-  const frame = els.imageViewerImageFrame;
-  if (!frame) return;
-  if (els.imageViewer.hidden || !els.imageViewer.classList.contains("layout-bottom")) {
-    clearImageViewerBottomLayoutLock(true);
-    return;
-  }
-  if (applyImageViewerBottomLayoutLock()) return;
-  frame.style.removeProperty("width");
-  frame.style.removeProperty("height");
-
-  const imageWidth = Number(els.imageViewerImage.naturalWidth)
-    || Number(state.viewerImageDimensions.width)
-    || 0;
-  const imageHeight = Number(els.imageViewerImage.naturalHeight)
-    || Number(state.viewerImageDimensions.height)
-    || 0;
-  if (!imageWidth || !imageHeight) return;
-
-  const stage = frame.closest(".image-viewer-stage");
-  if (!stage) return;
-  const stageRect = stage.getBoundingClientRect();
-  const maxWidth = Math.max(0, stageRect.width);
-  // 信息卡是悬浮在舞台右侧之外的独立图层，不占舞台空间，图片可以用满整个舞台
-  const maxHeight = Math.max(0, stageRect.height);
-  if (!maxWidth || !maxHeight) return;
-
-  const scale = Math.min(maxWidth / imageWidth, maxHeight / imageHeight);
-  frame.style.width = `${imageWidth * scale}px`;
-  frame.style.height = `${imageHeight * scale}px`;
-}
-
-function scheduleImageViewerFrameSync() {
-  if (state.viewerFrameSyncHandle) {
-    window.cancelAnimationFrame(state.viewerFrameSyncHandle);
-  }
-  state.viewerFrameSyncHandle = window.requestAnimationFrame(() => {
-    state.viewerFrameSyncHandle = 0;
-    syncImageViewerFrameSize();
-  });
-}
-
-function setImageViewerDetailsCollapsed(collapsed) {
-  clearImageViewerBottomLayoutLock(true);
-  const next = !!collapsed;
-  els.imageViewerDetails.classList.toggle("collapsed", next);
-  els.imageViewer.classList.toggle("details-collapsed", next);
-  els.imageViewerDetailsToggle.setAttribute("aria-expanded", String(!next));
-  const toggleLabel = next ? "展开 Prompt Tags" : "折叠 Prompt Tags";
-  els.imageViewerDetailsToggle.setAttribute("aria-label", toggleLabel);
-  els.imageViewerDetailsToggle.title = toggleLabel;
-  scheduleImageViewerFrameSync();
-}
-
-function imageViewerPointHitsRenderedImage(clientX, clientY) {
-  const image = els.imageViewerImage;
-  const rect = image.getBoundingClientRect();
-  const naturalWidth = Number(image.naturalWidth) || Number(state.viewerImageDimensions.width) || 0;
-  const naturalHeight = Number(image.naturalHeight) || Number(state.viewerImageDimensions.height) || 0;
-  if (!rect.width || !rect.height || !naturalWidth || !naturalHeight) {
-    return (
-      clientX >= rect.left
-      && clientX <= rect.right
-      && clientY >= rect.top
-      && clientY <= rect.bottom
-    );
-  }
-  const scale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight);
-  const renderedWidth = naturalWidth * scale;
-  const renderedHeight = naturalHeight * scale;
-  const left = rect.left + (rect.width - renderedWidth) / 2;
-  const top = rect.top + (rect.height - renderedHeight) / 2;
-  return (
-    clientX >= left
-    && clientX <= left + renderedWidth
-    && clientY >= top
-    && clientY <= top + renderedHeight
-  );
-}
-
-const IMAGE_VIEWER_CONTROL_TAGS = new Set([
-  "best quality",
-  "amazing quality",
-  "very aesthetic",
-  "absurdres",
-  "masterpiece",
-  "high quality",
-  "ultra detailed",
-  "highres",
-  "score_9",
-  "score_8_up",
-  "score_7_up",
-  "score_6_up",
-  "rating:safe",
-  "rating:general",
-  "rating:questionable",
-  "rating:explicit",
-]);
-
-function splitImageViewerPromptTokens(prompt) {
-  const text = String(prompt || "");
-  const tokens = [];
-  let buffer = "";
-  let weighted = false;
-  let weightedStart = -1;
-  let quote = "";
-  const bracketStack = [];
-  let index = 0;
-
-  const flush = () => {
-    const value = buffer.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-    if (value) tokens.push(value);
-    buffer = "";
-  };
-
-  while (index < text.length) {
-    if (!weighted && !buffer.trim()) {
-      const weightPrefix = /^-?\d+(?:\.\d+)?::/.exec(text.slice(index));
-      if (weightPrefix) {
-        buffer += weightPrefix[0];
-        index += weightPrefix[0].length;
-        weighted = true;
-        weightedStart = index;
-        continue;
-      }
-    }
-
-    if (weighted) {
-      if (text.startsWith("::", index)) {
-        buffer += "::";
-        index += 2;
-        weighted = false;
-        weightedStart = -1;
-        continue;
-      }
-      if (index > weightedStart && (index === 0 || ",; \n\t".includes(text[index - 1]))) {
-        const nested = /^-?\d+(?:\.\d+)?::/.exec(text.slice(index));
-        if (nested) {
-          const value = buffer.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-          if (value) tokens.push(value.endsWith("::") ? value : `${value} ::`);
-          buffer = "";
-          weighted = false;
-          weightedStart = -1;
-          continue;
-        }
-      }
-      buffer += text[index];
-      index += 1;
-      continue;
-    }
-
-    const character = text[index];
-    if (quote) {
-      buffer += character;
-      if (character === quote && text[index - 1] !== "\\") quote = "";
-      index += 1;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      buffer += character;
-      index += 1;
-      continue;
-    }
-    if ("([{".includes(character)) {
-      bracketStack.push(character);
-      buffer += character;
-      index += 1;
-      continue;
-    }
-    if (")]}".includes(character)) {
-      if (bracketStack.length) bracketStack.pop();
-      buffer += character;
-      index += 1;
-      continue;
-    }
-    if (buffer && (index === 0 || " \t\n".includes(text[index - 1]))) {
-      const nextWeight = /^-?\d+(?:\.\d+)?::/.exec(text.slice(index));
-      if (nextWeight) {
-        flush();
-        continue;
-      }
-    }
-    if (",;\n".includes(character) && !bracketStack.length) {
-      flush();
-      index += 1;
-      continue;
-    }
-    buffer += character;
-    index += 1;
-  }
-  flush();
-  return tokens;
-}
-
-function imageViewerWeightedTokenParts(token) {
-  const value = String(token || "").trim();
-  const match = /^\s*(-?\d+(?:\.\d+)?)::\s*([\s\S]*?)\s*::\s*$/.exec(value);
-  if (!match) return { weight: "", atoms: value ? [value] : [], weighted: false };
-  return {
-    weight: match[1],
-    atoms: splitImageViewerPromptTokens(match[2]),
-    weighted: true,
-  };
-}
-
-function imageViewerControlTagKey(value) {
-  return String(value || "")
-    .toLocaleLowerCase()
-    .replace(/[\[\]{}()]+/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/_/g, " ")
-    .trim();
-}
-
-function imageViewerConfiguredControlKeys(extraControlPrompts = []) {
-  const configuredPrompts = Array.isArray(state.config.retagControlPrompts)
-    ? state.config.retagControlPrompts
-    : [state.config.retagControlPrompts];
-  const additionalPrompts = Array.isArray(extraControlPrompts)
-    ? extraControlPrompts
-    : [extraControlPrompts];
-  const keys = new Set();
-  [...configuredPrompts, ...additionalPrompts].forEach((prompt) => {
-    splitImageViewerPromptTokens(prompt).forEach((segment) => {
-      imageViewerWeightedTokenParts(segment).atoms.forEach((atom) => {
-        const key = imageViewerControlTagKey(atom).replace(/^[,;\s]+|[,;\s]+$/g, "");
-        if (key) keys.add(key);
-      });
-    });
-  });
-  return keys;
-}
-
-function imageViewerTagIsControl(token, configuredKeys) {
-  const lowered = String(token || "").trim().toLocaleLowerCase();
-  const plain = imageViewerControlTagKey(token);
-  return (
-    /^(?:\[+|\{+)?artist\s*:/.test(lowered)
-    || configuredKeys.has(plain)
-    || IMAGE_VIEWER_CONTROL_TAGS.has(plain)
-    || /^(?:rating|score)\s*[:_]/.test(plain)
-  );
-}
-
-function stripImageViewerControlTags(tags, extraControlPrompts = []) {
-  const configuredKeys = imageViewerConfiguredControlKeys(extraControlPrompts);
-  const kept = [];
-  splitImageViewerPromptTokens(tags).forEach((segment) => {
-    const { weight, atoms, weighted } = imageViewerWeightedTokenParts(segment);
-    const filtered = [];
-    atoms.forEach((rawToken) => {
-      const token = String(rawToken || "").trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-      const key = imageViewerControlTagKey(token);
-      if (!token || !key || imageViewerTagIsControl(token, configuredKeys)) return;
-      filtered.push(token);
-    });
-    if (!filtered.length) return;
-    kept.push(weighted ? `${weight}::${filtered.join(", ")} ::` : filtered.join(", "));
-  });
-  return kept.join(", ").trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-}
-
-function imageViewerAtomicTags(tags) {
-  return splitImageViewerPromptTokens(tags)
-    .flatMap((segment) => imageViewerWeightedTokenParts(segment).atoms)
-    .map((tag) => String(tag || "").trim())
-    .filter(Boolean);
-}
-
-function imageViewerTagKeys(tags) {
-  return imageViewerAtomicTags(tags)
-    .map(retagTagLookupKey)
-    .filter(Boolean);
-}
-
-function imageViewerTagEntries(pairs, translations = {}, tags = "") {
-  const normalizedTranslations = normalizeRetagTagTranslations(translations);
-  // 翻译结果可能只覆盖部分标签，不能用它替换原始标签列表。
-  const source = imageViewerAtomicTags(tags);
-  const pairNames = new Map(
-    (Array.isArray(pairs) ? pairs : [])
-      .map((item) => [
-        retagTagLookupKey(item?.tag),
-        String(item?.cnName || "").trim(),
-      ])
-      .filter(([key]) => key),
-  );
-  return source.slice(0, 320).map((tag) => {
-    const key = retagTagLookupKey(tag);
-    return {
-      tag,
-      cnName: pairNames.get(key) || normalizedTranslations[key] || "",
-    };
-  });
-}
-
-function renderImageViewerTags(tags, pairs = [], translations = {}, target = els.imageViewerTags) {
-  const rawTags = String(tags || "").trim();
-  const filtered = state.viewerShowFilteredTags;
-  target.dataset.copyText = rawTags;
-  target.classList.toggle("image-viewer-tag-grid", filtered);
-  target.classList.toggle("image-viewer-tag-text", !filtered);
-  target.classList.toggle("image-viewer-copy-text", !filtered);
-  target.replaceChildren();
-  scheduleImageViewerFrameSync();
-  if (rawTags && !filtered) {
-    // 原始视图直接显示原文，保留权重、括号、换行与全部标签。
-    target.textContent = rawTags;
-    return;
-  }
-  const entries = imageViewerTagEntries(pairs, translations, rawTags);
-  if (!entries.length) {
-    const empty = document.createElement("span");
-    empty.className = "image-viewer-tag-empty";
-    empty.textContent = "暂无英文 Tags 记录 / No English Tags yet";
-    target.appendChild(empty);
-    return;
-  }
-  entries.forEach(({ tag, cnName }) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "image-viewer-tag-chip";
-    chip.dataset.copyText = tag;
-    chip.textContent = cnName ? `${tag} / ${cnName}` : tag;
-    chip.title = `复制英文 Tag：${tag}`;
-    chip.setAttribute("aria-label", `复制英文 Tag：${tag}`);
-    chip.classList.toggle("bilingual", !!cnName);
-    chip.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await copyPlainText(tag, `复制英文 Tag：${tag}`, () => chip.focus({ preventScroll: true }));
-    });
-    target.appendChild(chip);
-  });
-}
-
-function imageViewerCharacterEntries(meta = {}) {
-  const entries = Array.isArray(meta.characterPrompts) ? meta.characterPrompts : [];
-  return normalizeCharPromptEntries(entries.map((item) => (
-    typeof item === "string" ? { prompt: item } : item
-  )));
-}
-
-function imageGenerationMeta(meta = {}) {
-  const keys = [
-    "steps", "scale", "sampler", "cfgRescale", "noiseSchedule", "varietyBoost",
-    "ucPreset", "model", "quality", "imageFormat", "negativePrompt",
-    "characterUseCoords", "characterUseOrder",
-  ];
-  const result = Object.fromEntries(keys
-    .filter((key) => meta?.[key] != null)
-    .map((key) => [key, meta[key]]));
-  if (Array.isArray(meta?.characterPrompts)) {
-    result.characterPrompts = imageViewerCharacterEntries(meta);
-  }
-  return result;
-}
-
-async function hydrateImageGenerationMeta(node, libraryAsset = null) {
-  const assetId = node?.assetId || libraryAsset?.id;
-  if (!assetId) return;
-  try {
-    let pending = state.imageParamsCache.get(assetId);
-    if (!pending) {
-      pending = bridge.apiGet("canvas/asset/params", { id: assetId });
-      if (state.imageParamsCache.size >= 160) {
-        state.imageParamsCache.delete(state.imageParamsCache.keys().next().value);
-      }
-      state.imageParamsCache.set(assetId, pending);
-    }
-    const params = { ...await pending };
-    // 已保存的提示词与种子优先；其他已知内嵌参数补回旧版未记录的信息。
-    if (node.meta?.tags || node.meta?.finalPrompt) delete params.tags;
-    if (normalizeNaiSeed(node.meta?.seed)) delete params.seed;
-    if (!Object.keys(params).length) return;
-    const previous = JSON.stringify(node.meta);
-    node.meta = { ...(node.meta || {}), ...params };
-    if (libraryAsset) {
-      libraryAsset.generationMeta = imageGenerationMeta(node.meta);
-      libraryAsset.tags = libraryAsset.tags || node.meta.tags || "";
-      libraryAsset.seed = normalizeNaiSeed(libraryAsset.seed) || normalizeNaiSeed(node.meta.seed);
-    }
-    if (findNode(node.id) === node && JSON.stringify(node.meta) !== previous) scheduleSave();
-  } catch (_) {
-    state.imageParamsCache.delete(assetId);
-    // 参数丢失或读取失败时保留已有记录，预览不能退回付费反推。
-  }
-}
-
-function imageViewerNoteText(meta) {
-  const numberLine = (label, value, allowZero = false) => (
-    value != null && value !== "" && Number.isFinite(Number(value))
-      && (allowZero || Number(value) > 0) ? `${label}: ${value}` : ""
-  );
-  const boolLine = (label, value) => typeof value === "boolean"
-    ? `${label}: ${value ? "开启" : "关闭"}` : "";
-  return [
-    meta.model ? `Model: ${meta.model}` : "",
-    meta.width && meta.height ? `Size: ${meta.width} × ${meta.height}` : "",
-    numberLine("Seed", normalizeNaiSeed(meta.seed)),
-    numberLine("Steps", meta.steps),
-    numberLine("CFG scale", meta.scale),
-    meta.sampler ? `Sampler: ${meta.sampler}` : "",
-    meta.noiseSchedule ? `Noise schedule: ${meta.noiseSchedule}` : "",
-    numberLine("CFG rescale", meta.cfgRescale, true),
-    boolLine("Variety+", meta.varietyBoost),
-    boolLine("Quality", meta.quality),
-    meta.ucPreset != null && meta.ucPreset !== "" ? `UC preset: ${meta.ucPreset}` : "",
-    meta.imageFormat ? `Format: ${meta.imageFormat}` : "",
-    imageViewerCharacterEntries(meta).length && typeof meta.characterUseCoords === "boolean"
-      ? `角色布局: ${meta.characterUseCoords ? "坐标分区" : "出场顺序"}` : "",
-  ].filter(Boolean).join("\n");
-}
-
-function renderImageViewerInfo(node) {
-  const meta = node.meta || {};
-  els.imageViewerMeta.textContent = [
-    meta.width && meta.height ? `${meta.width}×${meta.height}` : "",
-    meta.ratio || "",
-    meta.seed ? `Seed ${meta.seed}` : "",
-  ].filter(Boolean).join(" / ") || "暂无生成参数记录";
-  state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();
-  state.viewerTagsFiltered = stripImageViewerControlTags(state.viewerTagsFull, meta.artist || "");
-  const negative = String(meta.negativePrompt || meta.negative_prompt || "").trim();
-  els.imageViewerNegative.textContent = negative;
-  els.imageViewerNegative.dataset.copyText = negative;
-  els.imageViewerNegativeSection.hidden = !negative;
-  const note = imageViewerNoteText(meta);
-  els.imageViewerNote.textContent = note;
-  els.imageViewerNote.dataset.copyText = note;
-  els.imageViewerNoteSection.hidden = !note;
-  applyImageViewerTagsView();
-}
-
-function renderImageViewerCharacters(node, sequence) {
-  const characters = imageViewerCharacterEntries(node?.meta);
-  els.imageViewerCharactersSection.hidden = !characters.length;
-  els.imageViewerCharacters.replaceChildren();
-  const copyParts = [];
-  characters.forEach((entry, index) => {
-    const section = document.createElement("section");
-    section.className = "image-viewer-character";
-    const title = `角色 ${index + 1}`;
-    const position = entry.center
-      ? `中心: ${entry.center.x}, ${entry.center.y}`
-      : entry.position ? `位置: ${entry.position}` : "";
-    const prompt = state.viewerShowFilteredTags
-      ? stripImageViewerControlTags(entry.prompt, node?.meta?.artist || "") : entry.prompt;
-    const addPrompt = (label, text, suffix, negative = false) => {
-      const head = document.createElement("div");
-      head.className = "image-viewer-copy-head";
-      const caption = document.createElement("span");
-      caption.className = "image-viewer-copy-text";
-      caption.textContent = label;
-      const target = document.createElement("div");
-      target.id = `imageViewerCharacter${index}${suffix}`;
-      head.appendChild(caption);
-      if (negative) {
-        const copy = document.createElement("button");
-        copy.type = "button";
-        copy.className = "image-viewer-copy-btn copy-negative";
-        copy.dataset.copyTarget = target.id;
-        copy.title = `复制${title}负面提示词`;
-        copy.textContent = "复制负面";
-        head.appendChild(copy);
-      }
-      section.appendChild(head);
-      if (!negative && position) {
-        const coordinates = document.createElement("p");
-        coordinates.className = "image-viewer-character-position image-viewer-copy-text";
-        coordinates.textContent = position;
-        section.appendChild(coordinates);
-      }
-      section.appendChild(target);
-      if (negative) {
-        target.className = "image-viewer-note image-viewer-copy-text";
-        target.textContent = text;
-        target.dataset.copyText = text;
-      } else if (state.viewerShowFilteredTags && text) {
-        void hydrateImageViewerChineseTags(node, text, sequence, target);
-      } else {
-        renderImageViewerTags(text, [], {}, target);
-      }
-    };
-    els.imageViewerCharacters.appendChild(section);
-    addPrompt(title, prompt, "Tags");
-    if (entry.negative_prompt) addPrompt("Negative", entry.negative_prompt, "Negative", true);
-    copyParts.push([
-      `${title}${position ? ` · ${position}` : ""}:`, prompt,
-      entry.negative_prompt ? `Negative prompt: ${entry.negative_prompt}` : "",
-    ].filter(Boolean).join("\n"));
-  });
-  els.imageViewerCharacters.dataset.copyText = copyParts.join("\n\n");
-}
-
-function applyImageViewerTagsView() {
-  const sequence = ++state.viewerTagLookupSequence;
-  const node = state.viewerNodeRef;
-  const tags = state.viewerShowFilteredTags ? state.viewerTagsFiltered : state.viewerTagsFull;
-  if (state.viewerShowFilteredTags && tags && node) {
-    void hydrateImageViewerChineseTags(node, tags, sequence);
-  } else {
-    renderImageViewerTags(tags, [], {});
-  }
-  renderImageViewerCharacters(node, sequence);
-}
-
-async function hydrateImageViewerChineseTags(node, tags, lookupSequence, target = els.imageViewerTags) {
-  const initialTranslations = normalizeRetagTagTranslations(
-    node?.meta?.tagTranslations || node?.meta?.retagTagTranslations,
-  );
-  renderImageViewerTags(tags, [], initialTranslations, target);
-  const tagKeys = imageViewerTagKeys(tags);
-  if (tagKeys.length && tagKeys.every((key) => initialTranslations[key])) return;
-
-  try {
-    let result = state.viewerTagTranslationCache.get(tags);
-    if (!result) {
-      result = await bridge.apiPost("canvas/tags/translate", { tags });
-      if (state.viewerTagTranslationCache.size >= 80) {
-        state.viewerTagTranslationCache.delete(
-          state.viewerTagTranslationCache.keys().next().value,
-        );
-      }
-      state.viewerTagTranslationCache.set(tags, result);
-    }
-    if (lookupSequence !== state.viewerTagLookupSequence || els.imageViewer.hidden || !target.isConnected) return;
-    const translations = {
-      ...initialTranslations,
-      ...normalizeRetagTagTranslations(result?.translations),
-    };
-    // Freeze the already-visible English layout before longer bilingual chips
-    // are inserted. New content then scrolls inside the Tags surface instead
-    // of feeding back into image sizing and moving both columns/rows.
-    lockImageViewerBottomLayout();
-    renderImageViewerTags(tags, result?.pairs, translations, target);
-    if (Object.keys(translations).length) {
-      node.meta = {
-        ...(node.meta || {}),
-        tagTranslations: { ...normalizeRetagTagTranslations(node.meta?.tagTranslations), ...translations },
-      };
-      if (findNode(node.id) === node) scheduleSave();
-      if (state.viewerLibraryAsset) {
-        state.viewerLibraryAsset.tagTranslations = node.meta.tagTranslations;
-      }
-    }
-  } catch (_) {
-    // The English chips are already visible; a tags-site outage should not
-    // replace them with an error state or interrupt image preview.
-  }
-}
-
-function openImageViewer(node, { libraryAsset = null, operationLabel = "打开图片预览" } = {}) {
-  if (!node?.dataUrl) {
-    toast("图片仍在读取，请稍后重试", "error");
-    return;
-  }
-  const meta = node.meta || {};
-  state.viewerImageDimensions = {
-    width: Number(meta.width) || 0,
-    height: Number(meta.height) || 0,
-  };
-  applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
-  setImageViewerDetailsCollapsed(false);
-  els.imageViewer.classList.remove("folded");
-  if (els.imageViewerFoldBtn) {
-    els.imageViewerFoldBtn.setAttribute("aria-expanded", "true");
-    els.imageViewerFoldBtn.setAttribute("aria-label", "收起信息栏");
-    els.imageViewerFoldBtn.title = "收起信息栏";
-  }
-  els.imageViewerImage.src = node.dataUrl;
-  els.imageViewerImage.draggable = false;
-  els.imageViewerImage.alt = node.title || "画布图片";
-  els.imageViewerTitle.textContent = node.title || "图片预览";
-  state.viewerNodeRef = node;
-  els.imageViewerCopyAllBtn.onclick = () => copyPlainText(
-    [
-      els.imageViewerTags.dataset.copyText,
-      els.imageViewerNegative.dataset.copyText
-        ? `Negative prompt: ${els.imageViewerNegative.dataset.copyText}` : "",
-      els.imageViewerCharacters.dataset.copyText,
-      els.imageViewerNote.dataset.copyText ? `Note:\n${els.imageViewerNote.dataset.copyText}` : "",
-    ].filter(Boolean).join("\n\n"),
-    "复制全部信息",
-    () => els.imageViewer.focus({ preventScroll: true }),
-  );
-  els.imageViewerDownloadBtn.onclick = () => downloadImage(node);
-  state.viewerLibraryAsset = libraryAsset;
-  state.viewerNodeId = node.id || "";
-  updateImageViewerSaveButton();
-  const navItems = libraryAsset
-    ? state.library.images
-    : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
-  state.viewerNavItems = navItems;
-  const navEnabled = navItems.length > 1;
-  [els.imageViewerPrevBtn, els.imageViewerNextBtn].forEach((button) => {
-    if (!button) return;
-    button.hidden = !navEnabled;
-    button.disabled = !navEnabled;
-  });
-  if (els.imageViewerFilterToggle) {
-    els.imageViewerFilterToggle.checked = state.viewerShowFilteredTags;
-  }
-  els.imageViewerPlaceBtn.hidden = !libraryAsset;
-  els.imageViewer.hidden = false;
-  alignToastRegion();
-  els.imageViewer.focus({ preventScroll: true });
-  scheduleImageViewerFrameSync();
-  renderImageViewerInfo(node);
-  els.imageViewerDetails.scrollTop = 0;
-  const infoSequence = ++state.viewerInfoSequence;
-  void hydrateImageGenerationMeta(node, libraryAsset).then(() => {
-    if (infoSequence !== state.viewerInfoSequence || els.imageViewer.hidden) return;
-    renderImageViewerInfo(node);
-  });
-  recordOperation(operationLabel, node.title || "图片");
-}
-
-async function stepImageViewer(delta) {
-  const current = state.viewerLibraryAsset;
-  if (current) {
-    const items = state.library.images;
-    const index = items.findIndex((item) => item.id === current.id);
-    if (index < 0 || items.length < 2) return;
-    const target = items[(index + delta + items.length) % items.length];
-    await openLibraryImageViewer(target);
-    return;
-  }
-  const items = Array.isArray(state.viewerNavItems)
-    ? state.viewerNavItems
-    : state.nodes.filter((item) => item.type === "image" && item.dataUrl);
-  const index = items.findIndex((item) => item.id === state.viewerNodeId);
-  if (index < 0 || items.length < 2) return;
-  openImageViewer(items[(index + delta + items.length) % items.length]);
-}
-
-function closeImageViewer() {
-  const wasOpen = !els.imageViewer.hidden;
-  state.viewerTagLookupSequence += 1;
-  state.viewerInfoSequence += 1;
-  els.imageViewer.hidden = true;
-  alignToastRegion();
-  els.imageViewerImage.removeAttribute("src");
-  renderImageViewerTags("");
-  els.imageViewerTitle.textContent = "图片预览";
-  els.imageViewerMeta.textContent = "--";
-  els.imageViewerNegative.textContent = "";
-  els.imageViewerNegative.dataset.copyText = "";
-  els.imageViewerNegativeSection.hidden = true;
-  els.imageViewerNote.textContent = "";
-  els.imageViewerNote.dataset.copyText = "";
-  els.imageViewerNoteSection.hidden = true;
-  els.imageViewerCharacters.replaceChildren();
-  els.imageViewerCharacters.dataset.copyText = "";
-  els.imageViewerCharactersSection.hidden = true;
-  setImageViewerDetailsCollapsed(false);
-  els.imageViewer.classList.remove("folded");
-  state.viewerImageDimensions = { width: 0, height: 0 };
-  state.viewerTagsFull = "";
-  state.viewerTagsFiltered = "";
-  state.viewerNodeRef = null;
-  applyImageViewerLayout(0, 0);
-  state.viewerLibraryAsset = null;
-  state.viewerNodeId = "";
-  state.viewerNavItems = [];
-  els.imageViewerPlaceBtn.hidden = true;
-  if (wasOpen) recordOperation("关闭图片预览");
-}
-
-async function ensureLibraryImageData(item) {
-  if (item?.dataUrl) return item.dataUrl;
-  if (!item?.id) throw new Error("图片素材 ID 无效");
-  if (state.libraryAssetPromises.has(item.id)) {
-    return state.libraryAssetPromises.get(item.id);
-  }
-  const pending = bridge.apiGet("canvas/asset", { id: item.id }).then((payload) => {
-    item.dataUrl = payload.dataUrl;
-    cacheImageAsset({
-      assetId: item.id,
-      dataUrl: item.dataUrl,
-      meta: { width: item.width, height: item.height },
-    });
-    return item.dataUrl;
-  }).finally(() => {
-    state.libraryAssetPromises.delete(item.id);
-  });
-  state.libraryAssetPromises.set(item.id, pending);
-  return pending;
-}
-
-function preloadLibraryImages() {
-  if (state.libraryPreloadPromise) return state.libraryPreloadPromise;
-  const queue = state.library.images.filter((item) => !item.dataUrl);
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < queue.length) {
-      const item = queue[cursor];
-      cursor += 1;
-      try {
-        await ensureLibraryImageData(item);
-      } catch (_) {
-        // Individual broken assets should not block the rest of the library.
-      }
-    }
-  };
-  const workers = Array.from({ length: Math.min(4, queue.length) }, worker);
-  state.libraryPreloadPromise = Promise.allSettled(workers).finally(() => {
-    state.libraryPreloadPromise = null;
-  });
-  return state.libraryPreloadPromise;
-}
-
-async function loadLibrary(render = true) {
-  try {
-    const library = await bridge.apiGet("canvas/library");
-    state.library = {
-      images: Array.isArray(library?.images) ? library.images : [],
-      prompts: Array.isArray(library?.prompts) ? library.prompts : [],
-    };
-    reconcileAssetLibraryPreferences();
-    preloadLibraryImages();
-    if (render) renderAssetLibrary();
-    return true;
-  } catch (error) {
-    toast(error.message || "素材库读取失败", "error");
-    return false;
-  }
-}
-
-function setAssetPanel(open) {
-  setSelectionContextMenu(false);
-  if (open) {
-    setCanvasContextMenu(false);
-    setNodeContextMenu(false);
-    // 打开素材库时收起调试信息，避免两块大面板互相遮挡
-    setDebugBarOpen(false);
-  }
-  if (open && !els.projectMenu.hidden) setProjectMenu(false);
-  els.assetPanel.classList.toggle("open", open);
-  document.body.classList.toggle("asset-library-open", open);
-  [els.assetLibraryBtn, els.mobileAssetLibraryBtn].forEach((button) => {
-    button.classList.toggle("active", open);
-    button.setAttribute("aria-expanded", String(open));
-  });
-  if (!open) {
-    setAssetDeleteMode(false);
-    recordOperation("关闭素材库");
-    return;
-  }
-  alignAssetPanel();
-  renderAssetLibrary();
-  recordOperation("打开素材库", `已收录 ${state.library.images.length} 张素材`);
-}
-
-function setAssetDeleteMode(enabled) {
-  const changed = state.assetDeleteMode !== !!enabled;
-  state.assetDeleteMode = !!enabled;
-  if (!state.assetDeleteMode) {
-    state.selectedAssetIds.clear();
-    els.assetGrid.querySelectorAll(".asset-card.selected").forEach((card) => {
-      card.classList.remove("selected");
-      card.setAttribute("aria-selected", "false");
-    });
-  }
-  els.assetPanel.classList.toggle("delete-mode", state.assetDeleteMode);
-  els.assetSelectModeBtn.classList.toggle("active", state.assetDeleteMode);
-  els.assetSelectModeBtn.setAttribute("aria-pressed", String(state.assetDeleteMode));
-  updateAssetDeleteControls();
-  if (changed) recordOperation(state.assetDeleteMode ? "进入素材多选" : "退出素材多选");
-}
-
-function selectedAssetGroupCount(groups = assetLibraryStackViewGroups()) {
-  return groups.filter((group) => (
-    group.items.length > 0 && group.items.every((item) => state.selectedAssetIds.has(item.id))
-  )).length;
-}
-
-function updateAssetDeleteControls() {
-  const itemCount = state.selectedAssetIds.size;
-  const groups = assetLibraryStackViewGroups();
-  const primaryView = state.assetLibraryView === "all" && !state.assetStackKey;
-  const groupCount = selectedAssetGroupCount(groups);
-  const busy = state.deletingAssets || state.placingAssets || state.archivingAssets;
-  els.assetDeleteActions.hidden = !state.assetDeleteMode;
-  els.assetDeleteCount.textContent = primaryView ? `已选 ${groupCount} 组` : `已选 ${itemCount} 项`;
-  els.assetPlaceSelectedBtn.hidden = primaryView;
-  els.assetPlaceSelectedBtn.disabled = itemCount === 0 || busy;
-  els.assetPlaceSelectedBtn.querySelector("span").textContent = state.placingAssets ? "加入中…" : "加入画布";
-  els.assetArchiveSelectedBtn.disabled = itemCount === 0 || busy;
-  els.assetArchiveSelectedBtn.querySelector("span").textContent = state.archivingAssets ? "压缩中…" : "压缩";
-  els.assetDeleteConfirm.disabled = itemCount === 0 || busy;
-  els.assetDeleteConfirm.querySelector("span").textContent = state.deletingAssets ? "删除中…" : "删除";
-  els.assetDeleteCancel.disabled = busy;
-  els.assetSelectModeBtn.disabled = busy;
-}
-
-function toggleAssetSelection(card, assetId) {
-  if (state.selectedAssetIds.has(assetId)) state.selectedAssetIds.delete(assetId);
-  else state.selectedAssetIds.add(assetId);
-  card.classList.toggle("selected", state.selectedAssetIds.has(assetId));
-  card.setAttribute("aria-selected", String(state.selectedAssetIds.has(assetId)));
-  updateAssetDeleteControls();
-}
-
-function toggleAssetGroupSelection(card, group) {
-  const ids = group.items.map((item) => item.id);
-  const selected = ids.length > 0 && ids.every((id) => state.selectedAssetIds.has(id));
-  ids.forEach((id) => {
-    if (selected) state.selectedAssetIds.delete(id);
-    else state.selectedAssetIds.add(id);
-  });
-  card.classList.toggle("selected", !selected);
-  card.setAttribute("aria-selected", String(!selected));
-  updateAssetDeleteControls();
-}
-
-function closeAssetDeleteModal({ restoreFocus = true, force = false } = {}) {
-  if (state.deletingAssets && !force) return;
-  els.assetDeleteModal.hidden = true;
-  state.pendingAssetDeleteIds = [];
-  els.confirmAssetDeleteBtn.disabled = false;
-  els.confirmAssetDeleteBtn.textContent = "删除";
-  els.cancelAssetDeleteBtn.disabled = false;
-  if (restoreFocus && state.assetDeleteMode) els.assetDeleteConfirm.focus();
-}
-
-function openAssetDeleteModal() {
-  const ids = [...state.selectedAssetIds];
-  if (!ids.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
-  const primaryView = state.assetLibraryView === "all" && !state.assetStackKey;
-  const groupCount = selectedAssetGroupCount();
-  state.pendingAssetDeleteIds = ids;
-  els.assetDeleteModalTitle.textContent = primaryView ? "删除所选素材堆？" : "删除所选图片？";
-  els.assetDeleteModalText.textContent = primaryView
-    ? `将从素材库删除 ${groupCount} 个素材堆中的 ${ids.length} 张图片。未被画布引用的原图文件可能一并清理，此操作无法撤销。`
-    : `将从素材库删除 ${ids.length} 张图片。未被画布引用的原图文件可能一并清理，此操作无法撤销。`;
-  els.assetDeleteModal.hidden = false;
-  els.cancelAssetDeleteBtn.focus();
-}
-
-async function deleteSelectedLibraryAssets() {
-  const ids = [...state.pendingAssetDeleteIds];
-  if (!ids.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
-  state.deletingAssets = true;
-  els.confirmAssetDeleteBtn.disabled = true;
-  els.confirmAssetDeleteBtn.textContent = "删除中…";
-  els.cancelAssetDeleteBtn.disabled = true;
-  updateAssetDeleteControls();
-  try {
-    await Promise.all(ids.map((id) => bridge.apiPost("canvas/library/image/delete", { id })));
-    state.library.images = state.library.images.filter((item) => !ids.includes(item.id));
-    reconcileAssetLibraryPreferences();
-    closeAssetDeleteModal({ restoreFocus: false, force: true });
-    setAssetDeleteMode(false);
-    renderAssetLibrary();
-    toast(`已删除 ${ids.length} 项素材`);
-    recordOperation("删除素材", `${ids.length} 项`, "success");
-  } catch (error) {
-    recordOperation("删除素材失败", error.message || "批量删除失败", "error");
-    toast(error.message || "批量删除素材失败", "error");
-  } finally {
-    state.deletingAssets = false;
-    if (!els.assetDeleteModal.hidden) {
-      els.confirmAssetDeleteBtn.disabled = false;
-      els.confirmAssetDeleteBtn.textContent = "删除";
-      els.cancelAssetDeleteBtn.disabled = false;
-    }
-    updateAssetDeleteControls();
-  }
-}
-
-function renderAssetLibrary() {
-  state.libraryRenderCleanup?.();
-  state.libraryRenderCleanup = null;
-  state.libraryRenderObserver?.disconnect();
-  state.libraryRenderObserver = null;
-  reconcileAssetLibraryPreferences();
-  if (state.assetStackKey && !assetLibraryGroups(state.library.images).some((group) => group.key === state.assetStackKey)) {
-    state.assetStackKey = "";
-  }
-  const items = assetLibraryVisibleItems();
-  const groups = assetLibraryStackViewGroups();
-  const stackView = groups.length > 0;
-  updateAssetLibraryModeUI();
-  els.assetGrid.replaceChildren();
-  els.assetGrid.scrollTop = 0;
-  els.assetGrid.className = `asset-grid${stackView ? " asset-stack-grid" : ""}`;
-  els.assetGrid.classList.toggle("empty", items.length === 0);
-  els.assetEmpty.classList.toggle("visible", items.length === 0);
-  const emptyLabels = {
-    all: "暂无图片素材",
-    recent: "还没有最近使用的素材",
-  };
-  els.assetEmpty.querySelector("span").textContent = emptyLabels[state.assetLibraryView] || emptyLabels.all;
-
-  if (items.length) {
-    if (stackView) {
-      groups.forEach((group) => renderAssetStackCard(group, els.assetGrid));
-    } else {
-      const group = state.assetStackKey
-        ? assetLibraryGroups(state.library.images).find((candidate) => candidate.key === state.assetStackKey)
-        : null;
-      if (group) {
-        renderAssetBatch(group.items, 0);
-      } else {
-        renderAssetBatch(items, 0);
-      }
-    }
-  }
-  updateAssetGridMetrics();
-  updateAssetDeleteControls();
-  window.requestAnimationFrame(updateAssetGridMetrics);
-  refreshIcons(els.assetPanel);
-}
-
-function renderAssetStackCard(group, container = els.assetGrid) {
-  const card = document.createElement("button");
-  card.type = "button";
-  card.className = "asset-card asset-stack-card";
-  card.dataset.stackKey = group.key;
-  const selected = group.items.length > 0
-    && group.items.every((item) => state.selectedAssetIds.has(item.id));
-  card.classList.toggle("selected", selected);
-  card.setAttribute("aria-selected", String(selected));
-  card.title = `展开${group.label}素材堆`;
-  card.setAttribute("aria-label", `展开${group.label}素材堆，共 ${group.items.length} 张`);
-
-  const cover = document.createElement("span");
-  cover.className = "asset-stack-cover";
-  group.items.slice(0, 3).forEach((item, index) => {
-    const className = `asset-stack-thumb asset-stack-thumb-${index + 1}`;
-    if (item.dataUrl) {
-      const image = document.createElement("img");
-      image.alt = item.name || `${group.label}素材`;
-      image.draggable = false;
-      image.className = className;
-      image.src = item.dataUrl;
-      cover.appendChild(image);
-      return;
-    }
-    // 数据还没预载时先放空白卡位：无 src 的 <img> 会渲染成破图图标
-    const placeholder = document.createElement("span");
-    placeholder.className = `${className} is-loading`;
-    ensureLibraryImageData(item).then((dataUrl) => {
-      if (!placeholder.isConnected) return;
-      const image = document.createElement("img");
-      image.alt = item.name || `${group.label}素材`;
-      image.draggable = false;
-      image.className = className;
-      image.src = dataUrl;
-      placeholder.replaceWith(image);
-    }).catch(() => {
-      placeholder.classList.add("is-broken");
-    });
-    cover.appendChild(placeholder);
-  });
-  const count = document.createElement("span");
-  count.className = "asset-stack-count";
-  count.textContent = `${group.items.length} 张`;
-  cover.appendChild(count);
-  const artistBadge = document.createElement("span");
-  artistBadge.className = "asset-artist-badge asset-stack-artist";
-  artistBadge.textContent = group.label;
-  artistBadge.title = group.unassigned ? "未标注画师" : `画师：${group.label}`;
-  cover.appendChild(artistBadge);
-  const selectIndicator = document.createElement("span");
-  selectIndicator.className = "asset-select-indicator";
-  selectIndicator.setAttribute("aria-hidden", "true");
-  selectIndicator.appendChild(icon("check"));
-  cover.appendChild(selectIndicator);
-  card.appendChild(cover);
-  card.addEventListener("click", () => {
-    if (state.assetDeleteMode) {
-      toggleAssetGroupSelection(card, group);
-      return;
-    }
-    state.assetStackKey = group.key;
-    updateAssetLibraryModeUI();
-    renderAssetLibrary();
-    recordOperation("展开素材堆", `${group.label} · ${group.items.length} 张`);
-  });
-  container.appendChild(card);
-}
-
-function renderAssetBatch(items, start) {
-  const end = Math.min(items.length, start + ASSET_RENDER_BATCH);
-  items.slice(start, end).forEach((item) => renderImageAssetCard(item, els.assetGrid));
-  if (end >= items.length) {
-    refreshIcons(els.assetGrid);
-    return;
-  }
-  const sentinel = document.createElement("div");
-  sentinel.className = "asset-load-sentinel";
-  sentinel.textContent = `继续加载 ${items.length - end} 项…`;
-  els.assetGrid.appendChild(sentinel);
-  const loadNextBatch = () => {
-    const gridRect = els.assetGrid.getBoundingClientRect();
-    const sentinelRect = sentinel.getBoundingClientRect();
-    if (sentinelRect.top > gridRect.bottom + 240) return;
-    state.libraryRenderCleanup?.();
-    state.libraryRenderCleanup = null;
-    state.libraryRenderObserver = null;
-    sentinel.remove();
-    renderAssetBatch(items, end);
-  };
-  const onAssetScroll = () => loadNextBatch();
-  state.libraryRenderObserver = new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting)) loadNextBatch();
-  }, { root: els.assetGrid, rootMargin: "240px 0px" });
-  state.libraryRenderCleanup = () => {
-    state.libraryRenderObserver?.disconnect();
-    els.assetGrid.removeEventListener("scroll", onAssetScroll);
-  };
-  els.assetGrid.addEventListener("scroll", onAssetScroll, { passive: true });
-  state.libraryRenderObserver.observe(sentinel);
-  refreshIcons(els.assetGrid);
-}
-
-function alignAssetPanel() {
-  alignDebugBar();
-  const { topbarRect } = alignedPanelEdges();
-  const viewportRect = els.viewport.getBoundingClientRect();
-  const debugRect = !els.debugBar.hidden
-    ? els.debugBar.getBoundingClientRect()
-    : { height: 0 };
-  const gap = 14;
-  // The library is intentionally one large surface on every device.  Align
-  // both edges with the top bar so desktop no longer falls back to the old
-  // narrow three-column drawer.
-  const panelLeft = Math.max(viewportRect.left + 12, topbarRect.left);
-  const panelRight = Math.min(viewportRect.right - 12, topbarRect.right);
-  els.assetPanel.style.left = `${panelLeft - viewportRect.left}px`;
-  els.assetPanel.style.width = `${Math.max(0, panelRight - panelLeft)}px`;
-  els.assetPanel.style.top = `${topbarRect.bottom - viewportRect.top + gap}px`;
-  const bottomOffsets = [12];
-  // Keep the library above the bottom diagnostics bar when both overlays are open.
-  if (debugRect.height > 0) {
-    bottomOffsets.push(viewportRect.bottom - debugRect.top + gap);
-  }
-  els.assetPanel.style.bottom = `${Math.max(...bottomOffsets)}px`;
-}
-
-function updateAssetGridMetrics() {
-  if (!els.assetPanel.classList.contains("open")) return;
-  const styles = window.getComputedStyle(els.assetGrid);
-  const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
-  const columnGap = parseFloat(styles.columnGap) || 0;
-  const availableWidth = Math.max(0, els.assetGrid.clientWidth - horizontalPadding);
-  const stackView = els.assetGrid.classList.contains("asset-stack-grid");
-  const minTile = stackView
-    ? (window.innerWidth <= 620 ? 150 : window.innerWidth <= 980 ? 190 : 210)
-    : (window.innerWidth <= 620 ? 132 : 156);
-  const minimumColumns = window.innerWidth <= 620 ? 2 : 3;
-  const stackCount = stackView
-    ? els.assetGrid.querySelectorAll(".asset-stack-card").length
-    : 0;
-  const maximumColumns = stackView
-    ? Math.max(minimumColumns, Math.min(stackCount, 6))
-    : 10;
-  const columns = clamp(
-    Math.floor((availableWidth + columnGap) / (minTile + columnGap)),
-    minimumColumns,
-    maximumColumns,
-  );
-  els.assetGrid.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
-  const exactTileWidth = Math.max(
-    96,
-    (availableWidth - columnGap * (columns - 1)) / columns,
-  );
-  const tileWidth = Math.floor(exactTileWidth);
-  if (stackView) {
-    els.assetGrid.style.gridAutoRows = `${Math.ceil(exactTileWidth)}px`;
-    els.assetGrid.style.removeProperty("--asset-card-height");
-    return;
-  }
-  els.assetGrid.style.removeProperty("grid-auto-rows");
-  const tileHeight = clamp(Math.round(tileWidth * 0.86), 148, 248);
-  els.assetGrid.style.setProperty("--asset-card-height", `${tileHeight}px`);
-}
-
-function renderImageAssetCard(item, container = els.assetGrid) {
-  const card = document.createElement("article");
-  card.className = "asset-card asset-image-card";
-  card.title = "点击预览";
-  card.dataset.assetId = item.id;
-  card.classList.toggle("selected", state.selectedAssetIds.has(item.id));
-  card.setAttribute("aria-selected", String(state.selectedAssetIds.has(item.id)));
-  const thumb = document.createElement("div");
-  thumb.className = "asset-thumb";
-  if (item.width && item.height) thumb.style.aspectRatio = `${item.width} / ${item.height}`;
-  const loading = document.createElement("span");
-  loading.className = "asset-thumb-loading";
-  loading.textContent = "预加载中…";
-  const image = document.createElement("img");
-  image.alt = item.name || "图片素材";
-  image.draggable = false;
-  image.hidden = true;
-  image.addEventListener("load", () => {
-    image.hidden = false;
-    loading.hidden = true;
-  });
-  image.addEventListener("error", () => {
-    image.hidden = true;
-    loading.hidden = false;
-    loading.textContent = "图片读取失败";
-  });
-  thumb.append(loading, image);
-  const selected = document.createElement("span");
-  selected.className = "asset-select-indicator";
-  selected.setAttribute("aria-hidden", "true");
-  selected.appendChild(icon("check"));
-  thumb.appendChild(selected);
-  if (item.dataUrl) image.src = item.dataUrl;
-  else ensureLibraryImageData(item).then((dataUrl) => {
-    if (image.isConnected) image.src = dataUrl;
-  }).catch(() => {
-    if (loading.isConnected) loading.textContent = "图片读取失败";
-  });
-  card.appendChild(thumb);
-  attachLibraryImagePreview(card, item);
-  container.appendChild(card);
-}
-
-function attachLibraryImagePreview(card, item) {
-  card.addEventListener("click", () => {
-    if (state.assetDeleteMode) {
-      toggleAssetSelection(card, item.id);
-      return;
-    }
-    openLibraryImageViewer(item);
-  });
-}
-
-async function openLibraryImageViewer(item) {
-  try {
-    await ensureLibraryImageData(item);
-    markAssetRecent(item);
-    openImageViewer(createLibraryImageNode(item, 0, 0), {
-      libraryAsset: item, operationLabel: "预览素材",
-    });
-  } catch (error) {
-    recordOperation("预览素材失败", error.message || "图片素材读取失败", "error");
-    toast(error.message || "图片素材读取失败", "error");
-  }
-}
-
-function createLibraryImageNode(item, x, y, nodeWidth = fittedImageNodeWidth(item.width, item.height)) {
-  return {
-    id: uid("image"),
-    type: "image",
-    x,
-    y,
-    width: nodeWidth,
-    title: item.name || "素材图片",
-    assetId: item.id,
-    dataUrl: item.dataUrl,
-    createdAt: new Date().toISOString(),
-    meta: {
-      ...imageGenerationMeta(item.generationMeta),
-      prompt: item.prompt || item.name || "素材图片",
-      tags: item.tags || "",
-      tagTranslations: normalizeRetagTagTranslations(item.tagTranslations),
-      artist: item.artist || "",
-      width: item.width,
-      height: item.height,
-      ratio: item.ratio || "",
-      seed: normalizeNaiSeed(item.seed),
-      retagged: item.source === "retagged",
-      source: item.source || "",
-    },
-  };
-}
-
-function selectedLibraryAssetsInDisplayOrder() {
-  const group = state.assetStackKey
-    ? assetLibraryGroups(state.library.images).find((candidate) => candidate.key === state.assetStackKey)
-    : null;
-  const visibleItems = group?.items || assetLibraryVisibleItems();
-  const ordered = visibleItems.filter((item) => state.selectedAssetIds.has(item.id));
-  const included = new Set(ordered.map((item) => item.id));
-  state.library.images.forEach((item) => {
-    if (state.selectedAssetIds.has(item.id) && !included.has(item.id)) ordered.push(item);
-  });
-  return ordered;
-}
-
-function libraryArchiveFilename(items) {
-  const groups = assetLibraryGroups(items);
-  const date = new Date();
-  const dateStamp = [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-  const timeStamp = [
-    String(date.getHours()).padStart(2, "0"),
-    String(date.getMinutes()).padStart(2, "0"),
-    String(date.getSeconds()).padStart(2, "0"),
-  ].join("-");
-  const label = groups.length === 1 ? safeZipName(groups[0].label, "素材") : "素材";
-  return `${label}_${dateStamp}_${timeStamp}.zip`;
-}
-
-async function archiveSelectedLibraryAssets() {
-  const items = selectedLibraryAssetsInDisplayOrder();
-  if (!items.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
-  state.archivingAssets = true;
-  updateAssetDeleteControls();
-  try {
-    const loaded = await Promise.allSettled(items.map((item) => ensureLibraryImageData(item)));
-    const usedPaths = new Set(["library-manifest.json"]);
-    const entries = [];
-    const manifest = [];
-    loaded.forEach((result, index) => {
-      const item = items[index];
-      if (result.status === "rejected") {
-        manifest.push({
-          id: item.id,
-          name: item.name || "",
-          skipped: true,
-          reason: String(result.reason?.message || result.reason || "图片素材读取失败").slice(0, 160),
-        });
-        return;
-      }
-      try {
-        const decoded = decodeDataUrl(item.dataUrl);
-        const group = assetGroupForItem(item);
-        const path = uniqueZipPath(
-          group.label,
-          item.name || item.id || `asset-${index + 1}`,
-          imageExtension(decoded.mimeType),
-          usedPaths,
-        );
-        entries.push({ name: path, bytes: decoded.bytes });
-        manifest.push({
-          id: item.id,
-          file: path,
-          name: item.name || "",
-          artist: item.artist || "",
-          prompt: item.prompt || "",
-          tags: item.tags || "",
-          ratio: item.ratio || "",
-          seed: normalizeNaiSeed(item.seed),
-          source: item.source || "",
-          width: item.width || 0,
-          height: item.height || 0,
-          size: decoded.bytes.length,
-        });
-      } catch (error) {
-        manifest.push({
-          id: item.id,
-          name: item.name || "",
-          skipped: true,
-          reason: String(error?.message || error || "图片素材解析失败").slice(0, 160),
-        });
-      }
-    });
-    if (!entries.length) throw new Error("所选素材均无法读取，未生成压缩包");
-    entries.push({
-      name: "library-manifest.json",
-      bytes: encodeZipText(JSON.stringify({ exportedAt: new Date().toISOString(), assets: manifest }, null, 2)),
-    });
-    downloadBlob(createZipBlob(entries), libraryArchiveFilename(items));
-    const skipped = manifest.filter((item) => item.skipped).length;
-    recordOperation(
-      "压缩素材",
-      skipped ? `${entries.length - 1} 项成功，${skipped} 项跳过` : `${entries.length - 1} 项`,
-      skipped ? "warning" : "success",
-    );
-    setAssetDeleteMode(false);
-    toast(skipped ? `压缩包已保存，跳过 ${skipped} 项异常素材` : `已压缩 ${entries.length - 1} 项素材`);
-  } catch (error) {
-    recordOperation("压缩素材失败", error.message || "压缩包生成失败", "error");
-    toast(error.message || "压缩素材失败", "error");
-  } finally {
-    state.archivingAssets = false;
-    updateAssetDeleteControls();
-  }
-}
-
-async function placeSelectedLibraryAssetsOnCanvas() {
-  const items = selectedLibraryAssetsInDisplayOrder();
-  if (!items.length || state.deletingAssets || state.placingAssets || state.archivingAssets) return;
-  state.placingAssets = true;
-  updateAssetDeleteControls();
-  try {
-    const loaded = await Promise.allSettled(items.map((item) => ensureLibraryImageData(item)));
-    const readyItems = items.filter((_, index) => loaded[index].status === "fulfilled");
-    if (!readyItems.length) {
-      throw loaded.find((result) => result.status === "rejected")?.reason || new Error("图片素材读取失败");
-    }
-    // 缺 seed 的条目先尝试从 PNG 元数据回填，卡片左下角才能显示种子
-    await Promise.allSettled(readyItems.map((item) => recoverLibraryImageSeed(item)));
-
-    const layout = readyItems.map((item) => {
-      const width = fittedImageNodeWidth(item.width, item.height);
-      return {
-        item,
-        width,
-        height: estimatedImageNodeHeight(width, item.width, item.height),
-      };
-    });
-    const columns = Math.min(4, Math.ceil(Math.sqrt(layout.length)));
-    const rows = Math.ceil(layout.length / columns);
-    const maxWidth = Math.max(...layout.map((entry) => entry.width));
-    const maxHeight = Math.max(...layout.map((entry) => entry.height));
-    const horizontalGap = 56;
-    const verticalGap = 56;
-    const totalHeight = rows * maxHeight + (rows - 1) * verticalGap;
-    const center = worldCenter();
-    const startY = center.y - totalHeight / 2;
-    const nodes = layout.map((entry, index) => {
-      const row = Math.floor(index / columns);
-      const column = index % columns;
-      const rowCount = Math.min(columns, layout.length - row * columns);
-      const rowWidth = rowCount * maxWidth + (rowCount - 1) * horizontalGap;
-      const rowStartX = center.x - rowWidth / 2;
-      const x = rowStartX + column * (maxWidth + horizontalGap) + (maxWidth - entry.width) / 2;
-      const y = startY + row * (maxHeight + verticalGap) + (maxHeight - entry.height) / 2;
-      return createLibraryImageNode(entry.item, x, y, entry.width);
-    });
-
-    pushHistory();
-    state.nodes.push(...nodes);
-    setSelection(nodes.map((node) => node.id), nodes[0].id);
-    [...readyItems].reverse().forEach((item) => markAssetRecent(item, { render: false }));
-    renderAll();
-    scheduleSave();
-
-    const failedCount = items.length - readyItems.length;
-    recordOperation(
-      "批量放入画布",
-      failedCount ? `${nodes.length} 项成功，${failedCount} 项读取失败` : `${nodes.length} 项`,
-      failedCount ? "warning" : "success",
-    );
-    setAssetPanel(false);
-    toast(failedCount ? `已放入 ${nodes.length} 项，${failedCount} 项读取失败` : `已放入 ${nodes.length} 项素材`);
-  } catch (error) {
-    recordOperation("批量放入画布失败", error.message || "添加图片素材失败", "error");
-    toast(error.message || "批量加入画布失败", "error");
-  } finally {
-    state.placingAssets = false;
-    updateAssetDeleteControls();
-  }
-}
-
-const recoveringSeedAssetIds = new Set();
-
-async function recoverLibraryImageSeed(item) {
-  // 旧版本收录的素材可能没存 seed；放入画布前让后端读一次 PNG 内嵌元数据补上。
-  // 失败静默：标签继续显示名称，不阻塞放置流程。
-  const assetId = String(item?.id || "");
-  if (!assetId || normalizeNaiSeed(item.seed)) return;
-  if (recoveringSeedAssetIds.has(assetId)) return;
-  recoveringSeedAssetIds.add(assetId);
-  try {
-    const result = await bridge.apiPost("canvas/library/image/recover", { id: assetId });
-    const seed = normalizeNaiSeed(result?.image?.seed);
-    if (seed) item.seed = seed;
-  } catch (_) {
-    // 图片被重新编码后元数据已丢失，读不到种子属正常情况
-  } finally {
-    recoveringSeedAssetIds.delete(assetId);
-  }
-}
-
-async function placeImageAssetOnCanvas(item, point = worldCenter()) {
-  try {
-    await ensureLibraryImageData(item);
-    await recoverLibraryImageSeed(item);
-    markAssetRecent(item, { render: false });
-    const nodeWidth = fittedImageNodeWidth(item.width, item.height);
-    const nodeHeight = estimatedImageNodeHeight(nodeWidth, item.width, item.height);
-    addNode(createLibraryImageNode(
-      item,
-      point.x - nodeWidth / 2,
-      point.y - nodeHeight / 2,
-      nodeWidth,
-    ));
-    recordOperation("放入画布", item.name || "素材图片", "success");
-    return true;
-  } catch (error) {
-    recordOperation("放入画布失败", error.message || "添加图片素材失败", "error");
-    toast(error.message || "添加图片素材失败", "error");
-    return false;
-  }
-}
-
-function updateImageViewerSaveButton() {
-  const assetId = state.viewerNodeRef?.assetId;
-  const saved = !!state.viewerLibraryAsset || state.library.images.some((item) => item.id === assetId);
-  const saving = state.savingLibraryAssetIds.has(assetId);
-  els.imageViewerSaveBtn.disabled = !assetId || saved || saving;
-  els.imageViewerSaveBtn.setAttribute("aria-pressed", String(saved));
-  els.imageViewerSaveBtn.querySelector("span").textContent = saving ? "正在收藏…" : saved ? "已收藏" : "收藏到素材库";
-  els.imageViewerSaveBtn.title = saved ? "已收藏到素材库" : "收藏到素材库";
-}
-
-async function saveImageToLibrary(node) {
-  if (!node?.assetId || state.savingLibraryAssetIds.has(node.assetId)) return;
-  state.savingLibraryAssetIds.add(node.assetId);
-  updateImageViewerSaveButton();
-  try {
-    await hydrateImageGenerationMeta(node);
-    const linkedPrompt = state.connections
-      .filter((edge) => edge.source === node.id && findNode(edge.target)?.type === "prompt")
-      .map((edge) => findNode(edge.target))
-      .find((candidate) => candidate?.meta?.retagAssetId === node.assetId);
-    const linkedRetag = linkedPrompt?.meta || {};
-    const seed = sourceImageSeed(node) || normalizeNaiSeed(linkedRetag.retagSeed);
-    const result = await bridge.apiPost("canvas/library/image/add", {
-      assetId: node.assetId,
-      name: node.title || node.meta?.prompt || "画布图片",
-      source: node.meta?.retagged ? "retagged" : "generated",
-      prompt: node.meta?.prompt || "",
-      tags: node.meta?.tags || node.meta?.finalPrompt || linkedRetag.retagPrompt || "",
-      tagTranslations: normalizeRetagTagTranslations(
-        node.meta?.tagTranslations || linkedRetag.retagTagTranslations,
-      ),
-      artist: node.meta?.artist || "",
-      ratio: node.meta?.ratio || linkedRetag.retagRatio || "",
-      // A source image may only reveal its seed during the retag pass; keep
-      // that value when the image itself is later collected into the library.
-      seed,
-      generationMeta: imageGenerationMeta(node.meta),
-    });
-    const image = { ...result.image, dataUrl: node.dataUrl };
-    state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
-    reconcileAssetLibraryPreferences();
-    if (els.assetPanel.classList.contains("open")) renderAssetLibrary();
-    toast("图片已保存到素材库");
-    recordOperation("收录素材", node.title || "画布图片", "success");
-  } catch (error) {
-    recordOperation("收录素材失败", error.message || "图片保存失败", "error");
-    toast(error.message || "图片保存失败", "error");
-  } finally {
-    state.savingLibraryAssetIds.delete(node.assetId);
-    updateImageViewerSaveButton();
-  }
-}
-
 function isSupportedImageFile(file) {
   const type = String(file?.type || "").toLowerCase();
   if (type.startsWith("image/")) return true;
@@ -6836,6 +4725,57 @@ async function uploadFiles(files, point = worldCenter()) {
   }
 }
 
+async function reuseImageParameters(imageNode) {
+  if (!imageNode || els.imageViewerReuseBtn.disabled) return;
+  els.imageViewerReuseBtn.disabled = true;
+  try {
+    await hydrateImageGenerationMeta(imageNode, state.viewerLibraryAsset);
+    const meta = imageNode.meta || {};
+    const prompt = String(meta.finalPrompt || meta.tags || "").trim();
+    if (!prompt) throw new Error("图片没有可复用的提示词记录");
+    const node = createPromptNode(worldCenter());
+    node.y = clientToWorld(0, document.querySelector(".topbar").getBoundingClientRect().bottom + 64).y;
+    node.title = `复用 · ${imageNode.title || "图片"}`;
+    node.prompt = prompt;
+    node.raw = true;
+    node.artist = "";
+    const model = String(meta.model || "").toLowerCase();
+    if (model.includes("diffusion-5") || /\bv5\b/.test(model)) node.model = "nai-diffusion-5-full";
+    else if (model.includes("4-5") || /4[.]5/.test(model)) node.model = "nai-diffusion-4-5-full";
+    if (meta.width > 0 && meta.height > 0) node.ratio = `${Math.round(meta.width)}x${Math.round(meta.height)}`;
+    const characters = normalizeCharPromptEntries((meta.characterPrompts || []).map((item) => typeof item === "string" ? { prompt: item } : item));
+    node.meta = {
+      ...imageGenerationMeta(meta),
+      generationSeed: normalizeNaiSeed(meta.seed) || 0,
+      retagCharPrompts: characters,
+      retagCharPromptsOriginal: structuredClone(characters),
+      retagCharDisabled: [],
+      retagCharacterExpanded: false,
+      advParamsExpanded: true,
+      rawTranslate: false,
+      ratioManual: true,
+    };
+    const adjusted = [];
+    for (const key of ["steps", "scale", "cfgRescale"]) {
+      const value = effectiveParameter(meta, key, "");
+      if (value === undefined) delete node.meta[key];
+      else {
+        node.meta[key] = value;
+        if (Number(meta[key]) !== value) adjusted.push(key);
+      }
+    }
+    closeImageViewer();
+    setAssetPanel(false);
+    addNode(node);
+    recordOperation("复用图片参数", imageNode.title || "图片", "success");
+    toast(adjusted.length ? "已复用参数，步数/引导按当前生成范围校正" : "已新建提示词节点并带入原图参数");
+  } catch (error) {
+    toast(error.message || "参数复用失败", "error");
+  } finally {
+    els.imageViewerReuseBtn.disabled = false;
+  }
+}
+
 async function loadInitialState() {
   bridge = await getBridge();
   const [config, canvasList, library, preferences] = await Promise.all([
@@ -6882,15 +4822,140 @@ async function loadInitialState() {
     if (!canvasMeta?.id) throw new Error("初始化项目失败");
     state.canvases.push(canvasMeta);
   }
-  state.library = {
-    images: Array.isArray(library?.images) ? library.images : [],
-    prompts: Array.isArray(library?.prompts) ? library.prompts : [],
-  };
-  reconcileAssetLibraryPreferences();
-  preloadLibraryImages();
+  setLibraryData(library);
   await switchCanvas(canvasMeta, { saveCurrent: false });
   startHealthMonitor();
 }
+
+const pageApi = {
+  apiGet: (...args) => bridge.apiGet(...args),
+  apiPost: (...args) => bridge.apiPost(...args),
+  download: (...args) => bridge.download(...args),
+};
+
+const {
+  positionCharacterEditor,
+  makeCharacterCard
+} = createCharacterEditor({
+  state,
+  MAX_CHAR_PROMPTS,
+  automaticRetagCharLayout,
+  bringNodeToFront,
+  clamp,
+  clearDebugTrace,
+  cloneCharPromptEntry,
+  editableCharCenter,
+  icon,
+  isNodeSelected,
+  normalizeCharPromptEntries,
+  pushHistory,
+  randomCharacterCenter,
+  renderAll,
+  renderNodes,
+  retagCharDisabledIndexes,
+  retagCharEnabled,
+  scheduleSave,
+  scrollContainerConsumesWheel,
+  selectNode
+});
+
+const {
+  applyImageViewerLayout,
+  scheduleImageViewerFrameSync,
+  imageGenerationMeta,
+  hydrateImageGenerationMeta,
+  openImageViewer,
+  stepImageViewer,
+  closeImageViewer,
+  updateImageViewerSaveButton,
+  bindImageViewerEvents
+} = createImageViewer({
+  reuseImageParameters,
+  alignToastRegion,
+  bridge: pageApi,
+  copyPlainText,
+  copyViewerText,
+  downloadImage,
+  els,
+  findNode,
+  normalizeCharPromptEntries,
+  normalizeNaiSeed,
+  normalizeRetagTagTranslations,
+  openLibraryImageViewer: (...args) => openLibraryImageViewer(...args),
+  placeImageAssetOnCanvas: (...args) => placeImageAssetOnCanvas(...args),
+  recordOperation,
+  retagTagLookupKey,
+  saveImageToLibrary: (...args) => saveImageToLibrary(...args),
+  scheduleSave,
+  setAssetPanel: (...args) => setAssetPanel(...args),
+  state,
+  toast,
+  worldCenter
+});
+
+const {
+  setAssetLibraryView,
+  closeAssetStack,
+  setLibraryData,
+  loadLibrary,
+  setAssetPanel,
+  setAssetDeleteMode,
+  closeAssetDeleteModal,
+  openAssetDeleteModal,
+  deleteSelectedLibraryAssets,
+  alignAssetPanel,
+  updateAssetGridMetrics,
+  openLibraryImageViewer,
+  archiveSelectedLibraryAssets,
+  placeSelectedLibraryAssetsOnCanvas,
+  placeImageAssetOnCanvas,
+  saveImageToLibrary
+} = createAssetLibrary({
+  ASSET_LIBRARY_PREFS_KEY,
+  ASSET_RECENT_LIMIT,
+  ASSET_RENDER_BATCH,
+  addNode,
+  alignDebugBar,
+  alignedPanelEdges,
+  bridge: pageApi,
+  clamp,
+  createZipBlob,
+  decodeDataUrl,
+  downloadBlob,
+  els,
+  encodeZipText,
+  estimatedImageNodeHeight,
+  findNode,
+  fittedImageNodeWidth,
+  hydrateImageGenerationMeta: (...args) => hydrateImageGenerationMeta(...args),
+  icon,
+  imageExtension,
+  imageGenerationMeta: (...args) => imageGenerationMeta(...args),
+  normalizeNaiSeed,
+  normalizeRetagTagTranslations,
+  openImageViewer: (...args) => openImageViewer(...args),
+  pushHistory,
+  recordOperation,
+  refreshIcons,
+  renderAll,
+  safeZipName,
+  scheduleSave,
+  setCanvasContextMenu,
+  setDebugBarOpen,
+  setNodeContextMenu,
+  setProjectMenu,
+  setSelection,
+  setSelectionContextMenu,
+  sourceImageSeed,
+  state,
+  toast,
+  uid,
+  uniqueZipPath,
+  updateImageViewerSaveButton: (...args) => updateImageViewerSaveButton(...args),
+  worldCenter
+});
+
+bindImageViewerEvents();
 
 const canvasTouchPointers = new Map();
 let canvasTouchGesture = null;
@@ -7516,61 +5581,6 @@ document.getElementById("confirmClearBtn").addEventListener("click", () => {
 });
 clearModal.addEventListener("pointerdown", (event) => {
   if (event.target === clearModal) clearModal.hidden = true;
-});
-
-els.imageViewerSaveBtn.addEventListener("click", () => saveImageToLibrary(state.viewerNodeRef));
-els.imageViewerPlaceBtn.addEventListener("click", async () => {
-  const item = state.viewerLibraryAsset;
-  if (!item) return;
-  els.imageViewerPlaceBtn.disabled = true;
-  const placed = await placeImageAssetOnCanvas(item, worldCenter());
-  els.imageViewerPlaceBtn.disabled = false;
-  if (!placed) return;
-  closeImageViewer();
-  setAssetPanel(false);
-  toast("已放入画布");
-});
-els.imageViewerImage.addEventListener("load", () => {
-  if (els.imageViewer.hidden) return;
-  applyImageViewerLayout(els.imageViewerImage.naturalWidth, els.imageViewerImage.naturalHeight);
-});
-  els.imageViewerDetailsToggle.addEventListener("click", () => {
-    setImageViewerDetailsCollapsed(!els.imageViewerDetails.classList.contains("collapsed"));
-  });
-els.imageViewerFilterToggle?.addEventListener("change", () => {
-  state.viewerShowFilteredTags = els.imageViewerFilterToggle.checked;
-  recordOperation(
-    "切换正向 Tags 过滤",
-    state.viewerShowFilteredTags ? "只看内容标签" : "展示全部 tags",
-  );
-  applyImageViewerTagsView();
-});
-els.imageViewerFoldBtn?.addEventListener("click", (event) => {
-  event.stopPropagation();
-  clearImageViewerBottomLayoutLock(true);
-  const folded = els.imageViewer.classList.toggle("folded");
-  alignToastRegion();
-  els.imageViewerFoldBtn.setAttribute("aria-expanded", String(!folded));
-  els.imageViewerFoldBtn.setAttribute("aria-label", folded ? "展开信息栏" : "收起信息栏");
-  els.imageViewerFoldBtn.title = folded ? "展开信息栏" : "收起信息栏";
-  scheduleImageViewerFrameSync();
-});
-els.imageViewerPrevBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(-1); });
-els.imageViewerNextBtn?.addEventListener("click", (event) => { event.stopPropagation(); void stepImageViewer(1); });
-els.imageViewer.addEventListener("pointerdown", (event) => {
-  // Keep the original selector contract: event.target.closest(".image-viewer-details, .image-viewer-place-btn")
-  if (
-    event.button !== 0
-    || event.target.closest(
-      ".image-viewer-details, .image-viewer-place-btn, .image-viewer-nav, .image-viewer-fold, .image-viewer-thumbs",
-    )
-  ) return;
-  if (imageViewerPointHitsRenderedImage(event.clientX, event.clientY)) return;
-  closeImageViewer();
-});
-els.imageViewerDetails.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-copy-target]");
-  if (button) void copyViewerText(button.dataset.copyTarget, button.title);
 });
 
 async function copyViewerText(targetId, label) {

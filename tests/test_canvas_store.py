@@ -911,6 +911,38 @@ class CanvasStoreTest(unittest.TestCase):
         for field in ("varietyBoost", "quality", "steps", "scale", "cfgRescale", "characterPrompts"):
             self.assertNotIn(field, empty)
 
+    def test_thumbnail_is_small_cached_and_preserves_original_bytes(self) -> None:
+        buffer = BytesIO()
+        metadata = PngInfo()
+        metadata.add_text("Comment", json.dumps({"prompt": "landscape", "seed": 123}))
+        Image.new("RGBA", (1600, 1200), (90, 120, 200, 120)).save(buffer, "PNG", pnginfo=metadata)
+        asset = self.store.store_asset(buffer.getvalue())
+        path, _ = self.store.get_asset(asset["id"])
+        thumbnail = self.store.asset_thumbnail_payload(asset["id"])
+        import base64
+        with Image.open(BytesIO(base64.b64decode(thumbnail["dataUrl"].split(",", 1)[1]))) as image:
+            self.assertEqual(image.size, (384, 288))
+            self.assertEqual(image.format, "JPEG")
+        cached = self.store.thumbnails_dir / f"{asset['id']}.jpg"
+        modified = cached.stat().st_mtime_ns
+        self.assertEqual(self.store.asset_thumbnail_payload(asset["id"]), thumbnail)
+        self.assertEqual(cached.stat().st_mtime_ns, modified)
+        self.assertEqual(path.read_bytes(), buffer.getvalue())
+        with self.assertRaises(CanvasValidationError):
+            self.store.asset_thumbnail_payload("../invalid")
+
+    def test_reuse_fields_and_seed_round_trip(self) -> None:
+        self.store.save_workspace({"nodes": [{"id": "p", "type": "prompt", "meta": {
+            "generationSeed": 4294967295, "negativePrompt": "", "cfgRescale": 0,
+            "quality": False, "ucPreset": "0", "imageFormat": "webp", "finalPrompt": "1.3::landscape ::",
+        }}]})
+        meta = self.store.load_workspace()["nodes"][0]["meta"]
+        self.assertEqual(meta["generationSeed"], 4294967295)
+        self.assertEqual(meta["negativePrompt"], "")
+        self.assertEqual(meta["cfgRescale"], 0)
+        self.assertFalse(meta["quality"])
+        self.assertEqual(meta["finalPrompt"], "1.3::landscape ::")
+
     def test_repair_library_image_seed_keeps_existing_seed_and_plain_images(self) -> None:
         seeded_asset = self._store_png_asset({"seed": 111})
         self.store.add_image_to_library(seeded_asset, "有种子", "generated", seed=222)

@@ -100,6 +100,7 @@ from .services.nai_metadata import (
     read_image_generation_info_any,
 )
 from .services.runtime_state import RuntimeStateService
+from .services.generation_parameters import apply_canvas_generation_overrides
 
 
 # 画布可手动调节的生图参数范围
@@ -956,7 +957,7 @@ class BestNAIPlugin(Star):
         applied_source_params = {
             key: payload[key]
             for key in ("steps", "scale", "cfg_rescale", "noise_schedule", "sampler")
-            if payload.get(key)
+            if payload.get(key) not in (None, "")
         }
         gen_config = replace(
             gen_config,
@@ -968,9 +969,9 @@ class BestNAIPlugin(Star):
             trace.note("沿用原图采样参数", applied_source_params)
 
         # 节点高级参数卡：Variety+ 开关（提升构图/姿态多样性）
-        if bool(payload.get("varietyPlus")):
-            gen_config = replace(gen_config, variety_boost=True)
-            trace.note("高级参数", "Variety+ 已开启")
+        if isinstance(payload.get("varietyPlus"), bool):
+            gen_config = replace(gen_config, variety_boost=payload["varietyPlus"])
+            trace.note("高级参数", f"Variety+ {'已开启' if gen_config.variety_boost else '已关闭'}")
 
         # 反推命中的多角色参数：结构化透传（固定开启，网关 400 时自动回退）
         raw_char_prompts = payload.get("retagCharPrompts")
@@ -1039,6 +1040,8 @@ class BestNAIPlugin(Star):
                 artist_prompt=artist_prompt,
                 suffix=self.plugin_config.prompt_suffix or "",
             )
+
+        gen_config = apply_canvas_generation_overrides(gen_config, payload)
 
         if not final_prompt:
             raise ValueError("提示词清理后为空")
@@ -2529,7 +2532,7 @@ class BestNAIPlugin(Star):
                     yield r
 
         except APIKeyError as e:
-            yield event.plain_result(f"❌ API Key 错误：{e.message}")
+            yield event.plain_result(f"❌ {e.message}")
 
         except QuotaExceededError as e:
             yield event.plain_result(f"❌ {e.message}")
@@ -2542,7 +2545,7 @@ class BestNAIPlugin(Star):
 
         except GenerationError as e:
             logger.error(f"[BestNAI] 生成失败: {e}")
-            yield event.plain_result(f"❌ 生成失败：{e.message}")
+            yield event.plain_result(f"❌ 生图失败：{strip_error_subject(e.message, '生图')}")
 
         except Exception as e:
             logger.exception(f"[BestNAI] 未知错误: {e}")

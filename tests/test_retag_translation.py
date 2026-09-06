@@ -5,6 +5,7 @@ import logging
 import sys
 import types
 import unittest
+from canvas_test_sources import canvas_source
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -177,7 +178,7 @@ class FreeTierStepsCapTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.main = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.editor = (ROOT / "pages" / "canvas" / "canvas.js").read_text(encoding="utf-8")
+        self.editor = canvas_source(ROOT / "pages" / "canvas")
 
     def test_backend_caps_at_28(self) -> None:
         self.assertIn("MAX_STEPS = 28", self.main)
@@ -187,7 +188,7 @@ class FreeTierStepsCapTest(unittest.TestCase):
         self.assertNotIn("steps: { default: 28, min: 1, max: 28 }", self.editor)
         # 节点高级参数卡 > 反推命中的原图参数 > 插件默认（后端仍封顶 28）
         self.assertIn(
-            "steps: node.meta?.steps || node.meta?.retagSteps || undefined",
+            'steps: effectiveParameter(meta, "steps", "retagSteps")',
             self.editor,
         )
 

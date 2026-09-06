@@ -76,3 +76,36 @@ the hosted service above is unreachable.
 The upstream project is GPL-3.0. This plugin is AGPL-3.0, which permits combination with
 GPL-3.0 works, so redistribution of the table here is compliant. The file was obtained
 via `mc5024/Plana-App`, which redistributes the same asset under GPL-3.0.
+
+
+## GPT-Image2-Skill (prompting reference)
+
+The visual-anchor checklist in `core/image_retagger.py` is adapted from
+`wuyoscar/GPT-Image2-Skill`, especially `skills/get-prompt-from-image/SKILL.md`.
+The adaptation retains this plugin's NovelAI tag/JSON protocol and character recognition.
+No external CLI, SDK, API key discovery, or GPT Image provider is bundled or invoked.
+
+- Source: https://github.com/wuyoscar/GPT-Image2-Skill
+- License: MIT
+
+MIT License
+
+Copyright (c) 2026 Wuyoscar
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

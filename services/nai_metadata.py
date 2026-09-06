@@ -235,8 +235,8 @@ def _apply_comment_json(comment: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(value, str) or not value.strip():
             v4 = comment.get("v4_prompt" if key == "prompt" else "v4_negative_prompt")
             caption = v4.get("caption") if isinstance(v4, dict) else None
-            value = caption.get("base_caption") if isinstance(caption, dict) else None
-        if isinstance(value, str) and value.strip():
+            value = caption.get("base_caption") if isinstance(caption, dict) else comment.get(key)
+        if isinstance(value, str) and (value.strip() or key == "uc"):
             result["prompt" if key == "prompt" else "negativePrompt"] = value.strip()
 
     char_captions = _parse_char_captions(comment)

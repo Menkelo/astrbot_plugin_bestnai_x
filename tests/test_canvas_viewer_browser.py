@@ -8,7 +8,9 @@ import base64
 import copy
 import mimetypes
 import os
+import json
 import unittest
+import zipfile
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -37,6 +39,9 @@ BRIDGE = """
 window.AstrBotPluginPage = {
   ready: async () => {},
   apiGet: async (path, payload = {}) => {
+    if (path === 'canvas/asset' && window.assetDelays?.[payload.id]) {
+      await new Promise(resolve => setTimeout(resolve, window.assetDelays[payload.id]));
+    }
     if (path === 'canvas/asset/params' && window.metadataDelay) {
       await new Promise(resolve => setTimeout(resolve, window.metadataDelay));
     }
@@ -85,13 +90,14 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         self.errors = []
         self.calls = []
         self.saved_images = []
+        self.generation_error = None
         self.workspace = {
             "viewport": {"x": 0, "y": 0, "scale": 1}, "connections": [],
             "nodes": [self.node("a", 80, RAW_TAGS), self.node("b", 490, "landscape, forest")],
         }
         self.library = [{
             "id": "b" * 32, "name": "Library B", "width": 960, "height": 640,
-            "seed": 222, "tags": "landscape, forest", "dataUrl": self.data_url,
+            "seed": 222, "tags": "landscape, forest",
             "generationMeta": {"sampler": "k_euler", "steps": 20, "negativePrompt": "fog"},
         }]
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
@@ -126,7 +132,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
     def request(self, method, path, payload):
         self.calls.append((method, path, copy.deepcopy(payload)))
         if path == "canvas/config":
-            return {"plugin": {"name": "NAI Diffusion X", "version": "test"}}
+            return {"configured": True, "plugin": {"name": "NAI Diffusion X", "version": "test"}}
         if path == "canvas/canvases":
             return {"canvases": [{"id": "default", "title": "Viewer test", "projectId": "default"}]}
         if path == "canvas/workspace":
@@ -135,8 +141,18 @@ class CanvasViewerBrowserTest(unittest.TestCase):
             return copy.deepcopy(self.workspace)
         if path == "canvas/library":
             return {"images": copy.deepcopy(self.library), "prompts": []}
-        if path == "canvas/asset":
+        if path in ("canvas/asset", "canvas/asset/thumbnail"):
             return {"dataUrl": self.data_url}
+        if path == "canvas/generate":
+            if self.generation_error:
+                raise RuntimeError(self.generation_error)
+            meta = {
+                **copy.deepcopy(PARAMS), "finalPrompt": payload["prompt"], "translatedPrompt": payload["prompt"],
+                "seed": payload.get("seed") or 123, "model": payload["model"],
+                "negativePrompt": payload.get("negative_prompt", "default negative"),
+                "cfgRescale": payload.get("cfg_rescale", 0), "characterPrompts": payload.get("retagCharPrompts", []),
+            }
+            return {"assets": [{"id": "d" * 32, "width": 960, "height": 640, "dataUrl": self.data_url}], "meta": meta}
         if path == "canvas/asset/params":
             return copy.deepcopy(PARAMS) if payload["id"] == "a" * 32 else {
                 "sampler": "k_euler", "steps": 20, "negativePrompt": "fog",
@@ -239,7 +255,20 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         notification = self.page.locator(".toast")
         expect(notification).to_have_text("复制全部信息成功")
 
-        def check_center(expected):
+        def check_center(expected=None):
+            self.page.wait_for_function("""expected => {
+                const stage = document.getElementById('imageViewerStage');
+                if (stage.getAnimations().some(animation => animation.playState === 'running')) return false;
+                const notification = document.querySelector('.toast');
+                if (!notification) return false;
+                const bounds = notification.getBoundingClientRect();
+                const area = stage.getBoundingClientRect();
+                const target = expected ?? (area.x + area.width / 2);
+                return Math.abs(bounds.x + bounds.width / 2 - target) <= 1;
+            }""", arg=expected)
+            if expected is None:
+                area = self.page.locator("#imageViewerStage").bounding_box()
+                expected = area["x"] + area["width"] / 2
             bounds = notification.bounding_box()
             self.assertIsNotNone(bounds)
             self.assertAlmostEqual(bounds["x"] + bounds["width"] / 2, expected, delta=1)
@@ -249,7 +278,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
                 self.page.set_viewport_size({"width": width, "height": height})
                 self.page.wait_for_timeout(350)
                 stage = self.page.locator("#imageViewerStage").bounding_box()
-                check_center(stage["x"] + stage["width"] / 2)
+                check_center()
                 self.screenshot(f"viewer-toast-{width}-expanded.png")
                 self.page.locator("#imageViewerFoldBtn").click()
                 self.page.wait_for_timeout(350)
@@ -258,7 +287,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
                 self.page.locator("#imageViewerFoldBtn").click()
                 self.page.wait_for_timeout(350)
                 stage = self.page.locator("#imageViewerStage").bounding_box()
-                check_center(stage["x"] + stage["width"] / 2)
+                check_center()
                 # Renew the toast between viewports; each individual transition keeps the same notification.
                 self.page.locator("#imageViewerCopyAllBtn").click()
         self.page.keyboard.press("Escape")
@@ -388,6 +417,159 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         expect(self.page.locator(".retag-character-card .retag-layer-summary")).to_contain_text("1/1 有效")
         self.page.locator(".retag-character-row.is-active .retag-character-enabled input").uncheck()
         self.assertIn("is-disabled", self.page.locator(".retag-character-marker").get_attribute("class"))
+
+    def test_zero_rescale_matches_the_outgoing_request(self):
+        self.open_role_editor()
+        node = next(item for item in self.workspace["nodes"] if item["type"] == "prompt")
+        node["y"] = 110
+        node["meta"].update({"retagCharacterExpanded": False, "advParamsExpanded": True, "cfgRescale": 0, "retagCfgRescale": .35, "negativePrompt": ""})
+        self.page.reload()
+        field = self.page.locator(".adv-field").nth(2)
+        expect(field.locator(".adv-value")).to_have_text("0.00 •")
+        expect(field.locator("input")).to_have_value("0")
+        self.page.locator(".generate-btn").click()
+        expect(self.page.locator(".image-preview-wrap")).to_have_count(1)
+        payload = next(payload for _, path, payload in reversed(self.calls) if path == "canvas/generate")
+        self.assertEqual(payload["cfg_rescale"], 0)
+        self.assertEqual(payload["negative_prompt"], "")
+
+    def test_reuse_creates_editable_node_and_passes_image_parameters(self):
+        self.open_image()
+        self.page.locator("#imageViewerReuseBtn").click()
+        expect(self.page.locator("#imageViewer")).to_be_hidden()
+        expect(self.page.locator(".prompt-text")).to_have_value(RAW_TAGS)
+        expect(self.page.get_by_role("textbox", name="节点负面提示词")).to_have_value("lowres, blurry")
+        expect(self.page.get_by_role("textbox", name="生成种子")).to_have_value("111")
+        self.assertFalse(any(path == "canvas/generate" for _, path, _ in self.calls))
+        self.page.get_by_role("textbox", name="生成种子").fill("222")
+        self.page.get_by_role("textbox", name="节点负面提示词").fill("soft focus")
+        self.page.locator(".generate-btn").click()
+        expect(self.page.locator(".image-preview-wrap")).to_have_count(3)
+        payload = next(payload for _, path, payload in reversed(self.calls) if path == "canvas/generate")
+        self.assertEqual(payload["prompt"], RAW_TAGS)
+        self.assertEqual(payload["seed"], 222)
+        self.assertEqual(payload["model"], "nai-diffusion-4-5-full")
+        self.assertEqual(payload["ratio"], "960x640")
+        self.assertEqual(payload["negative_prompt"], "soft focus")
+        self.assertEqual(payload["cfg_rescale"], 0)
+        self.assertEqual(payload["noise_schedule"], "karras")
+        self.assertEqual(payload["sampler"], "k_euler_ancestral")
+        self.assertEqual(payload["retagCharPrompts"][0]["center"], {"x": .17, "y": .53})
+        self.assertTrue(payload["raw"])
+
+    def test_preview_navigation_keeps_fold_state(self):
+        self.open_image()
+        self.page.locator("#imageViewerFoldBtn").click()
+        self.page.locator("#imageViewerNextBtn").click()
+        expect(self.page.locator("#imageViewerTitle")).to_have_text("Image B")
+        self.assertIn("folded", self.page.locator("#imageViewer").get_attribute("class").split())
+        expect(self.page.locator("#imageViewerFoldBtn")).to_have_attribute("aria-expanded", "false")
+
+    def test_character_editor_stays_inside_narrow_viewport(self):
+        self.open_role_editor()
+        for width in (700, 390):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({"width": width, "height": 900})
+                self.page.wait_for_timeout(100)
+                box = self.page.locator(".retag-character-editor-popover").bounding_box()
+                self.assertGreaterEqual(box["x"], 10)
+                self.assertLessEqual(box["x"] + box["width"], width - 10)
+                self.assertGreaterEqual(box["y"], 10)
+                self.assertLessEqual(box["y"] + box["height"], 890)
+        self.page.get_by_role("button", name="关闭角色编辑", exact=True).click()
+        expect(self.page.locator(".retag-character-editor-popover")).to_be_hidden()
+        self.page.locator(".retag-character-marker").first.click()
+        expect(self.page.locator(".retag-character-editor-popover")).to_be_visible()
+
+    def test_library_only_reads_visible_thumbnails_until_preview(self):
+        self.library = [{"id": f"{index:032x}", "name": f"素材 {index}", "artist": "测试画师", "width": 960, "height": 640, "seed": index, "tags": "landscape"} for index in range(1, 201)]
+        self.page.reload()
+        self.calls.clear()
+        self.page.locator("#assetLibraryBtn").click()
+        self.page.locator(".asset-stack-card").first.click()
+        self.page.wait_for_timeout(200)
+        thumbs = [path for _, path, _ in self.calls if path == "canvas/asset/thumbnail"]
+        self.assertGreater(len(thumbs), 0)
+        self.assertLess(len(thumbs), 200)
+        self.assertFalse(any(path == "canvas/asset" for _, path, _ in self.calls))
+        self.page.locator(".asset-image-card").first.click()
+        expect(self.page.locator("#imageViewer")).to_be_visible()
+        self.assertEqual(sum(path == "canvas/asset" for _, path, _ in self.calls), 1)
+
+    def test_latest_library_navigation_wins_and_close_cancels_pending_open(self):
+        self.library = [{"id": letter * 32, "name": letter.upper(), "width": 960, "height": 640, "tags": "landscape", "seed": 1} for letter in ("b", "c", "d")]
+        self.page.reload()
+        self.page.locator("#assetLibraryBtn").click()
+        self.page.locator(".asset-stack-card").first.click()
+        self.page.locator(".asset-image-card").first.click()
+        expect(self.page.locator("#imageViewerTitle")).to_have_text("B")
+        self.page.evaluate("window.assetDelays = { ['c'.repeat(32)]: 500, ['d'.repeat(32)]: 20 }")
+        self.page.locator("#imageViewerNextBtn").click()
+        self.page.locator("#imageViewerNextBtn").click()
+        expect(self.page.locator("#imageViewerTitle")).to_have_text("D")
+        self.page.wait_for_timeout(550)
+        expect(self.page.locator("#imageViewerTitle")).to_have_text("D")
+        self.page.keyboard.press("Escape")
+        self.library.append({"id": "e" * 32, "name": "E", "width": 960, "height": 640, "tags": "landscape", "seed": 1})
+        self.page.locator("#assetRefreshBtn").click()
+        self.page.evaluate("window.assetDelays['e'.repeat(32)] = 500")
+        self.page.locator('[data-asset-id="' + "e" * 32 + '"]').click()
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(550)
+        expect(self.page.locator("#imageViewer")).to_be_hidden()
+
+    def test_asset_cache_is_bounded_deduplicates_and_recovers_after_failure(self):
+        result = self.page.evaluate("""async () => {
+          const {AssetCache} = await import('./asset-cache.js?v=4.6.29');
+          const calls = {}; let active = 0, peak = 0;
+          const cache = new AssetCache(async id => {
+            calls[id] = (calls[id] || 0) + 1;
+            active++; peak = Math.max(peak, active);
+            await new Promise(resolve => setTimeout(resolve, 5)); active--;
+            if (id === 'retry' && calls[id] === 1) throw new Error('offline');
+            return {dataUrl: id.repeat(4)};
+          }, {maxEntries: 2, maxBytes: 40, concurrency: 2});
+          await Promise.all([cache.get('a'), cache.get('a'), cache.get('b'), cache.get('c')]);
+          await cache.get('retry').catch(() => {});
+          const recovered = await cache.get('retry');
+          return {calls, peak, size: cache.entries.size, bytes: cache.bytes, recovered: recovered.dataUrl};
+        }""")
+        self.assertEqual(result["calls"]["a"], 1)
+        self.assertEqual(result["calls"]["retry"], 2)
+        self.assertLessEqual(result["peak"], 2)
+        self.assertLessEqual(result["size"], 2)
+        self.assertLessEqual(result["bytes"], 40)
+        self.assertTrue(result["recovered"])
+
+    def test_archive_reads_originals_across_cache_eviction(self):
+        self.library = [{"id": f"{index:032x}", "name": f"素材 {index}", "width": 960, "height": 640, "seed": index, "tags": "landscape"} for index in range(10, 24)]
+        self.page.reload()
+        self.page.locator("#assetLibraryBtn").click()
+        self.page.locator("#assetSelectModeBtn").click()
+        self.page.locator(".asset-stack-card").first.click()
+        with self.page.expect_download() as download:
+            self.page.locator("#assetArchiveSelectedBtn").click()
+        with zipfile.ZipFile(download.value.path()) as archive:
+            manifest = json.loads(archive.read("library-manifest.json"))
+            self.assertEqual(len(manifest["assets"]), 14)
+            for asset in manifest["assets"]:
+                self.assertNotIn("skipped", asset)
+                self.assertGreater(len(archive.read(asset["file"])), 0)
+
+    def test_failed_generation_exposes_copyable_diagnostic(self):
+        self.open_role_editor()
+        node = next(item for item in self.workspace["nodes"] if item["type"] == "prompt")
+        node["y"] = 110
+        node["meta"]["retagCharacterExpanded"] = False
+        self.generation_error = "生图失败：接口访问被拦截\n\n诊断信息：\n错误类型：访问拦截\n上游 HTTP：403\n原始信息：Cloudflare blocked request"
+        self.page.reload()
+        self.page.locator(".generate-btn").click()
+        copy_button = self.page.get_by_role("button", name="复制诊断信息", exact=True)
+        expect(copy_button).to_be_visible()
+        copy_button.click()
+        diagnostic = self.page.evaluate("navigator.clipboard.readText()")
+        self.assertIn("403", diagnostic)
+        self.assertIn("Cloudflare", diagnostic)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from pathlib import Path
 import re
 import unittest
+from canvas_test_sources import canvas_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,12 +27,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertLess(html.index(BRIDGE_SDK), html.index(editor_script))
 
     def test_page_scripts_wait_for_delayed_bridge(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         self.assertIn("while (!window.AstrBotPluginPage", editor)
 
     def test_editor_only_opens_drop_overlay_for_supported_images(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         self.assertIn('includes("Files")', editor)
         # 拖放监听回退到 4.5.0 的已知可用形态。4.6.x 期间 codex 反复改写这段
         # 代码（document 捕获监听、items[] 兜底、URL/HTML 分支）都没能修好
@@ -51,7 +52,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('window.addEventListener("dragend", clearDropOverlay)', editor)
 
     def test_editor_allows_native_text_selection_and_clipboard_actions(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         self.assertNotIn('document.addEventListener("dragstart"', editor)
         self.assertIn('id="imageViewerImage" alt="" draggable="false"', (PAGE_ROOT / "editor.html").read_text(encoding="utf-8"))
@@ -73,7 +74,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_double_click_creates_prompt_without_creation_menu(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertNotIn('id="createMenu"', html)
@@ -93,7 +94,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("minimap", styles)
 
     def test_canvas_uses_cad_style_left_selection_and_middle_pan(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("AutoCAD-style window selection", editor)
@@ -117,7 +118,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(10, minmax(28px, 1fr));", mobile)
 
     def test_editor_persists_resized_notes_prompts_and_images(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("height: node.height || 0", editor)
@@ -145,7 +146,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("model: node.model || \"\"", serializable)
 
     def test_editor_caches_images_across_undo_and_redo(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("assetCache: new Map()", editor)
@@ -156,7 +157,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_manages_projects_without_a_workspace_gate(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         self.assertIn('id="projectMenuBtn"', html)
         self.assertIn('class="project-switcher toolbar-project-switcher"', html)
@@ -172,7 +173,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("请先从项目工作台选择或创建画布", editor)
 
     def test_prompt_nodes_retag_then_generate_and_leave_library_explicit(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
@@ -246,7 +247,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("add_image_to_library", upload_body)
 
     def test_retag_tag_layers_are_an_attached_card_and_affect_generation(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -329,7 +330,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_image_nodes_have_fullscreen_viewer(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")
 
@@ -418,7 +419,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function splitImageViewerPromptTokens", editor)
         self.assertIn("function imageViewerWeightedTokenParts", editor)
         self.assertIn("state.viewerTagsFiltered = stripImageViewerControlTags(", editor)
-        self.assertIn('state.viewerTagsFull = String(meta.tags || meta.finalPrompt || "").trim();', editor)
+        self.assertIn('state.viewerTagsFull = String(meta.finalPrompt || meta.tags || "").trim();', editor)
         self.assertIn('meta.artist || ""', editor)
         self.assertIn("retagControlPrompts: []", editor)
         self.assertIn('"retagControlPrompts": self.plugin_config.get_retag_control_prompts()', main)
@@ -538,9 +539,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('raw.addEventListener("click", (event) => {', editor)
         self.assertIn("if (event.detail > 0) raw.blur();", editor)
 
-    def test_library_preloads_and_uses_click_preview_without_direct_drag(self) -> None:
+    def test_library_uses_lazy_thumbnails_and_click_preview_without_direct_drag(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         zip_utils = (PAGE_ROOT / "zip-utils.js").read_text(encoding="utf-8")
 
@@ -554,8 +555,9 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn('id="assetSort"', html)
         self.assertNotIn('id="assetThumbSize"', html)
         self.assertNotIn('<strong>素材库</strong>', html)
-        self.assertIn("function preloadLibraryImages()", editor)
-        self.assertIn("preloadLibraryImages();", editor)
+        self.assertNotIn("function preloadLibraryImages()", editor)
+        self.assertIn("function observeThumbnail", editor)
+        self.assertIn('bridge.apiGet("canvas/asset/thumbnail", { id })', editor)
         self.assertIn("ensureLibraryImageData(item)", editor)
         self.assertIn("openLibraryImageViewer(item);", editor)
         self.assertIn("function attachLibraryImagePreview", editor)
@@ -797,7 +799,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn(".asset-image-card::before", styles)
 
     def test_artist_badges_and_generation_buttons_have_stable_layout(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
@@ -814,7 +816,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('"artist": _short_text(raw_meta.get("artist"), 120)', service)
 
     def test_clicked_nodes_move_to_front_and_image_labels_keep_source_prompt(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         self.assertIn("function bringNodeToFront", editor)
         self.assertIn("state.nodes.splice(index, 1)", editor)
@@ -831,7 +833,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('source: node.meta?.retagged ? "retagged" : "generated"', editor)
 
     def test_new_prompt_nodes_inherit_last_ratio_and_artist(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
         self.assertIn('const PROMPT_DEFAULTS_KEY = "bestnaiInfiniteCanvasPromptDefaults"', editor)
@@ -852,7 +854,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_generation_avoids_existing_nodes_and_text_inputs_keep_native_undo(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("function findOpenGeneratedPosition", editor)
@@ -885,7 +887,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn(".asset-save-prompt", styles)
 
     def test_asset_library_owns_wheel_and_has_no_direct_drag_ghost(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("function nodeEditorOwnsWheel(target)", editor)
@@ -904,7 +906,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         **捕获阶段**监听——它先于预览自己的处理器执行，预览侧就算 stopPropagation
         也拦不住。所以只能在收起素材库的条件里显式排除 .image-viewer。
         """
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         closer = editor.split("// 点击素材库面板之外的地方收起素材库", 1)[1].split(
             "}, true);", 1
@@ -932,7 +934,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_editor_uses_one_topbar_with_health_status_and_aligned_ports(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('class="topbar panel"', html)
@@ -969,7 +971,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_project_menu_matches_toolbar_and_asset_panel_geometry(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('class="tool-btn icon-only project-menu-trigger"', html)
@@ -987,7 +989,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_mobile_toolbar_keeps_actions_and_canvas_supports_pinch_zoom(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         mobile_styles = styles.split("@media (max-width: 620px) {", 1)[1].split(
@@ -1055,7 +1057,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("const height = element?.offsetHeight || node.height || 260", editor)
 
     def test_prompt_editors_own_wheel_scrolling_and_logo_is_round(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         wheel_owner = editor.split("function nodeEditorOwnsWheel", 1)[1].split(
@@ -1078,7 +1080,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("border-radius: 999px;", logo_styles)
 
     def test_wheel_zoom_is_ignored_while_canvas_is_panning(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         wheel_body = editor.split('els.viewport.addEventListener("wheel"', 1)[1].split(
             'els.assetPanel.addEventListener("wheel"', 1
@@ -1093,7 +1095,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
 
     def test_placing_library_images_recovers_missing_seed(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # 旧版本收录的素材可能没存 seed；放入画布前必须尝试从 PNG 元数据回填，
         # 否则图片卡片左下角会一直显示「生成结果 xx:xx」而不是种子。
@@ -1102,7 +1104,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("readyItems.map((item) => recoverLibraryImageSeed(item))", editor)
 
     def test_first_image_link_aligns_prompt_ratio_to_source_image(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # 首次链接图片时画幅自动向被反推图看齐；用户手动选过画幅则不动
         self.assertIn("function alignPromptRatioToImage", editor)
@@ -1139,7 +1141,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("model_supports_cjk(current_model)", main_source)
 
     def test_canvas_generate_round_trips_char_prompt_entries(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         # 反推结果缓存、缓存复用与生成请求三条链路都要携带角色参数
@@ -1195,7 +1197,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('if getattr(self.plugin_config, "use_official_api", False)', main_source)
 
     def test_canvas_generate_reuses_source_sampling_params(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         # 采样参数来自对原图文件的解析，直接采纳后端返回值。fromMetadata 只
@@ -1235,11 +1237,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         ):
             self.assertNotIn(f"{key}: result.fromMetadata", editor)
         self.assertIn(
-            "cfg_rescale: node.meta?.cfgRescale ?? node.meta?.retagCfgRescale ?? undefined",
+            'cfg_rescale: effectiveParameter(meta, "cfgRescale", "retagCfgRescale")',
             editor,
         )
-        self.assertIn("noise_schedule: node.meta?.retagNoiseSchedule || undefined", editor)
-        self.assertIn("sampler: node.meta?.retagSampler || undefined", editor)
+        self.assertIn('noise_schedule: effectiveParameter(meta, "noiseSchedule", "retagNoiseSchedule")', editor)
+        self.assertIn('sampler: effectiveParameter(meta, "sampler", "retagSampler")', editor)
         # 断开重连时这些缓存必须一并清除
         for key in (
             "retagSteps",
@@ -1276,7 +1278,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".adv-source-note", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
 
     def test_generation_status_matches_translation_state(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # 状态文案与后端一致：含中文即翻译（所有模型同策略），
         # 不再有 raw/V5 的免翻译特例
@@ -1293,7 +1295,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("正在生成图片（原始提示词）", editor)
 
     def test_icons_are_cached_and_not_rescanned(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # lucide 扫的是 [data-lucide]，而它生成的 SVG 自己也带这个属性，
         # 于是每次 createIcons 都会把已转换好的图标再重建一遍；renderNodes
@@ -1316,7 +1318,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
 
     def test_retag_success_repaints_so_sliders_follow_the_source(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # 反推刚往 node.meta 写完原图采样参数，不重绘高级参数卡就不会重建，
         # 滑条一直停在旧值上——数据到了、界面没动。开头和 catch 都有重绘，
@@ -1341,7 +1343,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
 
     def test_operation_log_shows_only_recent_entries(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         self.assertIn("const OPERATION_VISIBLE_LIMIT = 9;", editor)
         self.assertIn("const IMPORTANT_OPERATION_ACTIONS = new Set([", editor)
@@ -1350,7 +1352,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('head.textContent = "操作记录";', editor)
 
     def test_raw_generated_images_carry_a_badge(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
@@ -1367,7 +1369,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("rawBadge.title", editor)
 
     def test_node_selects_are_not_browser_default(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 
@@ -1418,7 +1420,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('"label": f"{width}×{height} · {name}"', main_source)
 
     def test_raw_toggle_tooltips_stay_inside_the_card(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         # 气泡统一挂在属性选择器上，任何元素加 data-tooltip 都是同一套外观和
@@ -1459,7 +1461,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("翻译", raw_tooltip)
 
     def test_raw_mode_can_opt_back_into_translation(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
         store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
@@ -1480,7 +1482,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('"rawTranslate": bool(raw_meta.get("rawTranslate", False))', store)
 
     def test_asset_stack_covers_never_render_srcless_images(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         stack_body = editor.split("function renderAssetStackCard", 1)[1].split(
@@ -1494,7 +1496,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_dual_model_commands_and_canvas_model_select(self) -> None:
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # /nai=4.5、/nai5=V5、/nai0=4.5 raw、/nai50=V5 raw
         self.assertIn('@filter.command("nai5")', main_source)
@@ -1512,7 +1514,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("结构化透传（固定开启", main_source)
 
     def test_prompt_card_advanced_params_and_count(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         # 高级参数折叠卡：与标签图层同款卡壳，挂在标签图层上方
@@ -1537,7 +1539,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("retag-layer-help", adv_body)
         self.assertNotIn("toggle.dataset.tooltip =", adv_body)
         # 原生 title 要悬停约一秒才出来，和提示词卡的秒开气泡对不上，不该再混用
-        self.assertNotIn(".title = ", adv_body)
+        self.assertIn("if (hasReusedParams) caption.title = tooltip;", adv_body)
+        self.assertIn("else caption.dataset.tooltip = tooltip;", adv_body)
         # 折叠点击不被卡片 pointerdown 的 DOM 移动吞掉
         # 中键需要继续冒泡到画布；普通点击仍需阻断，避免卡片重排吞掉 toggle click
         self.assertIn(
@@ -1582,7 +1585,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertIn("(slot % 2) * (imageNodeWidth + 48)", editor)
         # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖
-        self.assertEqual(editor.count("node.meta?.retagSteps || undefined"), 1)
+        self.assertEqual(editor.count("...generationParameterPayload(node.meta)"), 1)
         # 画幅/画师/模型跟随上一张卡片；张数与高级参数不跟随
         self.assertIn("rememberPromptDefaults({ model: value })", editor)
         self.assertIn("model: adv.model || state.config.defaultModel", editor)
@@ -1603,7 +1606,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("aspect-ratio", thumb_block)
 
     def test_source_tags_support_per_tag_removal(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")
 
@@ -1635,7 +1638,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn('meta["retagDropTags"] = retag_drop_tags', store)
 
     def test_source_tags_card_offers_copy_and_restore(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         card_body = editor.split("function makeRetagLayerCard", 1)[1]
 
         # 复制只给没划掉的标签，否则复制出来的和实际生效的对不上
@@ -1661,7 +1664,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("text-overflow: ellipsis", tag_block)
 
     def test_variety_plus_is_hidden_when_v5_is_selected(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         # V5 的官方能力表里没有 skip_cfg_above_sigma，后端 model_supports_variety_boost()
@@ -1688,7 +1691,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".raw-toggle[hidden]", styles)
 
     def test_switching_model_keeps_the_variety_setting(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         model_change = editor.split("const modelField = makeSelectField(", 1)[1].split(
             "const countField", 1
         )[0]
@@ -1719,7 +1722,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
                 )
 
     def test_canvas_scroll_is_state_driven_and_debug_body_owns_wheel(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         # 调试栏滚轮兜底：滚轮落在 body 之外时手动滚动调试内容
@@ -1754,7 +1757,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("user-select: text;", debug_body)
 
     def test_retag_cache_is_independent_of_handwritten_overlay(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         cache_body = editor.split("function cachedRetagResult", 1)[1].split(
             "function runPromptNode", 1
         )[0]
@@ -1766,13 +1769,13 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("clearTranslationCache(node);", input_body)
         self.assertNotIn("clearRetagCache(node);", input_body)
         self.assertIn(
-            "const callSeed = index === 0 && retagged ? reusableRetagSeed(node) : undefined",
+            "normalizeNaiSeed(node.meta?.generationSeed) || (retagged ? reusableRetagSeed(node) : undefined)",
             editor,
         )
         self.assertIn("The seed belongs to the source image", editor)
 
     def test_debug_bar_is_a_persistent_aligned_recorder(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         debug = styles.split(".debug-bar {", 1)[1].split("}", 1)[0]
         self.assertIn("bottom: 24px;", debug)
@@ -1796,7 +1799,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_canvas_uses_only_the_blank_background(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertNotIn('id="gridStyleBtn"', html)
@@ -1815,7 +1818,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_minimap_is_removed_from_the_canvas(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertNotIn('id="minimap"', html)
@@ -1827,7 +1830,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn(".arrange-selection-btn", styles)
 
     def test_debug_bar_groups_prompt_merge_details(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("function makeDebugMergeSummary(details, translations = {})", editor)
@@ -1862,7 +1865,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
                 self.assertNotIn(f".debug-merge-group.is-{tone} .debug-merge-group-label", styles)
 
     def test_debug_bar_follows_prompt_selection_without_full_render(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         selection = editor.split("function setSelection(ids", 1)[1].split(
             "\nfunction ", 1
         )[0]
@@ -1886,7 +1889,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("state.lastDebugNodeId = node.id;", recorder)
 
     def test_source_image_seed_and_tags_are_recovered_for_library_round_trip(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         self.assertIn("sourceImage.meta =", editor)
         self.assertIn("tags: retagPrompt,", editor)
         self.assertNotIn("tags: sourceImage.meta?.tags || retagPrompt", editor)
@@ -1896,7 +1899,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("meta.tags || meta.finalPrompt || meta.retagPrompt", editor)
 
     def test_removing_or_replacing_image_source_clears_retag_cache(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         delete_body = editor.split("function deleteConnection", 1)[1].split(
             "function duplicateNode", 1
         )[0]
@@ -1953,7 +1956,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("<span>图片</span>", html)
 
     def test_prompt_card_bottom_hint_stays_inside_the_card(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         # .node 是 overflow: visible（端口要露出卡片），所以裁剪必须落在 node-body
@@ -1998,7 +2001,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("height: auto;", image)
 
     def test_generation_does_not_interrupt_prompt_typing(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # 生成完成会重渲染，整层 replaceChildren 把焦点和光标一起清掉
         self.assertIn("function captureEditingFocus", editor)
@@ -2033,7 +2036,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_plugin_version_has_no_hardcoded_fallback(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
 
         # 版本号只能来自后端，写死兜底值会在后端没返回时显示成过期的假版本
         self.assertNotRegex(editor, r'plugin\.version \|\| "\d')
@@ -2047,7 +2050,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotRegex(version_line, r"v\d+\.\d+")
 
     def test_logo_easter_egg_needs_three_quick_clicks(self) -> None:
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn("function setupLogoEasterEgg()", editor)
@@ -2075,7 +2078,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_middle_mouse_pans_and_context_menu_adds_nodes(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('id="canvasContextMenu"', html)
@@ -2103,7 +2106,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_node_context_menu_matches_node_type_actions(self) -> None:
         html = (PAGE_ROOT / "editor.html").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
 
         self.assertIn('id="nodeContextMenu"', html)
@@ -2142,7 +2145,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
     def test_character_preservation_is_removed(self) -> None:
         retagger = (ROOT / "core" / "image_retagger.py").read_text(encoding="utf-8")
-        editor = (PAGE_ROOT / "canvas.js").read_text(encoding="utf-8")
+        editor = canvas_source(PAGE_ROOT)
         styles = (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8")
         service = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 

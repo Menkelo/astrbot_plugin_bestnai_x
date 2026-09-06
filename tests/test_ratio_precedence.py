@@ -4,6 +4,7 @@ import json
 import sys
 import types
 import unittest
+from canvas_test_sources import canvas_source
 from pathlib import Path
 
 
@@ -175,7 +176,7 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.main = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.editor = (ROOT / "pages" / "canvas" / "canvas.js").read_text(encoding="utf-8")
+        self.editor = canvas_source(ROOT / "pages" / "canvas")
         self.html = (ROOT / "pages" / "canvas" / "editor.html").read_text(encoding="utf-8")
         self.store = (ROOT / "services" / "canvas.py").read_text(encoding="utf-8")
 
@@ -191,20 +192,20 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
     def test_seed_is_returned_and_reusable(self) -> None:
         self.assertIn('seed=payload.get("seed")', self.main)
         self.assertIn('"seed": result.seed', self.main)
-        self.assertIn("steps: node.meta?.steps || node.meta?.retagSteps || undefined", self.editor)
-        self.assertIn("scale: node.meta?.scale || node.meta?.retagScale || undefined", self.editor)
+        self.assertIn('steps: effectiveParameter(meta, "steps", "retagSteps")', self.editor)
+        self.assertIn('scale: effectiveParameter(meta, "scale", "retagScale")', self.editor)
         self.assertIn("function reusableRetagSeed(node)", self.editor)
         self.assertIn("function clearRetagSeed(node)", self.editor)
-        self.assertIn("const callSeed = index === 0 && retagged ? reusableRetagSeed(node) : undefined", self.editor)
+        self.assertIn("normalizeNaiSeed(node.meta?.generationSeed) || (retagged ? reusableRetagSeed(node) : undefined)", self.editor)
 
     def test_canvas_uses_plugin_generation_defaults(self) -> None:
-        # 画布不再提供步数 / 引导系数覆盖，统一使用插件配置。
+        # 未覆盖的参数沿用插件默认值；界面和请求共用取值规则。
         self.assertNotIn('id="genSettingsPanel"', self.html)
         self.assertNotIn("function setupGenSettings", self.editor)
         self.assertNotIn("function makeAdvancedPanel", self.editor)
         self.assertNotIn('summary.textContent = "高级选项"', self.editor)
-        self.assertIn("steps: node.meta?.steps || node.meta?.retagSteps || undefined", self.editor)
-        self.assertIn("scale: node.meta?.scale || node.meta?.retagScale || undefined", self.editor)
+        self.assertIn('steps: effectiveParameter(meta, "steps", "retagSteps")', self.editor)
+        self.assertIn('scale: effectiveParameter(meta, "scale", "retagScale")', self.editor)
 
     def test_new_meta_fields_are_persisted(self) -> None:
         # 工作区不保存这些字段的话，刷新页面种子就丢了
