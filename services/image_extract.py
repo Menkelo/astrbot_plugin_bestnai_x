@@ -41,6 +41,7 @@ def _is_probably_usable_image_ref(value: str) -> bool:
     可用：
     - http/https
     - file://
+    - data:image/...;base64,... / base64://...
     - 绝对路径
     - 存在的相对路径
 
@@ -58,6 +59,9 @@ def _is_probably_usable_image_ref(value: str) -> bool:
         return True
 
     if low.startswith("file://"):
+        return True
+
+    if low.startswith(("data:image/", "base64://")):
         return True
 
     if os.path.isabs(value):

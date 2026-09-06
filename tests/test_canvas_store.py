@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import tempfile
 import time
@@ -699,6 +700,53 @@ class CanvasStoreTest(unittest.TestCase):
     def test_invalid_image_is_rejected(self) -> None:
         with self.assertRaises(CanvasValidationError):
             self.store.store_asset(b"this is not an image")
+
+    def test_additional_formats_have_png_previews_and_unchanged_originals(self) -> None:
+        for fmt, mime in (("BMP", "image/bmp"), ("TIFF", "image/tiff"), ("ICO", "image/x-icon"), ("AVIF", "image/avif")):
+            with self.subTest(format=fmt):
+                output = BytesIO()
+                Image.new("RGB", (32, 32), "red").save(output, format=fmt)
+                original = output.getvalue()
+                uploaded = self.store.stored_asset_payload(original)
+                asset_id = uploaded["id"]
+                self.assertEqual(uploaded["format"], fmt.lower())
+                self.assertEqual(uploaded["mimeType"], "image/png")
+                with Image.open(BytesIO(base64.b64decode(uploaded["dataUrl"].split(",", 1)[1]))) as preview:
+                    preview.load()
+                    self.assertEqual(preview.format, "PNG")
+                    self.assertEqual(preview.size, (32, 32))
+                exported = self.store.asset_payload(asset_id)
+                self.assertEqual(exported["mimeType"], mime)
+                self.assertEqual(base64.b64decode(exported["dataUrl"].split(",", 1)[1]), original)
+                download_path, download_type = self.store.get_asset(asset_id)
+                self.assertEqual(download_path.read_bytes(), original)
+                self.assertEqual(download_type, mime)
+                self.assertTrue(self.store.asset_thumbnail_payload(asset_id)["dataUrl"].startswith("data:image/jpeg;base64,"))
+
+    def test_gif_preview_retains_animation(self) -> None:
+        output = BytesIO()
+        Image.new("RGB", (32, 24), "red").save(
+            output, format="GIF", save_all=True,
+            append_images=[Image.new("RGB", (32, 24), "blue")], duration=100, loop=0,
+        )
+        uploaded = self.store.stored_asset_payload(output.getvalue())
+        self.assertEqual(uploaded["mimeType"], "image/gif")
+        self.assertEqual(base64.b64decode(uploaded["dataUrl"].split(",", 1)[1]), output.getvalue())
+        with Image.open(self.store.get_asset(uploaded["id"])[0]) as image:
+            self.assertEqual(image.n_frames, 2)
+
+    def test_truncated_jpeg_is_rejected_before_storage(self) -> None:
+        output = BytesIO()
+        Image.new("RGB", (32, 24), "blue").save(output, format="JPEG")
+        with self.assertRaisesRegex(CanvasValidationError, "损坏"):
+            self.store.store_asset(output.getvalue()[:-20])
+        self.assertEqual(list(self.store.assets_dir.iterdir()), [])
+
+    def test_original_format_survives_workspace_roundtrip(self) -> None:
+        self.store.save_workspace({"nodes": [{
+            "id": "image_tiff", "type": "image", "meta": {"sourceFormat": "tiff"},
+        }], "connections": []})
+        self.assertEqual(self.store.load_workspace()["nodes"][0]["meta"]["sourceFormat"], "tiff")
 
     def test_projects_keep_canvas_workspaces_isolated(self) -> None:
         project = self.store.create_project("角色设计")

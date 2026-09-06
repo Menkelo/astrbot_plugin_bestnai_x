@@ -23,6 +23,7 @@ export function effectiveParameter(meta, key, sourceKey, fallback) {
 }
 
 export function generationParameterPayload(meta = {}) {
+  const imageFormat = String(meta.imageFormat || "").toLowerCase().replace(/^jpeg$/, "jpg");
   return {
     steps: effectiveParameter(meta, "steps", "retagSteps"),
     scale: effectiveParameter(meta, "scale", "retagScale"),
@@ -31,7 +32,7 @@ export function generationParameterPayload(meta = {}) {
     noise_schedule: effectiveParameter(meta, "noiseSchedule", "retagNoiseSchedule"),
     negative_prompt: meta.negativePrompt,
     uc_preset: meta.ucPreset,
-    image_format: meta.imageFormat,
+    image_format: ["png", "jpg", "webp"].includes(imageFormat) ? imageFormat : undefined,
     quality: meta.quality,
   };
 }

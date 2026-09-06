@@ -8,6 +8,7 @@ from typing import Dict, Iterable, Tuple
 from astrbot.api import logger
 
 from .api_errors import describe_api_error
+from .image_input import ImageInputError, vision_image_path
 from .provider_utils import (
     ProviderRoutingError,
     call_provider,
@@ -373,22 +374,26 @@ class ImageRetagger:
             "Convert this image into NovelAI / Danbooru image generation tags. "
             "Return the JSON object described in the system prompt."
         )
-        # Pass the original local path/URL to AstrBot.  Its provider adapter
-        # owns media resolution and the correct multimodal request shape.
+        # Normalize only the vision input. The original remains available for
+        # metadata reuse, animated previews and downloads. AstrBot still owns
+        # the provider request shape and credentials.
         try:
-            resolved_id, provider, response = await call_provider(
-                self.context,
-                provider_id,
-                prompt=user_text,
-                system_prompt=system_prompt,
-                image_urls=[str(image_path_or_url)],
-                temperature=0.2,
-            )
+            async with vision_image_path(image_path_or_url) as image_path:
+                resolved_id, provider, response = await call_provider(
+                    self.context,
+                    provider_id,
+                    prompt=user_text,
+                    system_prompt=system_prompt,
+                    image_urls=[image_path],
+                    temperature=0.2,
+                )
             content = response_text(response)
             logger.info(
                 f"[BestNAI/ImageRetag] 使用 AstrBot provider={resolved_id}, "
                 f"model={provider_model_of(provider) or '(当前模型)'}"
             )
+        except ImageInputError as exc:
+            raise ImageRetagError(str(exc)) from exc
         except ProviderRoutingError as exc:
             raise ImageRetagError(describe_api_error(str(exc), "图片反推", debug)) from exc
         except (asyncio.TimeoutError, TimeoutError) as e:

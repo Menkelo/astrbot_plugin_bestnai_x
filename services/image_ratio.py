@@ -1,12 +1,31 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from io import BytesIO
 from typing import Callable, Dict, Tuple
 
-import aiohttp
 from PIL import Image as PILImage
+
+try:
+    from ..core.image_input import MAX_IMAGE_PIXELS, read_image_bytes
+except ImportError:  # pragma: no cover - legacy flat layout
+    from core.image_input import MAX_IMAGE_PIXELS, read_image_bytes
+
+
+def _image_size(image: PILImage.Image) -> Tuple[int, int]:
+    width, height = image.size
+    if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+        raise ValueError("图片尺寸无效或像素数超过 3000 万限制")
+    if image.getexif().get(274) in {5, 6, 7, 8}:
+        width, height = height, width
+    return width, height
+
+
+def _image_size_from_bytes(data: bytes) -> Tuple[int, int]:
+    with PILImage.open(BytesIO(data)) as image:
+        return _image_size(image)
 
 
 def read_local_image_size(path: str) -> Tuple[int, int]:
@@ -27,39 +46,17 @@ def read_local_image_size(path: str) -> Tuple[int, int]:
         raise ValueError(f"图片文件不存在：{path}")
 
     with PILImage.open(path) as im:
-        return int(im.width), int(im.height)
+        return _image_size(im)
 
 
 async def read_url_image_size(url: str) -> Tuple[int, int]:
-    timeout = aiohttp.ClientTimeout(total=60)
-
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "image/*,*/*",
-    }
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url, headers=headers) as resp:
-            if resp.status < 200 or resp.status >= 300:
-                text = await resp.text()
-                raise ValueError(f"下载图片失败 HTTP {resp.status}: {text[:120]}")
-
-            data = await resp.read()
-
-    with PILImage.open(BytesIO(data)) as im:
-        return int(im.width), int(im.height)
+    data = await read_image_bytes(url)
+    return await asyncio.to_thread(_image_size_from_bytes, data)
 
 
 async def read_image_size_any(image_src: str) -> Tuple[int, int]:
-    src = str(image_src or "").strip()
-
-    if not src:
-        raise ValueError("图片为空")
-
-    if src.startswith("http://") or src.startswith("https://"):
-        return await read_url_image_size(src)
-
-    return read_local_image_size(src)
+    data = await read_image_bytes(image_src)
+    return await asyncio.to_thread(_image_size_from_bytes, data)
 
 
 RATIO_SOURCE_USER = "user"

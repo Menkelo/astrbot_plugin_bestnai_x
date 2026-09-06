@@ -1,6 +1,6 @@
-import { createCharacterEditor } from "./character-editor.js?v=4.6.29";
-import { createImageViewer } from "./image-viewer.js?v=4.6.29";
-import { createAssetLibrary } from "./asset-library.js?v=4.6.29";
+import { createCharacterEditor } from "./character-editor.js?v=4.6.30";
+import { createImageViewer } from "./image-viewer.js?v=4.6.30";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.30";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -9,8 +9,8 @@ import {
   imageExtension,
   safeZipName,
   uniqueZipPath,
-} from "./zip-utils.js";
-import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.29";
+} from "./zip-utils.js?v=4.6.30";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.30";
 
 let bridge = null;
 
@@ -4605,12 +4605,13 @@ async function ensureAssetLoaded(node) {
   node.assetLoading = true;
   let dimensionsChanged = false;
   try {
-    const result = await bridge.apiGet("canvas/asset", { id: node.assetId });
+    const result = await bridge.apiGet("canvas/asset", { id: node.assetId, preview: 1 });
     node.dataUrl = result.dataUrl;
     node.meta = {
       ...(node.meta || {}),
       width: node.meta?.width || result.width,
       height: node.meta?.height || result.height,
+      sourceFormat: result.format || node.meta?.sourceFormat,
     };
     cacheImageAsset(node);
     if (
@@ -4657,7 +4658,7 @@ async function downloadImage(node) {
   }
   try {
     const mime = /^data:image\/([^;,]+)/i.exec(node.dataUrl || "")?.[1]?.toLowerCase() || "png";
-    const extension = mime === "jpeg" ? "jpg" : mime;
+    const extension = node.meta?.sourceFormat || (mime === "jpeg" ? "jpg" : mime);
     await bridge.download(
       "canvas/asset/download",
       { id: node.assetId },
@@ -4676,13 +4677,13 @@ function isSupportedImageFile(file) {
   // Desktop drag-and-drop providers occasionally omit MIME metadata.  The
   // backend still verifies the actual bytes, so an extension fallback keeps
   // those legitimate image drops usable without weakening server validation.
-  return /\.(?:png|jpe?g|webp|gif)$/i.test(String(file?.name || ""));
+  return /\.(?:png|jpe?g|jfif|webp|gif|bmp|tiff?|ico|avif)$/i.test(String(file?.name || ""));
 }
 
 async function uploadFiles(files, point = worldCenter()) {
   const images = [...files].filter(isSupportedImageFile);
   if (!images.length) {
-    toast("请选择 PNG、JPEG、WebP 或 GIF 图片", "error");
+    toast("请选择 PNG、JPEG、WebP、GIF、BMP、TIFF、ICO 或 AVIF 图片", "error");
     return;
   }
   for (let index = 0; index < images.length; index += 1) {
@@ -4712,6 +4713,7 @@ async function uploadFiles(files, point = worldCenter()) {
         meta: {
           prompt: images[index].name,
           sourceFilename: images[index].name,
+          sourceFormat: asset.format,
           width: asset.width,
           height: asset.height,
         },

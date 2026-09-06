@@ -28,6 +28,11 @@ export function imageExtension(mimeType) {
     "image/jpeg": "jpg",
     "image/webp": "webp",
     "image/gif": "gif",
+    "image/bmp": "bmp",
+    "image/tiff": "tiff",
+    "image/x-icon": "ico",
+    "image/vnd.microsoft.icon": "ico",
+    "image/avif": "avif",
   })[String(mimeType || "").toLowerCase()] || "bin";
 }
 

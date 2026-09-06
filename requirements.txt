@@ -1,2 +1,2 @@
 aiohttp>=3.8.0
-pillow
+pillow>=11.3.0

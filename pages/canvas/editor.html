@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BestNAI 无限画布</title>
-    <link rel="stylesheet" href="./canvas.css?v=4.6.29" />
+    <link rel="stylesheet" href="./canvas.css?v=4.6.30" />
     <script src="./vendor/lucide.js"></script>
   </head>
   <body>
@@ -180,7 +180,7 @@
       <button id="selectionContextArrange" type="button" role="menuitem"><i data-lucide="layout-grid"></i><span>整理选中</span></button>
       <button id="selectionContextDelete" class="danger" type="button" role="menuitem"><i data-lucide="trash-2"></i><span>删除选中</span></button>
     </div>
-    <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+    <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,image/x-icon,image/vnd.microsoft.icon,image/avif,.png,.jpg,.jpeg,.jfif,.webp,.gif,.bmp,.tif,.tiff,.ico,.avif" multiple hidden />
     <input id="workspaceInput" type="file" accept="application/json,.json" hidden />
 
     <div id="clearModal" class="modal-backdrop" hidden>
@@ -257,6 +257,6 @@
     </div>
 
     <script src="/api/plugin/page/bridge-sdk.js"></script>
-    <script type="module" src="./canvas.js?v=4.6.29"></script>
+    <script type="module" src="./canvas.js?v=4.6.30"></script>
   </body>
 </html>

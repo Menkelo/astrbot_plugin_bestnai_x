@@ -26,15 +26,16 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-import aiohttp
 from PIL import ExifTags, Image as PILImage
 
 try:  # Support both plugin-package imports and direct ``services`` imports.
     from ..constants import normalize_nai_seed
     from ..core.prompt_syntax import convert_sd_to_nai, strip_inline_tags
+    from ..core.image_input import MAX_IMAGE_PIXELS, read_image_bytes
 except ImportError:  # pragma: no cover - compatibility path for standalone tests
     from constants import normalize_nai_seed
     from core.prompt_syntax import convert_sd_to_nai, strip_inline_tags
+    from core.image_input import MAX_IMAGE_PIXELS, read_image_bytes
 
 
 # Comment JSON 里我们关心的数值字段
@@ -546,19 +547,17 @@ async def read_image_generation_info_any(source: str | Path) -> Dict[str, Any]:
     if not value:
         return {}
 
-    if not (value.startswith("http://") or value.startswith("https://")):
-        return await asyncio.to_thread(read_image_generation_info, value)
-
     try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "image/png,image/*;q=0.8,*/*;q=0.1"}
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(value, headers=headers) as response:
-                if response.status < 200 or response.status >= 300:
-                    return {}
-                data = await response.read()
-
-        with PILImage.open(BytesIO(data)) as image:
-            return _parse_open_image(image)
+        # Read the original bytes before any vision conversion. This preserves
+        # both embedded text/EXIF and NovelAI's alpha-channel metadata.
+        data = await read_image_bytes(value)
+        return await asyncio.to_thread(_metadata_from_bytes, data)
     except Exception:
         return {}
+
+
+def _metadata_from_bytes(data: bytes) -> Dict[str, Any]:
+    with PILImage.open(BytesIO(data)) as image:
+        if image.width * image.height > MAX_IMAGE_PIXELS:
+            return {}
+        return _parse_open_image(image)

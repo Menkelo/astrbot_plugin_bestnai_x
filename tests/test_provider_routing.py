@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import sys
 import types
 import unittest
 from pathlib import Path
+from io import BytesIO
 from types import SimpleNamespace
+
+from PIL import Image
 
 
 # These modules are optional in the unit-test environment.  The provider
@@ -95,6 +99,11 @@ class LegacySignatureContext(FakeContext):
 
 
 class ProviderRoutingTest(unittest.IsolatedAsyncioTestCase):
+    def image_source(self) -> str:
+        output = BytesIO()
+        Image.new("RGB", (24, 16), "blue").save(output, "PNG")
+        return "data:image/png;base64," + base64.b64encode(output.getvalue()).decode()
+
     def test_model_features_do_not_rebuild_provider_http_endpoints(self) -> None:
         plugin_root = Path(__file__).resolve().parents[1]
         translator = (plugin_root / "core" / "translator.py").read_text(encoding="utf-8")
@@ -222,17 +231,20 @@ class ProviderRoutingTest(unittest.IsolatedAsyncioTestCase):
         )
         config = SimpleNamespace(provider_id="vision-provider")
 
-        result = await ImageRetagger(config, context).retag_details("C:/tmp/a.png")
+        result = await ImageRetagger(config, context).retag_details(self.image_source())
 
         self.assertEqual(result["prompt"], "1girl, blue hair")
-        self.assertEqual(context.llm_calls[0]["image_urls"], ["C:/tmp/a.png"])
+        self.assertEqual(len(context.llm_calls), 1)
+        image_path = Path(context.llm_calls[0]["image_urls"][0])
+        self.assertEqual(image_path.suffix, ".png")
+        self.assertFalse(image_path.exists())
 
     async def test_image_retagger_rejects_empty_provider_response(self) -> None:
         context = FakeContext("")
         config = SimpleNamespace(provider_id="vision-provider")
 
         with self.assertRaisesRegex(ImageRetagError, "结果为空"):
-            await ImageRetagger(config, context).retag_details("C:/tmp/a.png")
+            await ImageRetagger(config, context).retag_details(self.image_source())
 
     async def test_safety_uses_provider_and_parses_json(self) -> None:
         context = FakeContext('{"safe":false,"reason":"blocked"}')

@@ -1,4 +1,4 @@
-import { AssetCache } from "./asset-cache.js?v=4.6.29";
+import { AssetCache } from "./asset-cache.js?v=4.6.30";
 // Canvas component with explicit dependencies; no build step required.
 export function createAssetLibrary({
   ASSET_LIBRARY_PREFS_KEY,
@@ -169,7 +169,7 @@ export function createAssetLibrary({
     }
   }
 
-  const originals = new AssetCache((id) => bridge.apiGet("canvas/asset", { id }));
+  const previews = new AssetCache((id) => bridge.apiGet("canvas/asset", { id, preview: 1 }));
   const thumbnails = new AssetCache((id) => bridge.apiGet("canvas/asset/thumbnail", { id }), {
     maxEntries: 160, maxBytes: 8 * 1024 * 1024, concurrency: 4,
   });
@@ -180,7 +180,7 @@ export function createAssetLibrary({
     state.library = {
       images: (Array.isArray(library?.images) ? library.images : []).map((source) => {
         const item = { ...source };
-        if (item.dataUrl) originals.remember(item.id, { dataUrl: item.dataUrl });
+        if (item.dataUrl) previews.remember(item.id, { dataUrl: item.dataUrl });
         delete item.dataUrl;
         return item;
       }),
@@ -192,10 +192,10 @@ export function createAssetLibrary({
   async function ensureLibraryImageData(item) {
     if (!item?.id) throw new Error("图片素材 ID 无效");
     if (item.dataUrl) {
-      originals.remember(item.id, { dataUrl: item.dataUrl });
+      previews.remember(item.id, { dataUrl: item.dataUrl });
       delete item.dataUrl;
     }
-    return (await originals.get(item.id)).dataUrl;
+    return (await previews.get(item.id)).dataUrl;
   }
 
   function observeThumbnail(target, load) {
@@ -671,6 +671,7 @@ export function createAssetLibrary({
         seed: normalizeNaiSeed(item.seed),
         retagged: item.source === "retagged",
         source: item.source || "",
+        sourceFormat: item.format || "",
       },
     };
   }
@@ -718,7 +719,8 @@ export function createAssetLibrary({
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index];
         try {
-          const decoded = decodeDataUrl(await ensureLibraryImageData(item));
+          const original = await bridge.apiGet("canvas/asset", { id: item.id });
+          const decoded = decodeDataUrl(original.dataUrl);
           const group = assetGroupForItem(item);
           const path = uniqueZipPath(group.label, item.name || item.id || `asset-${index + 1}`, imageExtension(decoded.mimeType), usedPaths);
           entries.push({ name: path, bytes: decoded.bytes });
@@ -896,7 +898,7 @@ export function createAssetLibrary({
         generationMeta: imageGenerationMeta(node.meta),
       });
       const image = { ...result.image };
-      originals.remember(image.id, { dataUrl: node.dataUrl });
+      previews.remember(image.id, { dataUrl: node.dataUrl });
       state.library.images = [image, ...state.library.images.filter((item) => item.id !== image.id)];
       reconcileAssetLibraryPreferences();
       if (els.assetPanel.classList.contains("open")) renderAssetLibrary();

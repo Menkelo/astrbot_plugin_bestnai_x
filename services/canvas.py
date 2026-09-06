@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Set, Tuple
 from uuid import uuid4
 
-from PIL import Image as PILImage, ImageOps
+from PIL import Image as PILImage
 
 from astrbot.api import logger
 from astrbot.api.web import error_response, file_response, json_response, request
@@ -26,8 +26,16 @@ except ImportError:  # pragma: no cover - exercised by standalone ``services`` i
 
 try:
     from ..core.char_prompts import normalize_char_center
+    from ..core.image_input import (
+        FORMAT_EXTENSIONS, IMAGE_MIME_TYPES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS,
+        ImageInputError, inspect_image, static_png,
+    )
 except ImportError:  # pragma: no cover - legacy flat layout
     from core.char_prompts import normalize_char_center
+    from core.image_input import (
+        FORMAT_EXTENSIONS, IMAGE_MIME_TYPES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS,
+        ImageInputError, inspect_image, static_png,
+    )
 
 try:
     from .nai_metadata import read_image_generation_info
@@ -50,8 +58,7 @@ RetagCallback = Callable[..., Awaitable[Dict[str, Any]]]
 MAX_NODES = 160
 MAX_CONNECTIONS = 320
 MAX_WORKSPACE_BYTES = 2 * 1024 * 1024
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024
-MAX_IMAGE_PIXELS = 30_000_000
+MAX_UPLOAD_BYTES = MAX_IMAGE_BYTES
 
 # Debug traces are user-facing diagnostics, not arbitrary workspace data.  Keep
 # a bounded, JSON-safe subset when a workspace is persisted so a malformed
@@ -102,12 +109,6 @@ ASSET_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 ENTITY_ID_RE = re.compile(r"^(?:default|[a-f0-9]{32})$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 ALLOWED_NODE_TYPES = {"prompt", "image", "note"}
-FORMAT_EXTENSIONS = {
-    "PNG": ".png",
-    "JPEG": ".jpg",
-    "WEBP": ".webp",
-    "GIF": ".gif",
-}
 
 
 class CanvasValidationError(ValueError):
@@ -796,6 +797,11 @@ class CanvasStore:
 
             meta = {
                 "prompt": _short_text(raw_meta.get("prompt"), 6000),
+                "sourceFormat": (
+                    str(raw_meta.get("sourceFormat") or "").lower()
+                    if f".{str(raw_meta.get('sourceFormat') or '').lower()}" in IMAGE_MIME_TYPES
+                    else ""
+                ),
                 "ratio": _short_text(raw_meta.get("ratio"), 32),
                 "width": int(_bounded_number(raw_meta.get("width"), 0, 0, 20_000)),
                 "height": int(_bounded_number(raw_meta.get("height"), 0, 0, 20_000)),
@@ -1039,28 +1045,10 @@ class CanvasStore:
             raise CanvasValidationError(f"读取工作区失败：{exc}") from exc
 
     def store_asset(self, data: bytes, format_hint: str = "") -> Dict[str, Any]:
-        if not data:
-            raise CanvasValidationError("图片内容为空")
-
-        if len(data) > MAX_UPLOAD_BYTES:
-            raise CanvasValidationError("图片不能超过 15 MB")
-
         try:
-            with PILImage.open(BytesIO(data)) as image:
-                image_format = str(image.format or format_hint or "").upper()
-                width, height = image.size
-                image.verify()
-        except Exception as exc:
-            raise CanvasValidationError("文件不是有效图片") from exc
-
-        if image_format == "JPG":
-            image_format = "JPEG"
-
-        if image_format not in FORMAT_EXTENSIONS:
-            raise CanvasValidationError("仅支持 PNG、JPEG、WebP 和 GIF 图片")
-
-        if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
-            raise CanvasValidationError("图片尺寸无效或像素数超过限制")
+            image_format, width, height = inspect_image(data)
+        except ImageInputError as exc:
+            raise CanvasValidationError(str(exc)) from exc
 
         asset_id = uuid4().hex
         asset_path = self.assets_dir / f"{asset_id}{FORMAT_EXTENSIONS[image_format]}"
@@ -1082,13 +1070,7 @@ class CanvasStore:
             raise FileNotFoundError(asset_id)
 
         suffix = matches[0].suffix.lower()
-        mime_type = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".webp": "image/webp",
-            ".gif": "image/gif",
-        }.get(suffix, "application/octet-stream")
+        mime_type = IMAGE_MIME_TYPES.get(suffix, "application/octet-stream")
         return matches[0], mime_type
 
     def asset_generation_meta(self, asset_id: str) -> Dict[str, Any]:
@@ -1107,7 +1089,7 @@ class CanvasStore:
         result = _sanitize_image_generation_meta({
             target: info[source] for target, source in fields.items() if source in info
         })
-        if info:
+        if info and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
             result["imageFormat"] = path.suffix.lstrip(".")
         if info.get("prompt"):
             result["tags"] = _short_text(info["prompt"], 6000).strip()
@@ -1116,26 +1098,38 @@ class CanvasStore:
             result["seed"] = seed
         return result
 
-    def asset_payload(self, asset_id: str) -> Dict[str, Any]:
+    def asset_payload(self, asset_id: str, *, preview: bool = False) -> Dict[str, Any]:
         path, mime_type = self.get_asset(asset_id)
         if path.stat().st_size > MAX_UPLOAD_BYTES:
             raise CanvasValidationError("图片资源超过读取限制")
-
-        data_url = f"data:{mime_type};base64,{base64.b64encode(path.read_bytes()).decode()}"
-        return {"id": asset_id, "dataUrl": data_url, "mimeType": mime_type}
+        data = path.read_bytes()
+        # Exports use the original by default. Only display callers opt into
+        # a PNG preview for formats browsers cannot reliably decode.
+        if preview and path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            try:
+                data = static_png(data, max_side=4096, max_bytes=MAX_UPLOAD_BYTES).data
+            except ImageInputError as exc:
+                raise CanvasValidationError(str(exc)) from exc
+            mime_type = "image/png"
+        data_url = f"data:{mime_type};base64,{base64.b64encode(data).decode()}"
+        return {
+            "id": asset_id, "dataUrl": data_url, "mimeType": mime_type,
+            "format": path.suffix.lstrip("."),
+        }
 
     def stored_asset_payload(self, data: bytes, format_hint: str = "") -> Dict[str, Any]:
         asset = self.store_asset(data, format_hint)
-        return {**asset, **self.asset_payload(asset["id"])}
+        return {**asset, **self.asset_payload(asset["id"], preview=True)}
 
     def asset_thumbnail_payload(self, asset_id: str) -> Dict[str, Any]:
         source, _ = self.get_asset(asset_id)
         cached = self.thumbnails_dir / f"{asset_id}.jpg"
         if not cached.exists():
-            with PILImage.open(source) as original:
-                original.draft("RGB", (768, 768))
-                thumbnail = ImageOps.exif_transpose(original)
-                thumbnail.thumbnail((384, 384), PILImage.Resampling.LANCZOS)
+            try:
+                prepared = static_png(source.read_bytes(), max_side=384)
+            except ImageInputError as exc:
+                raise CanvasValidationError(str(exc)) from exc
+            with PILImage.open(BytesIO(prepared.data)) as thumbnail:
                 if thumbnail.mode != "RGB":
                     rgba = thumbnail.convert("RGBA")
                     thumbnail = PILImage.new("RGB", rgba.size, "white")
@@ -1578,10 +1572,12 @@ class CanvasService:
             return error_response("请求体必须是 JSON 对象", status_code=400)
         try:
             asset_id = str(payload.get("assetId") or "")
-            asset_payload = self.store.asset_payload(asset_id)
+            asset_payload = await asyncio.to_thread(self.store.asset_payload, asset_id, preview=True)
             asset_path, _ = self.store.get_asset(asset_id)
             with PILImage.open(asset_path) as image:
                 width, height = image.size
+                if image.getexif().get(274) in {5, 6, 7, 8}:
+                    width, height = height, width
                 image_format = str(image.format or "").lower().replace("jpeg", "jpg")
             entry = self.store.add_image_to_library(
                 {"id": asset_id, "width": width, "height": height, "format": image_format},
@@ -1817,8 +1813,9 @@ class CanvasService:
 
     async def get_asset(self) -> Any:
         asset_id = str(request.query.get("id", "") or "")
+        preview = str(request.query.get("preview", "")).lower() in {"1", "true"}
         try:
-            return json_response(await asyncio.to_thread(self.store.asset_payload, asset_id))
+            return json_response(await asyncio.to_thread(self.store.asset_payload, asset_id, preview=preview))
         except FileNotFoundError:
             return error_response("图片资源不存在", status_code=404)
         except CanvasValidationError as exc:

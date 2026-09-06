@@ -53,7 +53,10 @@ window.AstrBotPluginPage = {
     }
     return window.fixtureRequest('POST', path, payload);
   },
-  download: async () => {},
+  download: async (path, payload, filename) => {
+    window.downloads = [...(window.downloads || []), {path, payload, filename}];
+    return window.fixtureRequest('DOWNLOAD', path, {...payload, filename});
+  },
 };
 """
 
@@ -90,6 +93,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         self.errors = []
         self.calls = []
         self.saved_images = []
+        self.original_assets = {}
         self.generation_error = None
         self.workspace = {
             "viewport": {"x": 0, "y": 0, "scale": 1}, "connections": [],
@@ -142,6 +146,8 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         if path == "canvas/library":
             return {"images": copy.deepcopy(self.library), "prompts": []}
         if path in ("canvas/asset", "canvas/asset/thumbnail"):
+            if path == "canvas/asset" and not payload.get("preview") and payload["id"] in self.original_assets:
+                return copy.deepcopy(self.original_assets[payload["id"]])
             return {"dataUrl": self.data_url}
         if path == "canvas/generate":
             if self.generation_error:
@@ -520,7 +526,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_asset_cache_is_bounded_deduplicates_and_recovers_after_failure(self):
         result = self.page.evaluate("""async () => {
-          const {AssetCache} = await import('./asset-cache.js?v=4.6.29');
+          const {AssetCache} = await import('./asset-cache.js?v=4.6.30');
           const calls = {}; let active = 0, peak = 0;
           const cache = new AssetCache(async id => {
             calls[id] = (calls[id] || 0) + 1;
@@ -555,6 +561,46 @@ class CanvasViewerBrowserTest(unittest.TestCase):
             for asset in manifest["assets"]:
                 self.assertNotIn("skipped", asset)
                 self.assertGreater(len(archive.read(asset["file"])), 0)
+
+    def test_tiff_preview_download_and_archive_keep_original_format(self):
+        output = BytesIO()
+        Image.new("RGB", (32, 24), "red").save(output, format="TIFF")
+        original = output.getvalue()
+        asset_id = self.library[0]["id"]
+        self.library[0]["format"] = "tiff"
+        self.original_assets[asset_id] = {
+            "dataUrl": "data:image/tiff;base64," + base64.b64encode(original).decode(),
+            "format": "tiff",
+        }
+        self.page.reload()
+        self.page.locator("#assetLibraryBtn").click()
+        self.page.locator(".asset-stack-card").first.click()
+        self.page.locator(".asset-image-card").first.click()
+        expect(self.page.locator("#imageViewer")).to_be_visible()
+        self.page.wait_for_function("document.getElementById('imageViewerImage').naturalWidth > 0")
+        self.assertTrue(any(path == "canvas/asset" and payload.get("preview") for _, path, payload in self.calls))
+        self.page.locator("#imageViewerDownloadBtn").click()
+        self.page.wait_for_function("window.downloads?.length === 1")
+        self.assertEqual(self.page.evaluate("window.downloads[0].filename"), f"bestnai-{asset_id}.tiff")
+        self.page.keyboard.press("Escape")
+        expect(self.page.locator("#imageViewer")).to_be_hidden()
+        self.page.locator("#assetSelectModeBtn").click()
+        self.page.locator(".asset-image-card").first.click()
+        with self.page.expect_download() as download:
+            self.page.locator("#assetArchiveSelectedBtn").click()
+        with zipfile.ZipFile(download.value.path()) as archive:
+            manifest = json.loads(archive.read("library-manifest.json"))
+            item = manifest["assets"][0]
+            self.assertTrue(item["file"].endswith(".tiff"))
+            self.assertEqual(archive.read(item["file"]), original)
+
+    def test_input_format_is_not_sent_as_unsupported_generation_output(self):
+        result = self.page.evaluate("""async () => {
+          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.30');
+          return ['gif', 'tiff', 'avif', 'PNG', 'JPEG', 'webp'].map(imageFormat =>
+            generationParameterPayload({imageFormat}).image_format ?? null);
+        }""")
+        self.assertEqual(result, [None, None, None, "png", "jpg", "webp"])
 
     def test_failed_generation_exposes_copyable_diagnostic(self):
         self.open_role_editor()
