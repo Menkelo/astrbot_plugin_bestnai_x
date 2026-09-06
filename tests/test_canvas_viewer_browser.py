@@ -203,12 +203,182 @@ class CanvasViewerBrowserTest(unittest.TestCase):
             (first, second),
         )
 
+    def open_node_panels(self, *, y=300, height=430, scale=1, viewport_y=0, meta=None):
+        self.workspace = {
+            "viewport": {"x": 0, "y": viewport_y, "scale": scale}, "connections": [],
+            "nodes": [{
+                "id": "prompt_panels", "type": "prompt", "x": 160, "y": y,
+                "width": 400, "height": height, "title": "面板回归", "prompt": "outdoors",
+                "meta": {
+                    "retagLayerExpanded": True,
+                    "retagTagGroups": {
+                        category: [f"{category} tag {index}" for index in range(16)]
+                        for category in ("subject", "hair", "clothing", "pose", "background")
+                    },
+                    **(meta or {}),
+                },
+            }],
+        }
+        self.page.reload()
+        body = self.page.locator(".node-attach-stack > .retag-layer-card:not(.adv-card) > .retag-layer-body")
+        expect(body).to_be_visible()
+        self.page.wait_for_timeout(80)
+        self.assertAlmostEqual(
+            self.page.locator("#world").evaluate("element => new DOMMatrixReadOnly(getComputedStyle(element).transform).a"),
+            scale,
+            delta=.001,
+        )
+        return body
+
+    def pan_canvas(self, delta_y):
+        self.page.mouse.move(1200, 700)
+        self.page.mouse.down(button="middle")
+        self.page.mouse.move(1200, 700 + delta_y, steps=8)
+        self.page.mouse.up(button="middle")
+        self.page.wait_for_timeout(100)
+
+    def test_tag_panel_expands_into_space_freed_by_panning(self):
+        body = self.open_node_panels()
+        cramped = body.bounding_box()["height"]
+        self.pan_canvas(-480)
+        expanded = body.bounding_box()
+        self.assertGreater(expanded["height"], cramped + 250)
+        recorder_top = self.page.locator("#debugBar").bounding_box()["y"]
+        self.assertLessEqual(expanded["y"] + expanded["height"], recorder_top - 8)
+
+    def test_tag_panel_fits_at_different_canvas_scales(self):
+        for scale in (.65, 1, 1.75):
+            with self.subTest(scale=scale):
+                body = self.open_node_panels(scale=scale, viewport_y=300 - 831 * scale)
+                box = body.bounding_box()
+                recorder_top = self.page.locator("#debugBar").bounding_box()["y"]
+                self.assertLessEqual(box["y"] + box["height"], recorder_top - 8)
+                self.assertGreater(box["height"], min(390, recorder_top - box["y"] - 30))
+
+    def test_tag_height_tracks_node_drag_resize_and_sibling_fold(self):
+        body = self.open_node_panels(y=100, height=560)
+        initial_height = body.bounding_box()["height"]
+        header = self.page.locator(".node-head").bounding_box()
+        self.page.mouse.move(header["x"] + 120, header["y"] + 12)
+        self.page.mouse.down()
+        self.page.mouse.move(header["x"] + 120, header["y"] - 188, steps=6)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(80)
+        dragged_height = body.bounding_box()["height"]
+        self.assertGreater(dragged_height, initial_height + 30)
+        handle = self.page.locator(".node-resize-handle").bounding_box()
+        self.page.mouse.move(handle["x"] + 8, handle["y"] + 8)
+        self.page.mouse.down()
+        self.page.mouse.move(handle["x"] + 8, handle["y"] - 122, steps=6)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(80)
+        resized_height = body.bounding_box()["height"]
+        self.assertGreater(resized_height, dragged_height + 80)
+        # A further shrink must stop at the same minimum the browser displays.
+        handle = self.page.locator(".node-resize-handle").bounding_box()
+        self.page.mouse.move(handle["x"] + 8, handle["y"] + 8)
+        self.page.mouse.down()
+        self.page.mouse.move(handle["x"] + 8, handle["y"] - 72, steps=4)
+        self.page.mouse.up()
+        self.assertEqual(
+            self.page.locator(".prompt-node").evaluate("element => parseFloat(element.style.height)"),
+            self.page.locator(".prompt-node").bounding_box()["height"],
+        )
+        self.page.locator(".adv-card > .retag-layer-toggle").click()
+        self.page.wait_for_timeout(80)
+        self.assertLess(body.bounding_box()["height"], resized_height - 50)
+        self.page.locator(".adv-card > .retag-layer-toggle").click()
+        self.page.wait_for_timeout(80)
+        self.assertAlmostEqual(body.bounding_box()["height"], resized_height, delta=2)
+
+    def test_plain_advanced_panel_does_not_overlap_tags_after_resize(self):
+        self.open_node_panels(meta={"advParamsExpanded": True, "retagSteps": 28, "retagScale": 7})
+        self.page.set_viewport_size({"width": 1400, "height": 760})
+        self.page.wait_for_timeout(100)
+        advanced = self.page.locator(".adv-card > .retag-layer-body")
+        self.assertEqual(advanced.evaluate("element => getComputedStyle(element).maxHeight"), "none")
+        self.assertLessEqual(advanced.evaluate("element => element.scrollHeight - element.clientHeight"), 1)
+
+    def test_tag_panel_tracks_recorder_expansion(self):
+        body = self.open_node_panels(y=-260)
+        original_height = body.bounding_box()["height"]
+        self.page.locator("#debugBarToggle").click()
+        self.page.wait_for_timeout(150)
+        expanded = body.bounding_box()
+        recorder_top = self.page.locator("#debugBar").bounding_box()["y"]
+        self.assertLess(expanded["height"], original_height - 20)
+        self.assertLessEqual(expanded["y"] + expanded["height"], recorder_top - 8)
+        self.page.locator("#debugBarToggle").click()
+        self.page.wait_for_timeout(100)
+        self.assertAlmostEqual(body.bounding_box()["height"], original_height, delta=2)
+
+    def test_reused_parameters_scroll_before_zoom_and_reach_the_last_field(self):
+        self.open_node_panels(y=120, meta={
+            "advParamsExpanded": True, "generationSeed": 123, "negativePrompt": "lowres, blurry",
+        })
+        body = self.page.locator(".adv-card > .retag-layer-body")
+        self.assertGreater(body.evaluate("element => element.scrollHeight - element.clientHeight"), 30)
+        transform = self.page.locator("#world").get_attribute("style")
+        box = body.bounding_box()
+        self.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 8)
+        self.page.mouse.wheel(0, 180)
+        self.page.wait_for_timeout(120)
+        self.assertGreater(body.evaluate("element => element.scrollTop"), 0)
+        self.assertEqual(self.page.locator("#world").get_attribute("style"), transform)
+
+    def test_upward_character_panel_fits_after_zoom(self):
+        self.open_role_editor()
+        self.workspace["viewport"] = {"x": -100, "y": -380, "scale": 1.5}
+        self.page.reload()
+        self.page.wait_for_timeout(100)
+        body = self.page.locator(".retag-character-body").bounding_box()
+        toolbar = self.page.locator(".topbar").bounding_box()
+        self.assertGreaterEqual(body["y"], toolbar["y"] + toolbar["height"] + 8)
+        self.assertGreater(body["height"], 200)
+
+    def test_character_editor_scrolls_without_zooming_the_canvas(self):
+        self.open_role_editor()
+        self.page.get_by_role("textbox", name="角色 1正面提示词").evaluate("element => element.style.height = '700px'")
+        self.page.wait_for_timeout(100)
+        editor = self.page.locator(".retag-character-editor-popover")
+        self.assertGreater(editor.evaluate("element => element.scrollHeight - element.clientHeight"), 100)
+        box = editor.bounding_box()
+        self.assertLessEqual(box["y"] + box["height"], self.page.locator("#debugBar").bounding_box()["y"] - 8)
+        transform = self.page.locator("#world").get_attribute("style")
+        head = self.page.locator(".retag-character-row.is-active .retag-character-row-head").bounding_box()
+        self.page.mouse.move(head["x"] + head["width"] / 2, head["y"] + 5)
+        self.page.mouse.wheel(0, 160)
+        self.page.wait_for_timeout(120)
+        self.assertGreater(editor.evaluate("element => element.scrollTop"), 0)
+        self.assertEqual(self.page.locator("#world").get_attribute("style"), transform)
+
+    def test_node_redraw_preserves_other_panel_scroll_positions(self):
+        body = self.open_node_panels(y=20)
+        body.evaluate("element => element.scrollTop = 200")
+        previous = body.evaluate("element => element.scrollTop")
+        self.assertGreater(previous, 100)
+        self.page.locator(".retag-character-add").evaluate("element => element.click()")
+        self.page.wait_for_timeout(100)
+        self.assertAlmostEqual(body.evaluate("element => element.scrollTop"), previous, delta=1)
+
     def assert_viewer_icons_centered(self):
         for selector in ("#imageViewerFoldBtn", "#imageViewerPrevBtn", "#imageViewerNextBtn"):
             button = self.page.locator(selector).bounding_box()
             icon = self.page.locator(selector + " svg").bounding_box()
             self.assertAlmostEqual(icon["x"] + icon["width"] / 2, button["x"] + button["width"] / 2, delta=.5)
             self.assertAlmostEqual(icon["y"] + icon["height"] / 2, button["y"] + button["height"] / 2, delta=.5)
+
+    def assert_character_coordinates_centered(self, *, same_row=True):
+        row = self.page.locator(".retag-character-row.is-active .retag-character-row-head")
+        head = row.bounding_box()
+        coordinates = row.locator(".retag-character-center-summary").bounding_box()
+        label = row.locator(".retag-character-enabled").bounding_box()
+        actions = row.locator(".retag-character-delete-actions").bounding_box()
+        self.assertAlmostEqual(coordinates["x"] + coordinates["width"] / 2, head["x"] + head["width"] / 2, delta=.75)
+        if same_row:
+            self.assertAlmostEqual(coordinates["y"] + coordinates["height"] / 2, label["y"] + label["height"] / 2, delta=.75)
+        self.assert_disjoint(coordinates, label)
+        self.assert_disjoint(coordinates, actions)
 
     def screenshot(self, name):
         directory = os.environ.get("BESTNAI_VIEWER_SCREENSHOTS")
@@ -410,11 +580,13 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         self.assertAlmostEqual(marker.evaluate("el => parseFloat(el.style.left)"), 100 / 3, delta=.001)
         self.page.get_by_role("button", name="删除角色 1", exact=True).click()
         expect(self.page.get_by_role("button", name="确认删除角色 1", exact=True)).to_be_visible()
+        self.assert_character_coordinates_centered()
         self.assert_disjoint(
             self.page.locator(".retag-character-row.is-active .retag-character-delete-actions").bounding_box(),
             self.page.locator(".retag-character-row.is-active .retag-character-center-summary").bounding_box(),
         )
         self.page.get_by_role("button", name="取消删除", exact=True).click()
+        self.assert_character_coordinates_centered()
         self.page.get_by_role("button", name="清空角色", exact=True).click()
         expect(self.page.locator(".retag-character-marker")).to_have_count(0)
         self.page.get_by_role("button", name="添加角色", exact=True).click()
@@ -473,7 +645,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_character_editor_stays_inside_narrow_viewport(self):
         self.open_role_editor()
-        for width in (700, 390):
+        for width in (700, 390, 260):
             with self.subTest(width=width):
                 self.page.set_viewport_size({"width": width, "height": 900})
                 self.page.wait_for_timeout(100)
@@ -482,6 +654,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
                 self.assertLessEqual(box["x"] + box["width"], width - 10)
                 self.assertGreaterEqual(box["y"], 10)
                 self.assertLessEqual(box["y"] + box["height"], 890)
+                self.assert_character_coordinates_centered(same_row=width > 260)
         self.page.get_by_role("button", name="关闭角色编辑", exact=True).click()
         expect(self.page.locator(".retag-character-editor-popover")).to_be_hidden()
         self.page.locator(".retag-character-marker").first.click()
@@ -526,7 +699,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_asset_cache_is_bounded_deduplicates_and_recovers_after_failure(self):
         result = self.page.evaluate("""async () => {
-          const {AssetCache} = await import('./asset-cache.js?v=4.6.30');
+          const {AssetCache} = await import('./asset-cache.js?v=4.6.31');
           const calls = {}; let active = 0, peak = 0;
           const cache = new AssetCache(async id => {
             calls[id] = (calls[id] || 0) + 1;
@@ -596,7 +769,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_input_format_is_not_sent_as_unsupported_generation_output(self):
         result = self.page.evaluate("""async () => {
-          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.30');
+          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.31');
           return ['gif', 'tiff', 'avif', 'PNG', 'JPEG', 'webp'].map(imageFormat =>
             generationParameterPayload({imageFormat}).image_format ?? null);
         }""")

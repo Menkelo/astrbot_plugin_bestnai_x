@@ -1,6 +1,7 @@
 // Canvas component with explicit dependencies; no build step required.
 export function createCharacterEditor({
   MAX_CHAR_PROMPTS,
+  attachedPanelViewportBounds,
   automaticRetagCharLayout,
   bringNodeToFront,
   clamp,
@@ -17,17 +18,20 @@ export function createCharacterEditor({
   retagCharDisabledIndexes,
   retagCharEnabled,
   scheduleSave,
+  scheduleAttachedPanelLayout,
   scrollContainerConsumesWheel,
   selectNode,
   state
 }) {
   function positionCharacterEditor(card, editor) {
-    if (!card || !editor || editor.hidden || !card.classList.contains("open")) return;
+    if (!card?.isConnected || !editor || editor.hidden || !card.classList.contains("open")) return;
     const cardRect = card.getBoundingClientRect();
     const scale = Number(state.viewport.scale) || 1;
+    const bounds = attachedPanelViewportBounds();
+    const availableHeight = Math.max(1, bounds.bottom - bounds.top);
     editor.style.maxWidth = `${Math.max(1, window.innerWidth - 24) / scale}px`;
-    editor.style.maxHeight = `${Math.min(520, Math.max(1, window.innerHeight - 24) / scale)}px`;
-    editor.style.minHeight = `${Math.min(190, Math.max(1, window.innerHeight - 24) / scale)}px`;
+    editor.style.maxHeight = `${Math.min(520, availableHeight / scale)}px`;
+    editor.style.minHeight = `${Math.min(190, availableHeight / scale)}px`;
     const editorRect = editor.getBoundingClientRect();
     const editorWidth = editorRect.width || 280 * scale;
     const gap = 10;
@@ -39,7 +43,7 @@ export function createCharacterEditor({
     editor.classList.toggle("place-left", !fitsRight && fitsLeft);
     editor.classList.toggle("place-overlay", !fitsRight && !fitsLeft);
     const height = editor.getBoundingClientRect().height;
-    const top = clamp(cardRect.bottom - height, margin, Math.max(margin, window.innerHeight - height - margin));
+    const top = clamp(cardRect.bottom - height, bounds.top, Math.max(bounds.top, bounds.bottom - height));
     editor.style.left = `${(left - cardRect.left) / scale}px`;
     editor.style.right = "auto";
     editor.style.top = `${(top - cardRect.top) / scale}px`;
@@ -71,6 +75,9 @@ export function createCharacterEditor({
     const characterEditorPopover = document.createElement("div");
     characterEditorPopover.className = "retag-character-editor-popover";
     characterEditorPopover.hidden = !charPrompts.length;
+    characterEditorPopover.addEventListener("wheel", (event) => {
+      if (scrollContainerConsumesWheel(characterEditorPopover, event)) event.stopPropagation();
+    }, { passive: true });
     const editorTools = document.createElement("div");
     editorTools.className = "retag-character-editor-tools";
     const dismissEditor = document.createElement("button");
@@ -280,7 +287,7 @@ export function createCharacterEditor({
       const deleteActions = document.createElement("span");
       deleteActions.className = "retag-character-delete-actions";
       deleteActions.append(deleteConfirm, deleteButton);
-      rowHead.append(enabledLabel, deleteActions, centerSummary);
+      rowHead.append(enabledLabel, centerSummary, deleteActions);
       characterRow.appendChild(rowHead);
       characterRows.set(index, characterRow);
 
@@ -589,9 +596,7 @@ export function createCharacterEditor({
       characterBody.hidden = !open;
       characterEditorPopover.hidden = !open || !charPrompts.length || selectedCharacterIndex < 0;
       characterToggle.setAttribute("aria-expanded", String(open));
-      if (open && charPrompts.length) {
-        requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
-      }
+      scheduleAttachedPanelLayout();
     };
     characterToggle.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -604,10 +609,6 @@ export function createCharacterEditor({
     // 标题栏放在正文之后，整张卡以底边锚定时正文只会向上展开，
     // 标题栏本身在展开/收起前后保持同一个位置。
     characterCard.append(characterBody, characterCardHead, characterEditorPopover);
-    if (charPrompts.length) {
-      requestAnimationFrame(() => positionCharacterEditor(characterCard, characterEditorPopover));
-    }
-
     refreshSummary();
     return characterCard;
   }

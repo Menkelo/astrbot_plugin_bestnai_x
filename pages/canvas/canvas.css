@@ -1834,7 +1834,7 @@ select:focus-visible {
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
 }
@@ -1905,6 +1905,7 @@ select:focus-visible {
 
 .retag-character-row {
   display: none;
+  container-type: inline-size;
   margin-top: 7px;
   padding: 7px;
   border: 1px solid var(--line);
@@ -1930,10 +1931,14 @@ select:focus-visible {
 .retag-character-enabled {
   color: var(--text);
   font-size: 11px;
+  justify-self: start;
+  white-space: nowrap;
 }
 
 .retag-character-center-summary {
-  grid-column: 1 / -1;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
   color: var(--faint);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11px;
@@ -1941,6 +1946,24 @@ select:focus-visible {
   line-height: 1.4;
   pointer-events: none;
   white-space: nowrap;
+}
+
+.retag-character-row-head > .retag-character-delete-actions {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+@container (max-width: 240px) {
+  .retag-character-row-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .retag-character-row-head > .retag-character-delete-actions {
+    grid-column: 2;
+  }
+  .retag-character-center-summary {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 .retag-character-field {

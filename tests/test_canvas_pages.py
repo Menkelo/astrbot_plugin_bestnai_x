@@ -130,7 +130,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertNotIn("translated-expanded", styles)
         self.assertNotIn("translated-prompt-panel", styles)
         self.assertNotIn("--prompt-editor-height", editor)
-        self.assertIn('? 450 : 300', editor)
+        # Minimum-height agreement is checked by dragging a real browser node.
         self.assertIn("min-height: 450px;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn("resize: none;", (PAGE_ROOT / "canvas.css").read_text(encoding="utf-8"))
         self.assertIn('if (node.type === "prompt")', editor)
@@ -1052,7 +1052,6 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("function scheduleViewportProjection()", editor)
         self.assertIn("function scheduleCanvasProjection()", editor)
         self.assertIn("function scheduleConnectionRender()", editor)
-        self.assertIn('window.matchMedia("(max-width: 620px)").matches', editor)
         self.assertIn("const width = element?.offsetWidth || node.width || 320", editor)
         self.assertIn("const height = element?.offsetHeight || node.height || 260", editor)
 
@@ -1066,9 +1065,8 @@ class CanvasPageBridgeTest(unittest.TestCase):
         self.assertIn("textarea, input, select", wheel_owner)
         self.assertIn("document.activeElement === editor", wheel_owner)
         self.assertNotIn('.closest(".node.selected")', wheel_owner)
-        # 高级参数卡和原图标签卡不占用滚轮；选中提示词卡时它们的滚轮继续缩放画布
+        # 面板是否消费滚轮取决于当前方向能否继续滚动，不是由节点选中状态决定。
         self.assertNotIn(".retag-layer-card", wheel_owner)
-        self.assertEqual(editor.count('body.addEventListener("wheel"'), 1)
         wheel_body = editor.split('els.viewport.addEventListener("wheel"', 1)[1].split(
             'els.assetPanel.addEventListener("wheel"', 1
         )[0]

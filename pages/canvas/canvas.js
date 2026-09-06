@@ -1,6 +1,6 @@
-import { createCharacterEditor } from "./character-editor.js?v=4.6.30";
-import { createImageViewer } from "./image-viewer.js?v=4.6.30";
-import { createAssetLibrary } from "./asset-library.js?v=4.6.30";
+import { createCharacterEditor } from "./character-editor.js?v=4.6.31";
+import { createImageViewer } from "./image-viewer.js?v=4.6.31";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.31";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -9,8 +9,8 @@ import {
   imageExtension,
   safeZipName,
   uniqueZipPath,
-} from "./zip-utils.js?v=4.6.30";
-import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.30";
+} from "./zip-utils.js?v=4.6.31";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.31";
 
 let bridge = null;
 
@@ -627,6 +627,7 @@ function alignOverlayPanels() {
     updateAssetGridMetrics();
   }
   if (!els.projectMenu.hidden) alignProjectMenu();
+  scheduleAttachedPanelLayout();
 }
 
 function scheduleOverlayAlignment() {
@@ -648,6 +649,7 @@ function setupOverlayAlignment() {
   state.layoutObserver.observe(els.viewport);
   // 预览舞台会随信息栏开合改变宽度；已有通知也要跟随动画和窗口尺寸。
   state.layoutObserver.observe(els.imageViewerStage);
+  state.layoutObserver.observe(els.debugBar);
 }
 
 function projectIconButton(iconName, title, className = "") {
@@ -1882,6 +1884,10 @@ function makeAdvancedParamsCard(node, nodeElement) {
   body.className = "retag-layer-body";
   body.hidden = true;
 
+  body.addEventListener("wheel", (event) => {
+    if (hasReusedParams && scrollContainerConsumesWheel(body, event)) event.stopPropagation();
+  }, { passive: true });
+
   const effectiveValue = (key, retagKey, fallback) =>
     effectiveParameter(node.meta, key, retagKey, fallback);
 
@@ -2076,7 +2082,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
     card.classList.toggle("open", open);
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
-    if (open && hasReusedParams) requestAnimationFrame(() => fitLayerBodyToViewport(card, body));
+    scheduleAttachedPanelLayout();
   };
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -2144,6 +2150,7 @@ function makeAdvancedParamsCard(node, nodeElement) {
 }
 
 function scrollContainerConsumesWheel(container, event) {
+  if (event.ctrlKey || event.metaKey) return false;
   if (!container || container.scrollHeight <= container.clientHeight + 1) return false;
   const maxScroll = container.scrollHeight - container.clientHeight;
   if (event.deltaY < 0) return container.scrollTop > 0;
@@ -2151,20 +2158,94 @@ function scrollContainerConsumesWheel(container, event) {
   return false;
 }
 
-function fitLayerBodyToViewport(card, body) {
-  if (!card || !body || body.hidden) return;
-  if (card.classList.contains("has-reused-parameters")) {
-    const scale = Number(state.viewport.scale) || 1;
-    const bottom = Math.min(window.innerHeight - 16, els.debugBar.getBoundingClientRect().top - 10);
-    const available = (bottom - body.getBoundingClientRect().top) / scale;
-    body.style.maxHeight = `${Math.max(100, Math.min(620, available))}px`;
+function attachedPanelViewportBounds() {
+  const viewport = els.viewport.getBoundingClientRect();
+  const toolbar = document.querySelector(".topbar")?.getBoundingClientRect();
+  const recorder = els.debugBar?.getBoundingClientRect();
+  const top = Math.max(viewport.top, toolbar?.bottom || 0) + 12;
+  let bottom = Math.min(window.innerHeight, viewport.bottom) - 16;
+  if (recorder?.height && !els.debugBar.hidden) bottom = Math.min(bottom, recorder.top - 10);
+  return { top, bottom };
+}
+
+function fitLayerBodyToViewport(card, body, bounds = attachedPanelViewportBounds()) {
+  if (!card?.isConnected || !body || body.hidden) return;
+  const advanced = card.classList.contains("adv-card");
+  // The ordinary advanced card has visible-overflow tooltips and fixed
+  // content. Limiting its box makes that content overlap the next card.
+  if (advanced && !card.classList.contains("has-reused-parameters")) {
+    body.style.removeProperty("max-height");
     return;
   }
-  const top = card.getBoundingClientRect().top;
-  const available = window.innerHeight - top - 16;
-  // Keep a useful minimum while allowing the card to consume all genuinely
-  // available space instead of forcing the old fixed 380px scrollbar.
-  body.style.maxHeight = `${Math.max(160, Math.min(620, available))}px`;
+  const scale = Number(state.viewport.scale) || 1;
+  const upward = card.classList.contains("retag-character-card");
+  const available = upward
+    ? card.querySelector(".retag-character-card-head").getBoundingClientRect().top - bounds.top
+    : bounds.bottom - body.getBoundingClientRect().top;
+  // DOM rectangles use screen pixels; max-height belongs to the scaled
+  // world. Measure from the body (not the header), then convert once.
+  const minimum = advanced ? 100 : 160;
+  body.style.maxHeight = `${Math.max(minimum, Math.min(620, available / scale))}px`;
+}
+
+let attachedPanelFrame = 0;
+let attachedPanelObserver = null;
+const PANEL_SCROLL_TARGETS = ".retag-layer-body, .retag-character-editor-popover";
+
+function updateAttachedPanelLayout() {
+  if (attachedPanelFrame) cancelAnimationFrame(attachedPanelFrame);
+  attachedPanelFrame = 0;
+  const bounds = attachedPanelViewportBounds();
+  // DOM order matters: advanced parameters change where the tag body starts.
+  els.nodeLayer.querySelectorAll(".retag-layer-card.open").forEach((card) => {
+    fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"), bounds);
+  });
+  els.nodeLayer.querySelectorAll(".retag-character-editor-popover:not([hidden])").forEach((editor) => {
+    positionCharacterEditor(editor.closest(".retag-character-card"), editor);
+  });
+}
+
+function scheduleAttachedPanelLayout() {
+  if (attachedPanelFrame) return;
+  attachedPanelFrame = requestAnimationFrame(updateAttachedPanelLayout);
+}
+
+function observeAttachedPanels() {
+  if (typeof ResizeObserver === "undefined") return;
+  attachedPanelObserver ||= new ResizeObserver(scheduleAttachedPanelLayout);
+  attachedPanelObserver.disconnect();
+  const targets = new Set();
+  els.nodeLayer.querySelectorAll(
+    ".node-attach-stack, .node-role-stack, .retag-character-editor-popover",
+  ).forEach((element) => {
+    targets.add(element);
+    targets.add(element.closest(".node"));
+  });
+  targets.forEach((element) => { if (element) attachedPanelObserver.observe(element); });
+}
+
+function panelScrollKey(element) {
+  const card = element.closest(".retag-layer-card");
+  const kind = element.classList.contains("retag-character-editor-popover")
+    ? `editor:${element.querySelector(".retag-character-row.is-active textarea")?.dataset.characterIndex || ""}`
+    : card?.classList.contains("adv-card") ? "advanced"
+      : card?.classList.contains("retag-character-card") ? "characters" : "tags";
+  return `${card?.dataset.nodeId}:${kind}`;
+}
+
+function capturePanelScrollPositions() {
+  return new Map([...els.nodeLayer.querySelectorAll(PANEL_SCROLL_TARGETS)]
+    .filter((element) => !element.hidden)
+    .map((element) => [panelScrollKey(element), { top: element.scrollTop, left: element.scrollLeft }]));
+}
+
+function restorePanelScrollPositions(positions) {
+  els.nodeLayer.querySelectorAll(PANEL_SCROLL_TARGETS).forEach((element) => {
+    const position = positions.get(panelScrollKey(element));
+    if (!position || element.hidden) return;
+    element.scrollTop = position.top;
+    element.scrollLeft = position.left;
+  });
 }
 
 function makeRetagLayerCard(node, sourceImage, nodeElement) {
@@ -2349,7 +2430,7 @@ function makeRetagLayerCard(node, sourceImage, nodeElement) {
     card.classList.toggle("open", open);
     body.hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
-    if (open) requestAnimationFrame(() => fitLayerBodyToViewport(card, body));
+    scheduleAttachedPanelLayout();
   };
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -2711,6 +2792,7 @@ function setDebugBarOpen(open) {
   const chevron = els.debugBarToggle?.querySelector(".debug-bar-chevron");
   chevron?.classList.toggle("rotated", state.debugBarOpen);
   alignDebugBar();
+  scheduleAttachedPanelLayout();
   if (els.assetPanel.classList.contains("open")) {
     window.requestAnimationFrame(() => {
       alignAssetPanel();
@@ -3180,6 +3262,7 @@ function renderNodes() {
   // 先收起，避免浮层残留并继续回调一枚游离的旧节点。
   closeSelectMenu();
   const editing = captureEditingFocus();
+  const panelScroll = capturePanelScrollPositions();
   els.nodeLayer.replaceChildren();
   state.nodes.forEach((node, index) => {
     let element;
@@ -3191,7 +3274,10 @@ function renderNodes() {
   });
   els.empty.classList.toggle("hidden", state.nodes.length > 0);
   refreshIcons(els.nodeLayer);
+  updateAttachedPanelLayout();
+  restorePanelScrollPositions(panelScroll);
   restoreEditingFocus(editing);
+  observeAttachedPanels();
 }
 
 function connectionPath(x1, y1, x2, y2) {
@@ -3537,12 +3623,7 @@ function renderViewport() {
   resetNativeCanvasScroll();
   const { x, y, scale } = state.viewport;
   els.world.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-  document.querySelectorAll(".adv-card.has-reused-parameters.open").forEach((card) => {
-    fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"));
-  });
-  document.querySelectorAll(".retag-character-editor-popover:not([hidden])").forEach((editor) => {
-    positionCharacterEditor(editor.closest(".retag-character-card"), editor);
-  });
+  updateAttachedPanelLayout();
 }
 
 let viewportProjectionFrame = 0;
@@ -3561,6 +3642,7 @@ function scheduleCanvasProjection() {
   if (canvasProjectionFrame) return;
   canvasProjectionFrame = window.requestAnimationFrame(() => {
     canvasProjectionFrame = 0;
+    updateAttachedPanelLayout();
     renderConnections();
   });
 }
@@ -3707,6 +3789,10 @@ function attachNodeResize(handle, element, node) {
       width: node.width || element.offsetWidth || (node.type === "prompt" ? 380 : 260),
       height: node.height || element.offsetHeight || (node.type === "prompt" ? 360 : 232),
     };
+    const minimumHeight = Math.max(
+      node.type === "prompt" ? PROMPT_MIN_HEIGHT : 180,
+      parseFloat(getComputedStyle(element).minHeight) || 0,
+    );
     let moved = false;
     beginGestureLock();
     const move = (moveEvent) => {
@@ -3717,7 +3803,6 @@ function attachNodeResize(handle, element, node) {
         moved = true;
         pushHistory();
       }
-      const promptMinimumHeight = window.matchMedia("(max-width: 620px)").matches ? 450 : 300;
       let nextWidth = clamp(
         Math.round(start.width + dx),
         node.type === "prompt" ? PROMPT_MIN_WIDTH : 220,
@@ -3727,7 +3812,7 @@ function attachNodeResize(handle, element, node) {
       node.width = nextWidth;
       node.height = clamp(
         Math.round(start.height + dy),
-        node.type === "prompt" ? promptMinimumHeight : 180,
+        minimumHeight,
         node.type === "prompt" ? PROMPT_MAX_HEIGHT : 800,
       );
       element.style.width = `${node.width}px`;
@@ -4840,6 +4925,7 @@ const {
   makeCharacterCard
 } = createCharacterEditor({
   state,
+  attachedPanelViewportBounds,
   MAX_CHAR_PROMPTS,
   automaticRetagCharLayout,
   bringNodeToFront,
@@ -4857,6 +4943,7 @@ const {
   retagCharDisabledIndexes,
   retagCharEnabled,
   scheduleSave,
+  scheduleAttachedPanelLayout,
   scrollContainerConsumesWheel,
   selectNode
 });
@@ -5718,12 +5805,7 @@ window.addEventListener("resize", () => {
   setSelectionContextMenu(false);
   alignToastRegion();
   scheduleOverlayAlignment();
-  document.querySelectorAll(".retag-layer-card:not(.retag-character-card)").forEach((card) => {
-    fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"));
-  });
-  document.querySelectorAll(".retag-character-editor-popover").forEach((editor) => {
-    positionCharacterEditor(editor.closest(".retag-character-card"), editor);
-  });
+  scheduleAttachedPanelLayout();
   if (!els.imageViewer.hidden) {
     applyImageViewerLayout(state.viewerImageDimensions.width, state.viewerImageDimensions.height);
     scheduleImageViewerFrameSync();
@@ -5764,8 +5846,6 @@ loadInitialState().catch((error) => {
   toast(error.message, "error");
   renderAll();
 });
-
-
 
 
 
