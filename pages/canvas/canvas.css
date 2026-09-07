@@ -1477,6 +1477,7 @@ select:focus-visible {
    :not([hidden]) 抬高特异性，避免 grid 覆盖 [hidden] 的 display:none */
 .adv-card .retag-layer-body:not([hidden]) {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   /* 内容是固定的三条滑条 + 说明行 + Variety+，本来就不会溢出，不需要滚动；
      而基类的 overflow-y: auto 会把向上弹出的说明气泡整个裁掉。真正需要
@@ -1496,6 +1497,7 @@ select:focus-visible {
   color: var(--faint);
   font-size: 9px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .adv-source-note[hidden] {
@@ -1793,7 +1795,9 @@ select:focus-visible {
 
 .adv-card.has-reused-parameters .retag-layer-body:not([hidden]) {
   max-height: min(420px, 48vh);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-padding: 9px;
   overscroll-behavior: contain;
 }
 
@@ -2003,7 +2007,7 @@ select:focus-visible {
   box-shadow: 0 0 0 2px rgba(96, 165, 250, .18);
 }
 
-.reused-parameters { margin-top: 10px; font-size: 11px; color: var(--muted); }
+.reused-parameters { min-width: 0; margin-top: 10px; font-size: 11px; color: var(--muted); }
 .reused-parameters summary { cursor: pointer; font-weight: 750; }
 .reused-parameters label { display: grid; gap: 5px; margin-top: 9px; }
 .reused-parameters input, .reused-parameters textarea { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft-2); color: var(--text); font-size: 11px; }

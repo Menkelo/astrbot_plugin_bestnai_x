@@ -1,6 +1,6 @@
-import { createCharacterEditor } from "./character-editor.js?v=4.6.32";
-import { createImageViewer } from "./image-viewer.js?v=4.6.32";
-import { createAssetLibrary } from "./asset-library.js?v=4.6.32";
+import { createCharacterEditor } from "./character-editor.js?v=4.6.33";
+import { createImageViewer } from "./image-viewer.js?v=4.6.33";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.33";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -9,8 +9,8 @@ import {
   imageExtension,
   safeZipName,
   uniqueZipPath,
-} from "./zip-utils.js?v=4.6.32";
-import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.32";
+} from "./zip-utils.js?v=4.6.33";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.33";
 
 let bridge = null;
 
@@ -2142,6 +2142,11 @@ function makeAdvancedParamsCard(node, nodeElement) {
       reuse.appendChild(note);
     }
     body.appendChild(reuse);
+    // 滚动面板内统一使用原生提示；透明的气泡伪元素也会撑出横向滚动区域。
+    body.querySelectorAll("[data-tooltip]").forEach((element) => {
+      element.title = element.dataset.tooltip;
+      delete element.dataset.tooltip;
+    });
   }
   refreshSummary();
   setOpen(node.meta?.advParamsExpanded === true);

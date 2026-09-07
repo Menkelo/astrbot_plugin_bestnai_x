@@ -320,8 +320,12 @@ class CanvasViewerBrowserTest(unittest.TestCase):
     def test_reused_parameters_scroll_before_zoom_and_reach_the_last_field(self):
         self.open_node_panels(y=120, meta={
             "advParamsExpanded": True, "generationSeed": 123, "negativePrompt": "lowres, blurry",
+            "retagSampler": "custom_sampler_" * 24, "noiseSchedule": "custom_noise_schedule_" * 20,
         })
         body = self.page.locator(".adv-card > .retag-layer-body")
+        self.assertLessEqual(body.evaluate("element => element.scrollWidth - element.clientWidth"), 1)
+        body.evaluate("element => element.scrollLeft = 1000")
+        self.assertEqual(body.evaluate("element => element.scrollLeft"), 0)
         self.assertGreater(body.evaluate("element => element.scrollHeight - element.clientHeight"), 30)
         transform = self.page.locator("#world").get_attribute("style")
         box = body.bounding_box()
@@ -329,6 +333,21 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         self.page.mouse.wheel(0, 180)
         self.page.wait_for_timeout(120)
         self.assertGreater(body.evaluate("element => element.scrollTop"), 0)
+        self.assertEqual(self.page.locator("#world").get_attribute("style"), transform)
+        seed = self.page.get_by_role("textbox", name="生成种子")
+        negative = self.page.get_by_role("textbox", name="节点负面提示词")
+        seed.fill("222")
+        negative.fill("soft focus")
+        for field in (seed, negative):
+            field.scroll_into_view_if_needed()
+            frame, box = body.bounding_box(), field.bounding_box()
+            self.assertGreaterEqual(box["x"], frame["x"])
+            self.assertLessEqual(box["x"] + box["width"], frame["x"] + frame["width"])
+            self.assertGreaterEqual(box["y"], frame["y"])
+            self.assertLessEqual(box["y"] + box["height"], frame["y"] + frame["height"])
+            self.assertEqual(body.evaluate("element => element.scrollLeft"), 0)
+        expect(seed).to_have_value("222")
+        expect(negative).to_have_value("soft focus")
         self.assertEqual(self.page.locator("#world").get_attribute("style"), transform)
 
     def test_upward_character_panel_keeps_height_after_zoom(self):
@@ -710,7 +729,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_asset_cache_is_bounded_deduplicates_and_recovers_after_failure(self):
         result = self.page.evaluate("""async () => {
-          const {AssetCache} = await import('./asset-cache.js?v=4.6.32');
+          const {AssetCache} = await import('./asset-cache.js?v=4.6.33');
           const calls = {}; let active = 0, peak = 0;
           const cache = new AssetCache(async id => {
             calls[id] = (calls[id] || 0) + 1;
@@ -780,7 +799,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_input_format_is_not_sent_as_unsupported_generation_output(self):
         result = self.page.evaluate("""async () => {
-          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.32');
+          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.33');
           return ['gif', 'tiff', 'avif', 'PNG', 'JPEG', 'webp'].map(imageFormat =>
             generationParameterPayload({imageFormat}).image_format ?? null);
         }""")
