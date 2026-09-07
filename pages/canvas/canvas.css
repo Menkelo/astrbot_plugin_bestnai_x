@@ -1426,7 +1426,7 @@ select:focus-visible {
 }
 
 .retag-layer-body {
-  max-height: min(620px, calc(100vh - 140px));
+  max-height: 620px;
   padding: 9px;
   overflow-y: auto;
   border-top: 1px solid var(--line);
@@ -1578,7 +1578,6 @@ select:focus-visible {
 
 .retag-character-card .retag-layer-body {
   padding: 10px;
-  max-height: min(620px, calc(100vh - 120px));
   border-top: 0;
   border-bottom: 1px solid var(--line);
 }

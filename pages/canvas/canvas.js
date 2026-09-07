@@ -1,6 +1,6 @@
-import { createCharacterEditor } from "./character-editor.js?v=4.6.31";
-import { createImageViewer } from "./image-viewer.js?v=4.6.31";
-import { createAssetLibrary } from "./asset-library.js?v=4.6.31";
+import { createCharacterEditor } from "./character-editor.js?v=4.6.32";
+import { createImageViewer } from "./image-viewer.js?v=4.6.32";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.32";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -9,8 +9,8 @@ import {
   imageExtension,
   safeZipName,
   uniqueZipPath,
-} from "./zip-utils.js?v=4.6.31";
-import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.31";
+} from "./zip-utils.js?v=4.6.32";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.32";
 
 let bridge = null;
 
@@ -2168,24 +2168,13 @@ function attachedPanelViewportBounds() {
   return { top, bottom };
 }
 
-function fitLayerBodyToViewport(card, body, bounds = attachedPanelViewportBounds()) {
+function fitReusedParametersToViewport(card, body, bounds = attachedPanelViewportBounds()) {
   if (!card?.isConnected || !body || body.hidden) return;
-  const advanced = card.classList.contains("adv-card");
-  // The ordinary advanced card has visible-overflow tooltips and fixed
-  // content. Limiting its box makes that content overlap the next card.
-  if (advanced && !card.classList.contains("has-reused-parameters")) {
-    body.style.removeProperty("max-height");
-    return;
-  }
   const scale = Number(state.viewport.scale) || 1;
-  const upward = card.classList.contains("retag-character-card");
-  const available = upward
-    ? card.querySelector(".retag-character-card-head").getBoundingClientRect().top - bounds.top
-    : bounds.bottom - body.getBoundingClientRect().top;
+  const available = bounds.bottom - body.getBoundingClientRect().top;
   // DOM rectangles use screen pixels; max-height belongs to the scaled
   // world. Measure from the body (not the header), then convert once.
-  const minimum = advanced ? 100 : 160;
-  body.style.maxHeight = `${Math.max(minimum, Math.min(620, available / scale))}px`;
+  body.style.maxHeight = `${Math.max(100, Math.min(620, available / scale))}px`;
 }
 
 let attachedPanelFrame = 0;
@@ -2196,9 +2185,9 @@ function updateAttachedPanelLayout() {
   if (attachedPanelFrame) cancelAnimationFrame(attachedPanelFrame);
   attachedPanelFrame = 0;
   const bounds = attachedPanelViewportBounds();
-  // DOM order matters: advanced parameters change where the tag body starts.
-  els.nodeLayer.querySelectorAll(".retag-layer-card.open").forEach((card) => {
-    fitLayerBodyToViewport(card, card.querySelector(".retag-layer-body"), bounds);
+  // Tag and character bodies keep their fixed CSS height limit.
+  els.nodeLayer.querySelectorAll(".adv-card.has-reused-parameters.open").forEach((card) => {
+    fitReusedParametersToViewport(card, card.querySelector(".retag-layer-body"), bounds);
   });
   els.nodeLayer.querySelectorAll(".retag-character-editor-popover:not([hidden])").forEach((editor) => {
     positionCharacterEditor(editor.closest(".retag-character-card"), editor);

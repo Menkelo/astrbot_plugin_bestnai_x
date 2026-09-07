@@ -1,4 +1,4 @@
-import { AssetCache } from "./asset-cache.js?v=4.6.31";
+import { AssetCache } from "./asset-cache.js?v=4.6.32";
 // Canvas component with explicit dependencies; no build step required.
 export function createAssetLibrary({
   ASSET_LIBRARY_PREFS_KEY,
