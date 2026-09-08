@@ -1,6 +1,6 @@
-import { createCharacterEditor } from "./character-editor.js?v=4.6.33";
-import { createImageViewer } from "./image-viewer.js?v=4.6.33";
-import { createAssetLibrary } from "./asset-library.js?v=4.6.33";
+import { createCharacterEditor } from "./character-editor.js?v=4.6.34";
+import { createImageViewer } from "./image-viewer.js?v=4.6.34";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.34";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -9,8 +9,8 @@ import {
   imageExtension,
   safeZipName,
   uniqueZipPath,
-} from "./zip-utils.js?v=4.6.33";
-import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.33";
+} from "./zip-utils.js?v=4.6.34";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.34";
 
 let bridge = null;
 

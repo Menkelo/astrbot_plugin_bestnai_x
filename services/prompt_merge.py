@@ -526,6 +526,47 @@ def group_prompt_tags(
     return {category: tags for category, tags in groups.items() if tags}
 
 
+def filter_retag_prompt(
+    prompt: str,
+    *,
+    source_character: str = "",
+    source_series: str = "",
+    drop_categories: Any = None,
+    drop_tags: Any = None,
+) -> str:
+    """Apply explicit source-layer removals without automatic edits or deduplication.
+
+    Raw prompts and structured character captions still obey the user's layer
+    removals. Keep unmatched segments literal, including their weights and
+    non-ASCII text; only rebuild a weight group when one of its atoms is removed.
+    """
+    original = str(prompt or "")
+    dropped_keys = normalize_retag_layer_tags(drop_tags)
+    dropped_categories = normalize_retag_layer_categories(drop_categories)
+    if not dropped_keys and not dropped_categories:
+        return original
+
+    identity_keys = _source_identity_keys(source_character, source_series)
+    kept: list[str] = []
+    changed = False
+    for token in split_prompt_tokens(original):
+        weight, atoms, weighted = weighted_token_parts(token)
+        remaining = [
+            atom for atom in atoms
+            if _key(atom) not in dropped_keys
+            and _retag_layer_category(atom, identity_keys) not in dropped_categories
+        ]
+        if len(remaining) == len(atoms):
+            kept.append(token)
+            continue
+        changed = True
+        if remaining:
+            kept.append(
+                rebuild_weighted_token(weight, remaining) if weighted else ", ".join(remaining)
+            )
+    return ", ".join(kept) if changed else original
+
+
 def merge_retag_prompt_details(
     translated_user_prompt: str,
     retag_prompt: str,
@@ -555,16 +596,6 @@ def merge_retag_prompt_details(
     raw_user_text = original_user_prompt or user_text
     source_tokens = _tokens(retag_prompt)
     dropped_tag_keys = normalize_retag_layer_tags(drop_tags)
-    if dropped_tag_keys:
-        # 在这里过滤就够了：retag_prompt 全函数只在上一行被消费一次，
-        # 后面所有原图相关的推导（source_atoms 等）都从 source_tokens 出发。
-        # 只在一个 token 的原子**全部**被点名时才丢弃它，避免带权重的
-        # `1.3::a, b ::` 因为单个原子命中就被整段抹掉。
-        source_tokens = [
-            token
-            for token in source_tokens
-            if not ((keys := _token_keys(token)) and keys <= dropped_tag_keys)
-        ]
     user_tokens = _tokens(user_text)
     preserved_categories = normalize_retag_layer_categories(preserve_categories)
     dropped_categories = normalize_retag_layer_categories(drop_categories)
@@ -627,7 +658,10 @@ def merge_retag_prompt_details(
                 token for token in user_tokens if category in _categories(token)
             ]
 
-    remove_keys: set[str] = set()
+    # Filter individual atoms together with category removals below, so a
+    # partially removed weight group keeps its other tags and original weight.
+    # Keep source_tokens intact for the removed/retained diagnostic summary.
+    remove_keys: set[str] = set(dropped_tag_keys)
     for token in source_tokens:
         for atom in _atomic_tokens(token):
             if _retag_layer_category(atom, source_identity_keys) in dropped_categories:

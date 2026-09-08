@@ -23,6 +23,7 @@ sys.modules.setdefault("astrbot.api", astrbot_api_module)
 from astrbot_plugin_bestnai_x.services.prompt_merge import (
     MAX_RETAG_DROP_TAGS,
     extract_retag_mode,
+    filter_retag_prompt,
     group_prompt_tags,
     merge_retag_prompt,
     merge_retag_prompt_details,
@@ -491,6 +492,50 @@ class PromptOverrideMergeTest(unittest.TestCase):
 
         self.assertNotIn("school_uniform", details["prompt"])
         self.assertIn("black_hair", details["prompt"])
+
+    def test_single_character_removal_preserves_other_weighted_tags(self) -> None:
+        for source in (
+            "1.3::ganyu_(genshin_impact), rolua, nuegochi ::, yoneyama_mai, 0.7::sixii",
+            "1.3::ganyu_(genshin_impact), rolua, nuegochi, 0.7::sixii",
+        ):
+            with self.subTest(source=source):
+                details = merge_retag_prompt_details(
+                    "", source, weight_user=False,
+                    drop_tags=["ganyu_(genshin_impact)"], preserve_categories=["other"],
+                )
+                self.assertNotIn("ganyu", details["prompt"])
+                self.assertIn("1.3::rolua, nuegochi ::", details["prompt"])
+                self.assertIn("0.7::sixii", details["prompt"])
+                self.assertIn("ganyu_(genshin_impact)", details["removed"])
+                self.assertNotIn("ganyu_(genshin_impact)", details["retained"])
+
+    def test_dropped_group_is_removed_but_handwritten_tag_can_be_added(self) -> None:
+        details = merge_retag_prompt_details(
+            "ganyu_(genshin_impact), outdoors",
+            "1.2::ganyu_(genshin_impact), rolua ::, nuegochi",
+            weight_user=False, drop_tags=["ganyu_(genshin_impact)", "rolua"],
+        )
+        self.assertCountEqual(details["prompt"].split(", "), ["ganyu_(genshin_impact)", "outdoors", "nuegochi"])
+
+    def test_raw_layer_removal_preserves_literal_unmatched_content(self) -> None:
+        source = "ganyu_(genshin_impact), 0.70:: rolua, rolua ::, 夕焼け, [style]"
+        self.assertEqual(filter_retag_prompt(source, drop_tags=["missing"]), source)
+        self.assertEqual(filter_retag_prompt(source), source)
+        self.assertEqual(
+            filter_retag_prompt(source, drop_tags=["ganyu_(genshin_impact)"]),
+            "0.70:: rolua, rolua ::, 夕焼け, [style]",
+        )
+
+    def test_raw_layer_removal_handles_weighted_atoms_and_categories(self) -> None:
+        source = "1.2::ganyu_(genshin_impact), black_hair, rolua ::, classroom"
+        self.assertEqual(
+            filter_retag_prompt(source, drop_tags=["ganyu_(genshin_impact)"], drop_categories=["hair"]),
+            "1.2::rolua ::, classroom",
+        )
+        self.assertEqual(
+            filter_retag_prompt("1.2::ganyu_(genshin_impact) ::", drop_tags=["ganyu_(genshin_impact)"]),
+            "",
+        )
 
     def test_dropped_tags_combine_with_dropped_categories(self) -> None:
         source = f"{self.source}, blue_eyes, closed_eyes"

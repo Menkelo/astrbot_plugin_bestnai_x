@@ -90,6 +90,7 @@ from .services.prompt_merge import (
     MAX_RETAG_DROP_TAGS,
     RETAG_LAYER_CATEGORIES,
     extract_retag_mode,
+    filter_retag_prompt,
     group_prompt_tags,
     merge_retag_prompt_details,
     normalize_retag_layer_categories,
@@ -852,14 +853,21 @@ class BestNAIPlugin(Star):
             trace.note("翻译", "提示词无中文，未走翻译")
 
         # Retag tags are already English output from the single vision/tagging
-        # request. Raw mode keeps both explicit inputs unchanged; normal mode
-        # continues through the category-aware merge below.
+        # request. Raw mode applies explicit source-layer removals without
+        # automatic category replacements or changes to the handwritten input.
         if retag_prompt:
             if raw_mode:
+                filtered_retag_prompt = filter_retag_prompt(
+                    retag_prompt,
+                    source_character=retag_character,
+                    source_series=retag_series,
+                    drop_categories=retag_drop_categories,
+                    drop_tags=retag_drop_tags,
+                )
                 # 用 working_prompt 而不是 clean_prompt：开了 raw 翻译时它就是
                 # 译文，没开时两者相等，行为不变。
                 working_prompt = ", ".join(
-                    part for part in (working_prompt, retag_prompt) if part
+                    part for part in (working_prompt, filtered_retag_prompt) if part
                 )
                 trace.note("原始提示词图层", working_prompt)
             else:
@@ -996,6 +1004,18 @@ class BestNAIPlugin(Star):
                         translated_entry[field] = translated
                     else:
                         trace.note("角色提示词翻译失败", reason or "保留原文")
+                if retag_prompt:
+                    # Source character captions are sent separately from the
+                    # base prompt and must not restore a removed positive tag.
+                    translated_entry["prompt"] = filter_retag_prompt(
+                        translated_entry["prompt"],
+                        source_character=retag_character,
+                        source_series=retag_series,
+                        drop_categories=retag_drop_categories,
+                        drop_tags=retag_drop_tags,
+                    )
+                    if not translated_entry["prompt"].strip():
+                        continue
                 translated_char_prompts.append(translated_entry)
             char_prompts = translated_char_prompts
             # Layout is derived from enabled, non-empty entries. A singleton

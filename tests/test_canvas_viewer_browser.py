@@ -391,6 +391,45 @@ class CanvasViewerBrowserTest(unittest.TestCase):
         self.page.wait_for_timeout(100)
         self.assertAlmostEqual(body.evaluate("element => element.scrollTop"), previous, delta=1)
 
+    def test_tag_removal_and_restore_reach_cached_generation_in_both_modes(self):
+        character = "ganyu_(genshin_impact)"
+        source = f"1.3::{character}, rolua, nuegochi ::, yoneyama_mai, 0.7::sixii"
+        for raw in (False, True):
+            with self.subTest(raw=raw):
+                self.page.goto("about:blank")
+                self.workspace = {
+                    "viewport": {"x": 0, "y": 0, "scale": 1},
+                    "connections": [{"source": "image_a", "target": "prompt_tags"}],
+                    "nodes": [self.node("a", 80, source), {
+                        "id": "prompt_tags", "type": "prompt", "x": 500, "y": 90,
+                        "width": 400, "height": 430, "title": "移除标签", "prompt": "outdoors", "raw": raw,
+                        "meta": {
+                            "retagAssetId": "a" * 32, "retagSeed": 111, "retagFromMetadata": True,
+                            "retagPrompt": source, "retagRawPrompt": source, "retagLayerExpanded": True,
+                            "retagTagGroups": {"other": [character, "rolua", "nuegochi", "yoneyama_mai", "0.7::sixii"]},
+                            "retagTagTranslations": {character: "甘雨（原神）"},
+                        },
+                    }],
+                }
+                self.page.goto("http://localhost:9355/editor.html")
+                chip = self.page.locator(".retag-layer-tag").filter(has_text=character)
+                expect(chip).to_have_attribute("aria-pressed", "false")
+                chip.click()
+                expect(chip).to_have_attribute("aria-pressed", "true")
+                self.page.locator(".generate-btn").click()
+                expect(self.page.locator(".image-preview-wrap")).to_have_count(2)
+                payload = next(payload for _, path, payload in reversed(self.calls) if path == "canvas/generate")
+                self.assertEqual(payload["retagDropTags"], [character])
+                self.assertEqual(payload["retagPrompt"], source)
+                self.assertEqual(payload["raw"], raw)
+                expect(chip).to_have_attribute("aria-pressed", "true")
+                chip.click()
+                self.page.locator(".generate-btn").click()
+                expect(self.page.locator(".image-preview-wrap")).to_have_count(3)
+                payload = next(payload for _, path, payload in reversed(self.calls) if path == "canvas/generate")
+                self.assertEqual(payload["retagDropTags"], [])
+                expect(chip).to_have_attribute("aria-pressed", "false")
+
     def assert_viewer_icons_centered(self):
         for selector in ("#imageViewerFoldBtn", "#imageViewerPrevBtn", "#imageViewerNextBtn"):
             button = self.page.locator(selector).bounding_box()
@@ -729,7 +768,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_asset_cache_is_bounded_deduplicates_and_recovers_after_failure(self):
         result = self.page.evaluate("""async () => {
-          const {AssetCache} = await import('./asset-cache.js?v=4.6.33');
+          const {AssetCache} = await import('./asset-cache.js?v=4.6.34');
           const calls = {}; let active = 0, peak = 0;
           const cache = new AssetCache(async id => {
             calls[id] = (calls[id] || 0) + 1;
@@ -799,7 +838,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_input_format_is_not_sent_as_unsupported_generation_output(self):
         result = self.page.evaluate("""async () => {
-          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.33');
+          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.34');
           return ['gif', 'tiff', 'avif', 'PNG', 'JPEG', 'webp'].map(imageFormat =>
             generationParameterPayload({imageFormat}).image_format ?? null);
         }""")

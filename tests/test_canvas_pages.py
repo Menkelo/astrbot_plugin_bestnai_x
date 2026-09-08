@@ -1475,7 +1475,7 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertIn('raw_translate = bool(payload.get("rawTranslate", False))', main_source)
         # 开了翻译后，raw 图层要拼译文而不是原始中文
-        self.assertIn("part for part in (working_prompt, retag_prompt) if part", main_source)
+        self.assertIn("part for part in (working_prompt, filtered_retag_prompt) if part", main_source)
         # 开关要落盘，否则刷新后又变回不翻译
         self.assertIn('"rawTranslate": bool(raw_meta.get("rawTranslate", False))', store)
 
