@@ -1,6 +1,6 @@
-import { createCharacterEditor } from "./character-editor.js?v=4.6.34";
-import { createImageViewer } from "./image-viewer.js?v=4.6.34";
-import { createAssetLibrary } from "./asset-library.js?v=4.6.34";
+import { createCharacterEditor } from "./character-editor.js?v=4.6.36";
+import { createImageViewer } from "./image-viewer.js?v=4.6.36";
+import { createAssetLibrary } from "./asset-library.js?v=4.6.36";
 import {
   createZipBlob,
   decodeDataUrl,
@@ -9,8 +9,8 @@ import {
   imageExtension,
   safeZipName,
   uniqueZipPath,
-} from "./zip-utils.js?v=4.6.34";
-import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue } from "./generation-params.js?v=4.6.34";
+} from "./zip-utils.js?v=4.6.36";
+import { ADV_RANGES, effectiveParameter, generationParameterPayload, hasParameterValue, rangesForModel, stepLimitForModel } from "./generation-params.js?v=4.6.36";
 
 let bridge = null;
 
@@ -1888,12 +1888,17 @@ function makeAdvancedParamsCard(node, nodeElement) {
     if (hasReusedParams && scrollContainerConsumesWheel(body, event)) event.stopPropagation();
   }, { passive: true });
 
+  // 当前生效模型（节点没显式选就跟随全局默认），步数上限随它变：
+  // V5 = 23，V4.5 = 28。和 varietySupported 用同一套取值口径。
+  const activeModel = node.model || state.config.defaultModel;
+  const advRanges = rangesForModel(activeModel);
+
   const effectiveValue = (key, retagKey, fallback) =>
-    effectiveParameter(node.meta, key, retagKey, fallback);
+    effectiveParameter(node.meta, key, retagKey, fallback, advRanges);
 
   // Variety+ 只对 V4.x 有效。切到 V5 时不清 node.meta.varietyBoost——
   // 那样来回切模型会把用户的设置吃掉；只是藏起来、并且不计入摘要。
-  const varietySupported = modelSupportsVariety(node.model || state.config.defaultModel);
+  const varietySupported = modelSupportsVariety(activeModel);
 
   const refreshSummary = () => {
     const parts = [
@@ -1993,16 +1998,21 @@ function makeAdvancedParamsCard(node, nodeElement) {
 
   const advRow = document.createElement("div");
   advRow.className = "adv-row";
+  // 步数上限那句提示要写清当前模型的门槛，否则 V5 下会误导成"28 步免费"。
+  const stepTooltip =
+    advRanges.steps.max === ADV_RANGES.steps.max
+      ? "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费"
+      : `采样步数：迭代精修次数。V5 上限 ${advRanges.steps.max} 步，超过无收益；低步数出图快适合试构图`;
   advRow.append(
     advSlider(
       "步数",
       "steps",
       "retagSteps",
       ADV_RANGES.steps.min,
-      ADV_RANGES.steps.max,
+      advRanges.steps.max,
       1,
-      "采样步数：迭代精修次数。低步数出图快适合试构图，过高收益递减；≤28 步 Opus 免费",
-      28,
+      stepTooltip,
+      advRanges.steps.max,
       (v) => String(Math.round(v)),
     ),
     advSlider(
@@ -4141,7 +4151,7 @@ async function generateFromNode(id, {
         prompt: workingPrompt,
         model: node.model || state.config.defaultModel || "",
         // 优先级：节点高级参数卡 > 反推命中的原图参数 > 插件默认
-        ...generationParameterPayload(node.meta),
+        ...generationParameterPayload(node.meta, node.model || state.config.defaultModel || ""),
         varietyPlus: !!node.meta?.varietyBoost,
         retagPrompt: (node.raw && node.meta?.retagRawPrompt)
           ? String(node.meta.retagRawPrompt).trim()
@@ -4450,6 +4460,8 @@ function reusableRetagSeed(node) {
 
 function cachedRetagResult(node, sourceImage, basePrompt) {
   if (!node || !sourceImage?.assetId) return null;
+  // 原图内嵌步数也要按当前模型的上限钳：V5 下读出 28 步不能原样收下。
+  const advRanges = rangesForModel(node.model || state.config.defaultModel);
   const meta = node.meta || {};
   const tagGroups = normalizeRetagTagGroups(meta.retagTagGroups);
   if (
@@ -4487,7 +4499,7 @@ function cachedRetagResult(node, sourceImage, basePrompt) {
     tagGroups,
     tagTranslations: normalizeRetagTagTranslations(meta.retagTagTranslations),
     charPrompts: normalizeCharPromptEntries(meta.retagCharPrompts),
-    steps: clampMetaNumber(meta.retagSteps, ADV_RANGES.steps.min, ADV_RANGES.steps.max),
+    steps: clampMetaNumber(meta.retagSteps, ADV_RANGES.steps.min, advRanges.steps.max),
     scale: clampMetaNumber(meta.retagScale, ADV_RANGES.scale.min, ADV_RANGES.scale.max),
     cfgRescale: clampMetaNumber(
       meta.retagCfgRescale,
@@ -4603,7 +4615,7 @@ async function retagFromNode(
       // fromMetadata 只说明"prompt 是内嵌的"，命中画布缓存时它是 false，
       // 可图片里的 steps/sampler 依然有效——拿它当门禁等于整批丢掉。
       // 走视觉模型的分支后端根本不返回这几个字段，取到 undefined 自然归零。
-      retagSteps: clampMetaNumber(result?.steps, ADV_RANGES.steps.min, ADV_RANGES.steps.max),
+      retagSteps: clampMetaNumber(result?.steps, ADV_RANGES.steps.min, stepLimitForModel(node.model || state.config.defaultModel)),
       retagScale: clampMetaNumber(result?.scale, ADV_RANGES.scale.min, ADV_RANGES.scale.max),
       retagCfgRescale: clampMetaNumber(
         result?.cfgRescale,
@@ -4837,8 +4849,11 @@ async function reuseImageParameters(imageNode) {
       ratioManual: true,
     };
     const adjusted = [];
+    // 复用原图参数时也要按节点模型钳上限：从 V4.5 的图里读到 28 步，
+    // 建到 V5 节点上就超了，必须压回 23。
+    const reuseRanges = rangesForModel(node.model || state.config.defaultModel);
     for (const key of ["steps", "scale", "cfgRescale"]) {
-      const value = effectiveParameter(meta, key, "");
+      const value = effectiveParameter(meta, key, "", undefined, reuseRanges);
       if (value === undefined) delete node.meta[key];
       else {
         node.meta[key] = value;

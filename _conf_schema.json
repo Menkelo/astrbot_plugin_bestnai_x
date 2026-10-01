@@ -189,6 +189,49 @@
       }
     }
   },
+  "permission_config": {
+    "description": "群组白名单（仅对 V5 模型生效）",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用群组白名单",
+        "type": "bool",
+        "hint": "开启后，只有白名单里的群能使用 nai-diffusion-5-full（V5）。nai-diffusion-4-5-full（V4.5）不受任何限制；私聊与机器人管理员始终放行",
+        "default": false
+      },
+      "model": {
+        "description": "白名单作用的模型",
+        "type": "string",
+        "hint": "目前只有 V5（nai-diffusion-5-full）需要受限。留空按 V5 处理",
+        "default": "nai-diffusion-5-full",
+        "options": [
+          "nai-diffusion-5-full",
+          "nai-diffusion-4-5-full"
+        ]
+      },
+      "groups": {
+        "description": "白名单群号",
+        "type": "list",
+        "hint": "允许使用受限模型的群号，一行一个。可填 QQ 群号或任意平台的群 ID",
+        "default": [],
+        "items": {
+          "type": "string"
+        }
+      },
+      "no_permission_reply": {
+        "description": "未授权时的回复",
+        "type": "string",
+        "hint": "群未获授权时机器人回一句话；若勾选了\"静默拒绝\"则本条不生效",
+        "default": "❌ 本群未获授权使用 V5 模型，请改用 V4.5（/nai）或联系管理员开通。"
+      },
+      "silent_on_no_permission": {
+        "description": "静默拒绝（不回复）",
+        "type": "bool",
+        "hint": "开启后未授权的群发消息机器人完全不理，避免刷屏",
+        "default": false
+      }
+    }
+  },
   "safety_config": {
     "description": "QQ 防封安全审核配置",
     "type": "object",

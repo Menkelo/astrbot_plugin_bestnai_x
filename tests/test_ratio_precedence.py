@@ -185,15 +185,31 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
         self.assertIn("def _clamp_scale", self.main)
         self.assertIn("MIN_STEPS", self.main)
         self.assertIn("MAX_SCALE", self.main)
-        # 画布传来的值不可信，必须夹在合法区间内
-        self.assertIn("steps=self._clamp_steps(payload.get(\"steps\")", self.main)
-        self.assertIn("scale=self._clamp_scale(payload.get(\"scale\")", self.main)
+        # 画布传来的值不可信，必须夹在合法区间内；步数还要带上节点模型，
+        # 否则 V5 节点会按 28 步上限放行。
+        self.assertIn('payload.get("steps"), gen_config.steps, current_model', self.main)
+        self.assertIn('scale=self._clamp_scale(payload.get("scale")', self.main)
+
+    def test_command_path_also_clamps_steps_by_model(self) -> None:
+        """指令路径（/nai5 等）也必须按模型钳步数。
+
+        回归：_clamp_steps 原先只挂在画布路径 _canvas_generate，指令走的
+        _do_generate 换完模型就把默认 28 步原样发出，V5 的 23 步上限形同虚设。
+        """
+        start = self.main.index("async def _do_generate(")
+        end = self.main.index("async def _handle_nai_command(", start)
+
+        body = self.main[start:end]
+
+        self.assertIn("steps=self._clamp_steps(", body)
+        self.assertIn("gen_config.steps, gen_config.steps, current_model", body)
 
     def test_seed_is_returned_and_reusable(self) -> None:
         self.assertIn('seed=payload.get("seed")', self.main)
         self.assertIn('"seed": result.seed', self.main)
-        self.assertIn('steps: effectiveParameter(meta, "steps", "retagSteps")', self.editor)
-        self.assertIn('scale: effectiveParameter(meta, "scale", "retagScale")', self.editor)
+        # 载荷按模型钳步数，取值函数因此多带一个 ranges 参数。
+        self.assertIn('steps: effectiveParameter(meta, "steps", "retagSteps", undefined, ranges)', self.editor)
+        self.assertIn('scale: effectiveParameter(meta, "scale", "retagScale", undefined, ranges)', self.editor)
         self.assertIn("function reusableRetagSeed(node)", self.editor)
         self.assertIn("function clearRetagSeed(node)", self.editor)
         self.assertIn("normalizeNaiSeed(node.meta?.generationSeed) || (retagged ? reusableRetagSeed(node) : undefined)", self.editor)
@@ -204,8 +220,9 @@ class CanvasGenerationSettingsWiringTest(unittest.TestCase):
         self.assertNotIn("function setupGenSettings", self.editor)
         self.assertNotIn("function makeAdvancedPanel", self.editor)
         self.assertNotIn('summary.textContent = "高级选项"', self.editor)
-        self.assertIn('steps: effectiveParameter(meta, "steps", "retagSteps")', self.editor)
-        self.assertIn('scale: effectiveParameter(meta, "scale", "retagScale")', self.editor)
+        # 载荷按模型钳步数，取值函数因此多带一个 ranges 参数。
+        self.assertIn('steps: effectiveParameter(meta, "steps", "retagSteps", undefined, ranges)', self.editor)
+        self.assertIn('scale: effectiveParameter(meta, "scale", "retagScale", undefined, ranges)', self.editor)
 
     def test_new_meta_fields_are_persisted(self) -> None:
         # 工作区不保存这些字段的话，刷新页面种子就丢了

@@ -26,7 +26,7 @@ from astrbot_plugin_bestnai_x.core.debug_trace import DebugTrace
 from astrbot_plugin_bestnai_x.core.generator import GenerationError
 from astrbot_plugin_bestnai_x.core.novelai_api import build_generate_payload
 from astrbot_plugin_bestnai_x.core.prompt_tokens import normalize_count_tokens
-from astrbot_plugin_bestnai_x.models.config import MODEL_V45_FULL, PluginConfig, TranslatorConfig, resolve_model_choice
+from astrbot_plugin_bestnai_x.models.config import MODEL_STEP_LIMITS, MODEL_V45_FULL, PluginConfig, TranslatorConfig, resolve_model_choice
 from astrbot_plugin_bestnai_x.services.generation_parameters import apply_canvas_generation_overrides
 from astrbot_plugin_bestnai_x.services.prompt_builder import PromptBuilder
 from astrbot_plugin_bestnai_x.services.prompt_merge import (
@@ -76,6 +76,8 @@ class CanvasTagRemovalTest(unittest.IsolatedAsyncioTestCase):
                 "apply_character_candidate", "has_chinese", "prompt_has_tag", "resolve_translation_cache",
             )
         })
+        # MAX_STEPS 现在由 MODEL_STEP_LIMITS 推导，注入后常量才能求值。
+        namespace.setdefault("MODEL_STEP_LIMITS", MODEL_STEP_LIMITS)
         module = ast.Module(body=[*constants, *functions], type_ignores=[])
         exec(compile(module, str(ROOT / "main.py"), "exec", flags=__future__.annotations.compiler_flag), namespace)
         cls.handlers = namespace

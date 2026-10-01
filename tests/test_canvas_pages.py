@@ -1200,9 +1200,10 @@ class CanvasPageBridgeTest(unittest.TestCase):
 
         # 采样参数来自对原图文件的解析，直接采纳后端返回值。fromMetadata 只
         # 说明 prompt 是内嵌的，命中画布缓存时它是 false，但图片里的采样参数
-        # 依然有效——拿它当门禁会把这批参数整批丢成 0
+        # 依然有效——拿它当门禁会把这批参数整批丢成 0。
+        # 步数上限随模型走（V5=23 / V4.5=28），所以这里用 stepLimitForModel。
         self.assertIn(
-            "retagSteps: clampMetaNumber(result?.steps, ADV_RANGES.steps.min, ADV_RANGES.steps.max)",
+            "retagSteps: clampMetaNumber(result?.steps, ADV_RANGES.steps.min, stepLimitForModel(node.model || state.config.defaultModel))",
             editor,
         )
         self.assertIn(
@@ -1216,9 +1217,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
         )
         self.assertIn('retagSampler: String(result?.sampler || "").trim()', editor)
         # 滑条范围与反推钳制共用一份常量，且对齐后端 MAX_STEPS / MAX_SCALE，
-        # 否则会出现滑条卡 28、数字标签写 50、实际发 28 的三处不一致
+        # 否则会出现滑条卡 28、数字标签写 50、实际发 28 的三处不一致。
+        # 步数上限按模型再细分（V5=23），由 stepLimitForModel 收口。
         self.assertIn("const ADV_RANGES = {", editor)
         self.assertIn("steps: { min: 1, max: 28 }", editor)
+        self.assertIn("export const MODEL_STEP_LIMITS = {", editor)
+        self.assertIn('"nai-diffusion-5-full": 23', editor)
         self.assertIn("scale: { min: 1, max: 10 }", editor)
         self.assertIn("cfgRescale: { min: 0, max: 1 }", editor)
         self.assertIn("ADV_RANGES.steps.max", editor)
@@ -1235,11 +1239,11 @@ class CanvasPageBridgeTest(unittest.TestCase):
         ):
             self.assertNotIn(f"{key}: result.fromMetadata", editor)
         self.assertIn(
-            'cfg_rescale: effectiveParameter(meta, "cfgRescale", "retagCfgRescale")',
+            'cfg_rescale: effectiveParameter(meta, "cfgRescale", "retagCfgRescale", undefined, ranges)',
             editor,
         )
-        self.assertIn('noise_schedule: effectiveParameter(meta, "noiseSchedule", "retagNoiseSchedule")', editor)
-        self.assertIn('sampler: effectiveParameter(meta, "sampler", "retagSampler")', editor)
+        self.assertIn('noise_schedule: effectiveParameter(meta, "noiseSchedule", "retagNoiseSchedule", undefined, ranges)', editor)
+        self.assertIn('sampler: effectiveParameter(meta, "sampler", "retagSampler", undefined, ranges)', editor)
         # 断开重连时这些缓存必须一并清除
         for key in (
             "retagSteps",
@@ -1582,8 +1586,12 @@ class CanvasPageBridgeTest(unittest.TestCase):
             editor,
         )
         self.assertIn("(slot % 2) * (imageNodeWidth + 48)", editor)
-        # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖
-        self.assertEqual(editor.count("...generationParameterPayload(node.meta)"), 1)
+        # 采样参数载荷只保留一条优先级链，不得重复键互相覆盖。
+        # 载荷要带上节点模型，否则 V5 节点会按 28 步上限发包。
+        self.assertEqual(
+            editor.count("...generationParameterPayload(node.meta, node.model || state.config.defaultModel || \"\")"),
+            1,
+        )
         # 画幅/画师/模型跟随上一张卡片；张数与高级参数不跟随
         self.assertIn("rememberPromptDefaults({ model: value })", editor)
         self.assertIn("model: adv.model || state.config.defaultModel", editor)

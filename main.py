@@ -49,12 +49,14 @@ from .core.translator import (
 )
 from .image_store import send_image_best_effort
 from .models.config import (
+    MODEL_STEP_LIMITS,
     MODEL_V45_FULL,
     MODEL_V5_FULL,
     SUPPORTED_SAMPLERS,
     GenerationConfig,
     PluginConfig,
     migrate_legacy_prompt_block_words,
+    model_step_limit,
     model_supports_cjk,
     resolve_model_choice,
 )
@@ -105,9 +107,10 @@ from .services.generation_parameters import apply_canvas_generation_overrides
 
 
 # 画布可手动调节的生图参数范围
-# 步数上限锁在 28：NovelAI 的免费额度只在 ≤28 步时生效，超过就开始扣 Anlas。
+# 步数上限按模型区分（见 models/config.MODEL_STEP_LIMITS）：4.5 锁 28
+# （NovelAI 免费额度只在 ≤28 步生效，超过扣 Anlas），V5 锁 23。
 MIN_STEPS = 1
-MAX_STEPS = 28
+MAX_STEPS = MODEL_STEP_LIMITS[MODEL_V45_FULL]
 MIN_SCALE = 1.0
 MAX_SCALE = 10.0
 
@@ -947,7 +950,9 @@ class BestNAIPlugin(Star):
         gen_config = replace(
             gen_config,
             model=current_model,
-            steps=self._clamp_steps(payload.get("steps"), gen_config.steps),
+            steps=self._clamp_steps(
+                payload.get("steps"), gen_config.steps, current_model
+            ),
             scale=self._clamp_scale(payload.get("scale"), gen_config.scale),
         )
 
@@ -1188,13 +1193,16 @@ class BestNAIPlugin(Star):
         )
 
     @staticmethod
-    def _clamp_steps(value: object, default: int) -> int:
+    def _clamp_steps(value: object, default: int, model: str = "") -> int:
         try:
             steps = int(value)
         except (TypeError, ValueError):
             return default
 
-        return max(MIN_STEPS, min(MAX_STEPS, steps))
+        # 上限随模型走：V5 = 23，V4.5 = 28（见 models/config.MODEL_STEP_LIMITS）。
+        # 前端滑条与这里共用同一份口径，避免滑条卡 23、数字标签写 28。
+        limit = model_step_limit(model) if model else MAX_STEPS
+        return max(MIN_STEPS, min(limit, steps))
 
     @staticmethod
     def _clamp_scale(value: object, default: float) -> float:
@@ -1239,6 +1247,68 @@ class BestNAIPlugin(Star):
         parts.append(weighted)
 
         return " ".join(parts)
+
+    @staticmethod
+    def _event_is_admin(event: AstrMessageEvent) -> bool:
+        """判断消息发送者是否为 AstrBot 机器人管理员（兼容旧版本的 role）。"""
+        try:
+            is_admin_fn = getattr(event, "is_admin", None)
+            if callable(is_admin_fn):
+                return bool(is_admin_fn())
+            return getattr(event, "role", "member") == "admin"
+        except Exception:
+            return False
+
+    @staticmethod
+    def _event_group_id(event: AstrMessageEvent) -> str:
+        """取群号；私聊没有群号，返回空串。"""
+        getter = getattr(event, "get_group_id", None)
+        if callable(getter):
+            try:
+                value = getter()
+                if value not in (None, ""):
+                    return str(value).strip()
+            except Exception:
+                pass
+        message_obj = getattr(event, "message_obj", None)
+        value = getattr(message_obj, "group_id", "") if message_obj else ""
+        return str(value or "").strip()
+
+    def _group_whitelist_denied(
+        self,
+        model: str,
+        event: AstrMessageEvent,
+    ) -> bool:
+        """受限模型（默认 nai-diffusion-5-full）只允许白名单群使用。
+
+        V4.5 与其他模型不受影响——白名单由配置项的「作用模型」决定。
+        机器人管理员与私聊始终放行（见 PermissionConfig.is_group_allowed）。
+        """
+        permission = getattr(self.plugin_config, "permission", None)
+        if permission is None or not permission.enabled:
+            return False
+        if not permission.applies_to(model):
+            return False
+        return not permission.is_group_allowed(
+            self._event_group_id(event),
+            self._event_is_admin(event),
+        )
+
+    async def _reject_group_whitelist(
+        self,
+        event: AstrMessageEvent,
+        permission,
+    ):
+        """未授权时按配置回复或静默；返回一条消息或 None（静默）。"""
+        if getattr(permission, "silent_on_no_permission", False):
+            logger.info("[BestNAI/Permission] 群未获白名单授权，按配置静默丢弃本次请求")
+            return None
+
+        logger.info("[BestNAI/Permission] 群未获白名单授权，已拒绝本次请求")
+        return event.plain_result(
+            permission.no_permission_reply
+            or "❌ 本群未获授权使用该模型，请改用 V4.5（/nai）或联系管理员开通。"
+        )
 
     def _prune_persisted_artist_presets(self) -> None:
         """启动时清掉指向已删除画师预设的会话记录。"""
@@ -2397,6 +2467,15 @@ class BestNAIPlugin(Star):
             # 模型由指令决定（/nai=4.5、/nai5=V5、/nai0=面板选择）
             gen_config = replace(gen_config, model=current_model)
 
+            # 步数上限随模型收窄（V5=23 / V4.5=28）。指令路径此前不经过
+            # _canvas_generate，若在此不钳制，V5 会按默认 28 步发出。
+            gen_config = replace(
+                gen_config,
+                steps=self._clamp_steps(
+                    gen_config.steps, gen_config.steps, current_model
+                ),
+            )
+
             character_entries = normalize_char_entries(characters)
             if character_entries:
                 automatic_use_coords, automatic_use_order = automatic_char_layout(
@@ -2587,6 +2666,15 @@ class BestNAIPlugin(Star):
                 if raw_mode
                 else self.plugin_config.generation.model
             )
+
+        # 群组白名单：V5 是受限模型，只在白名单群可用；V4.5 不设限制。
+        # 放在最前面拦，未授权的群连反推/翻译都不该触发，省掉无用开销。
+        if self._group_whitelist_denied(model, event):
+            permission = getattr(self.plugin_config, "permission", None)
+            rejected = await self._reject_group_whitelist(event, permission)
+            if rejected is not None:
+                yield rejected
+            return
 
         prompt = self._strip_named_command_prefix(event.message_str, command_name)
         _, prompt = extract_retag_mode(prompt)

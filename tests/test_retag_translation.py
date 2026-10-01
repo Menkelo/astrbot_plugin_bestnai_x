@@ -68,6 +68,8 @@ class RetagCommandDisplayTest(unittest.IsolatedAsyncioTestCase):
             _extract_artist_slot_from_prompt=lambda value: (value, "", ""),
             _resolve_prompt_identity=AsyncMock(return_value=("", "")),
             _translate_prompt=AsyncMock(return_value=translated), _do_generate=generate,
+            # 群组白名单：桩对象直接放行，白名单本身另有专门用例覆盖。
+            _group_whitelist_denied=lambda *args, **kwargs: False,
         )
         event = types.SimpleNamespace(message_str="/nai " + text, plain_result=lambda value: value)
         results = [result async for result in namespace["_handle_nai_command"](plugin, event, command_name="nai")]
@@ -174,23 +176,30 @@ class RetagTranslationTest(unittest.TestCase):
 
 
 class FreeTierStepsCapTest(unittest.TestCase):
-    """免费额度只在 ≤28 步时生效，超了就开始扣 Anlas。"""
+    """免费额度只在 ≤28 步时生效，超了就开始扣 Anlas。V5 另有更低的 23 步封顶。"""
 
     def setUp(self) -> None:
         self.main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.config = (ROOT / "models" / "config.py").read_text(encoding="utf-8")
         self.editor = canvas_source(ROOT / "pages" / "canvas")
 
     def test_backend_caps_at_28(self) -> None:
-        self.assertIn("MAX_STEPS = 28", self.main)
+        # 免费额度上限由 models/config.py 的 MODEL_STEP_LIMITS 定义，main.py 引用它。
+        self.assertIn("MODEL_STEP_LIMITS", self.config)
+        self.assertIn('MODEL_V45_FULL: 28', self.config)
+        self.assertIn('MODEL_V5_FULL: 23', self.config)
+        self.assertIn("MAX_STEPS = MODEL_STEP_LIMITS[MODEL_V45_FULL]", self.main)
         self.assertNotIn("MAX_STEPS = 50", self.main)
 
     def test_frontend_steps_follow_priority_chain(self) -> None:
         self.assertNotIn("steps: { default: 28, min: 1, max: 28 }", self.editor)
-        # 节点高级参数卡 > 反推命中的原图参数 > 插件默认（后端仍封顶 28）
+        # 节点高级参数卡 > 反推命中的原图参数 > 插件默认（后端按模型封顶）
         self.assertIn(
-            'steps: effectiveParameter(meta, "steps", "retagSteps")',
+            'effectiveParameter(meta, "steps", "retagSteps", undefined, ranges)',
             self.editor,
         )
+        # 上限随模型走，滑条与载荷共用同一份取值逻辑
+        self.assertIn("export function stepLimitForModel(model)", self.editor)
 
     def test_frontend_advanced_params_use_sliders(self) -> None:
         # 高级参数卡（高级参数/滑条）已取代旧的"画布不提供参数调节"约定

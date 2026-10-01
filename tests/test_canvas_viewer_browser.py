@@ -768,7 +768,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_asset_cache_is_bounded_deduplicates_and_recovers_after_failure(self):
         result = self.page.evaluate("""async () => {
-          const {AssetCache} = await import('./asset-cache.js?v=4.6.34');
+          const {AssetCache} = await import('./asset-cache.js?v=4.6.36');
           const calls = {}; let active = 0, peak = 0;
           const cache = new AssetCache(async id => {
             calls[id] = (calls[id] || 0) + 1;
@@ -838,7 +838,7 @@ class CanvasViewerBrowserTest(unittest.TestCase):
 
     def test_input_format_is_not_sent_as_unsupported_generation_output(self):
         result = self.page.evaluate("""async () => {
-          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.34');
+          const {generationParameterPayload} = await import('./generation-params.js?v=4.6.36');
           return ['gif', 'tiff', 'avif', 'PNG', 'JPEG', 'webp'].map(imageFormat =>
             generationParameterPayload({imageFormat}).image_format ?? null);
         }""")

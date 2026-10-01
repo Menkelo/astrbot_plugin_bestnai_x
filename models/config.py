@@ -9,6 +9,24 @@ MODEL_V45_FULL = "nai-diffusion-4-5-full"
 MODEL_V5_FULL = "nai-diffusion-5-full"
 SUPPORTED_MODELS = (MODEL_V45_FULL, MODEL_V5_FULL)
 
+# 两个模型共用同一套滑条范围口径，但 V5 封顶 23 步：
+# NovelAI 的免费额度只在 ≤28 步时生效，V5 走 23 步以内可稳定落在免费区间，
+# 同时 V5 在 23 步以上收益递减明显。V4.5 保持 28 不变。
+MODEL_STEP_LIMITS = {
+    MODEL_V45_FULL: 28,
+    MODEL_V5_FULL: 23,
+}
+DEFAULT_STEP_LIMIT = MODEL_STEP_LIMITS[MODEL_V45_FULL]
+
+
+def model_step_limit(model: str) -> int:
+    """取某模型的步数上限；未知模型回落到默认上限。
+
+    前后端（滑条 max / 反推钳制 / 请求钳制）都从这里取同一个数，
+    避免出现滑条卡 23、数字标签写 28、实际发 23 的多处不一致。
+    """
+    return MODEL_STEP_LIMITS.get(str(model or "").strip(), DEFAULT_STEP_LIMIT)
+
 # NovelAI samplers accepted by current V4+/V5 endpoints.  Keep this list in
 # one place so the config schema, canvas selector and API payload stay aligned.
 SUPPORTED_SAMPLERS = (
@@ -260,6 +278,38 @@ class ImageRetagConfig:
 
 
 @dataclass
+class PermissionConfig:
+    """群组白名单：仅作用于受限模型（默认 nai-diffusion-5-full）。
+
+    V4.5 不设任何限制，保持原有行为；受限模型只允许白名单内的群使用。
+    私聊没有群号，视为放行——白名单是"限制群里谁能用"，不是封个人。
+    机器人管理员也始终放行，避免把管理员自己锁在外面。
+    """
+
+    enabled: bool = False
+    groups: List[str] = field(default_factory=list)
+    model: str = MODEL_V5_FULL
+    no_permission_reply: str = (
+        "❌ 本群未获授权使用 V5 模型，请改用 V4.5（/nai）或联系管理员开通。"
+    )
+    silent_on_no_permission: bool = False
+
+    def is_group_allowed(self, group_id: str = "", is_admin: bool = False) -> bool:
+        if is_admin:
+            return True
+        if not self.enabled:
+            return True
+        gid = str(group_id or "").strip()
+        # 私聊（无群号）不拦：白名单约束的是群，不是个人
+        if not gid:
+            return True
+        return gid in {str(item).strip() for item in (self.groups or [])}
+
+    def applies_to(self, model: str) -> bool:
+        return self.enabled and str(model or "").strip() == self.model
+
+
+@dataclass
 class PluginConfig:
     image_provider_id: str = ""
     api_url: str = ""
@@ -287,6 +337,7 @@ class PluginConfig:
     translator: TranslatorConfig = field(default_factory=TranslatorConfig)
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     image_retag: ImageRetagConfig = field(default_factory=ImageRetagConfig)
+    permission: PermissionConfig = field(default_factory=PermissionConfig)
 
     artist_presets: List[str] = field(default_factory=lambda: DEFAULT_ARTIST_PRESET_LIST.copy())
 
@@ -311,6 +362,7 @@ class PluginConfig:
         prompt_conf = config.get("prompt_config", {}) or {}
         safety_conf = config.get("safety_config", {}) or {}
         image_retag_conf = config.get("image_retag_config", {}) or {}
+        perm_conf = config.get("permission_config", {}) or {}
 
         # max_concurrency 在 _conf_schema.json 里属于 generation_config，
         # 另外两个位置只是为了兼容手写配置。
@@ -406,6 +458,19 @@ class PluginConfig:
                 enabled=bool(image_retag_conf.get("enabled", False)),
                 provider_id=image_retag_provider_id,
                 show_result=bool(image_retag_conf.get("show_result", False)),
+            ),
+            permission=PermissionConfig(
+                enabled=bool(perm_conf.get("enabled", False)),
+                groups=_normalize_string_list(perm_conf.get("groups", [])),
+                # 白名单只作用于这一个模型；V4.5 不设任何限制。
+                model=resolve_model_choice(perm_conf.get("model")),
+                no_permission_reply=str(
+                    perm_conf.get("no_permission_reply")
+                    or PermissionConfig.no_permission_reply
+                ).strip(),
+                silent_on_no_permission=bool(
+                    perm_conf.get("silent_on_no_permission", False)
+                ),
             ),
             artist_presets=raw_artist_presets,
             artist_preset=first_artist_name,
